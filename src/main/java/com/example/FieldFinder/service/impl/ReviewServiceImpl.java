@@ -1,12 +1,9 @@
 package com.example.FieldFinder.service.impl;
-
-package com.pitchbooking.application.service.impl;
-
-import com.pitchbooking.application.dto.ReviewDTO;
-import com.pitchbooking.application.entity.Review;
-import com.pitchbooking.application.mapper.ReviewMapper;
-import com.pitchbooking.application.repository.ReviewRepository;
-import com.pitchbooking.application.service.ReviewService;
+import com.example.FieldFinder.dto.ReviewDto;
+import com.example.FieldFinder.entity.Review;
+import com.example.FieldFinder.mapper.ReviewMapper;
+import com.example.FieldFinder.repository.ReviewRepository;
+import com.example.FieldFinder.service.ReviewService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -19,13 +16,13 @@ public class ReviewServiceImpl implements ReviewService {
     private final ReviewRepository reviewRepository;
 
     @Override
-    public ReviewDTO createReview(ReviewDTO reviewDTO) {
+    public ReviewDto createReview(ReviewDto reviewDTO) {
         Review review = ReviewMapper.INSTANCE.toEntity(reviewDTO);
         return ReviewMapper.INSTANCE.toDTO(reviewRepository.save(review));
     }
 
     @Override
-    public List<ReviewDTO> getAllReviews() {
+    public List<ReviewDto> getAllReviews() {
         return reviewRepository.findAll()
                 .stream()
                 .map(ReviewMapper.INSTANCE::toDTO)

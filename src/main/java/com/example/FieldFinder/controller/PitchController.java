@@ -1,9 +1,7 @@
 package com.example.FieldFinder.controller;
-
-package com.footballbooking.application.controller;
-
-import com.footballbooking.application.entity.Pitch;
-import com.footballbooking.application.service.PitchService;
+import com.example.FieldFinder.dto.PitchDto;
+import com.example.FieldFinder.entity.Pitch;
+import com.example.FieldFinder.service.PitchService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,22 +16,22 @@ public class PitchController {
     private final PitchService pitchService;
 
     @GetMapping
-    public ResponseEntity<List<Pitch>> getAllPitches() {
+    public ResponseEntity<List<PitchDto>> getAllPitches() {
         return ResponseEntity.ok(pitchService.getAllPitches());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Pitch> getPitchById(@PathVariable UUID id) {
+    public ResponseEntity<PitchDto> getPitchById(@PathVariable UUID id) {
         return ResponseEntity.ok(pitchService.getPitchById(id));
     }
 
     @PostMapping
-    public ResponseEntity<Pitch> createPitch(@RequestBody Pitch pitch) {
+    public ResponseEntity<PitchDto> createPitch(@RequestBody PitchDto pitch) {
         return ResponseEntity.ok(pitchService.createPitch(pitch));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Pitch> updatePitch(@PathVariable UUID id, @RequestBody Pitch pitch) {
+    public ResponseEntity<PitchDto> updatePitch(@PathVariable UUID id, @RequestBody Pitch pitch) {
         return ResponseEntity.ok(pitchService.updatePitch(id, pitch));
     }
 

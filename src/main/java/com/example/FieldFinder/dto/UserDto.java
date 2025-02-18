@@ -1,6 +1,5 @@
 package com.example.FieldFinder.dto;
 
-package com.pitchbooking.application.dto;
 
 import lombok.*;
 import java.util.UUID;

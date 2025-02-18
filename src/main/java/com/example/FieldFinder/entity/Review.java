@@ -1,6 +1,5 @@
 package com.example.FieldFinder.entity;
 
-package com.footballbooking.application.entity;
 
 import jakarta.persistence.*;
 import lombok.*;

@@ -1,9 +1,6 @@
 package com.example.FieldFinder.controller;
-
-package com.footballbooking.application.controller;
-
-import com.footballbooking.application.entity.User;
-import com.footballbooking.application.service.UserService;
+import com.example.FieldFinder.dto.UserDto;
+import com.example.FieldFinder.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,22 +15,22 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping
-    public ResponseEntity<List<User>> getAllUsers() {
+    public ResponseEntity<List<UserDto>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<User> getUserById(@PathVariable UUID id) {
+    public ResponseEntity<UserDto> getUserById(@PathVariable UUID id) {
         return ResponseEntity.ok(userService.getUserById(id));
     }
 
     @PostMapping
-    public ResponseEntity<User> createUser(@RequestBody User user) {
+    public ResponseEntity<UserDto> createUser(@RequestBody UserDto user) {
         return ResponseEntity.ok(userService.createUser(user));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<User> updateUser(@PathVariable UUID id, @RequestBody User user) {
+    public ResponseEntity<UserDto> updateUser(@PathVariable UUID id, @RequestBody UserDto user) {
         return ResponseEntity.ok(userService.updateUser(id, user));
     }
 

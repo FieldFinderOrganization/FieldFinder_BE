@@ -1,9 +1,6 @@
 package com.example.FieldFinder.controller;
-
-package com.footballbooking.application.controller;
-
-import com.footballbooking.application.entity.Review;
-import com.footballbooking.application.service.ReviewService;
+import com.example.FieldFinder.dto.ReviewDto;
+import com.example.FieldFinder.service.ReviewService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,22 +15,22 @@ public class ReviewController {
     private final ReviewService reviewService;
 
     @GetMapping
-    public ResponseEntity<List<Review>> getAllReviews() {
+    public ResponseEntity<List<ReviewDto>> getAllReviews() {
         return ResponseEntity.ok(reviewService.getAllReviews());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Review> getReviewById(@PathVariable UUID id) {
+    public ResponseEntity<ReviewDto> getReviewById(@PathVariable UUID id) {
         return ResponseEntity.ok(reviewService.getReviewById(id));
     }
 
     @PostMapping
-    public ResponseEntity<Review> createReview(@RequestBody Review review) {
+    public ResponseEntity<ReviewDto> createReview(@RequestBody ReviewDto review) {
         return ResponseEntity.ok(reviewService.createReview(review));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Review> updateReview(@PathVariable UUID id, @RequestBody Review review) {
+    public ResponseEntity<ReviewDto> updateReview(@PathVariable UUID id, @RequestBody ReviewDto review) {
         return ResponseEntity.ok(reviewService.updateReview(id, review));
     }
 

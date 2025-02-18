@@ -1,9 +1,7 @@
 package com.example.FieldFinder.controller;
-
-package com.footballbooking.application.controller;
-
-import com.footballbooking.application.entity.Payment;
-import com.footballbooking.application.service.PaymentService;
+import com.example.FieldFinder.dto.PaymentDto;
+import com.example.FieldFinder.entity.Payment;
+import com.example.FieldFinder.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,22 +16,22 @@ public class PaymentController {
     private final PaymentService paymentService;
 
     @GetMapping
-    public ResponseEntity<List<Payment>> getAllPayments() {
+    public ResponseEntity<List<PaymentDto>> getAllPayments() {
         return ResponseEntity.ok(paymentService.getAllPayments());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Payment> getPaymentById(@PathVariable UUID id) {
+    public ResponseEntity<PaymentDto> getPaymentById(@PathVariable UUID id) {
         return ResponseEntity.ok(paymentService.getPaymentById(id));
     }
 
     @PostMapping
-    public ResponseEntity<Payment> createPayment(@RequestBody Payment payment) {
+    public ResponseEntity<PaymentDto> createPayment(@RequestBody PaymentDto payment) {
         return ResponseEntity.ok(paymentService.createPayment(payment));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Payment> updatePayment(@PathVariable UUID id, @RequestBody Payment payment) {
+    public ResponseEntity<PaymentDto> updatePayment(@PathVariable UUID id, @RequestBody PaymentDto payment) {
         return ResponseEntity.ok(paymentService.updatePayment(id, payment));
     }
 

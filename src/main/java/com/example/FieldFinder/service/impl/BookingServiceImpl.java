@@ -1,12 +1,10 @@
 package com.example.FieldFinder.service.impl;
 
-package com.pitchbooking.application.service.impl;
-
-import com.pitchbooking.application.dto.BookingDTO;
-import com.pitchbooking.application.entity.Booking;
-import com.pitchbooking.application.mapper.BookingMapper;
-import com.pitchbooking.application.repository.BookingRepository;
-import com.pitchbooking.application.service.BookingService;
+import com.example.FieldFinder.dto.BookingDto;
+import com.example.FieldFinder.entity.Booking;
+import com.example.FieldFinder.mapper.BookingMapper;
+import com.example.FieldFinder.repository.BookingRepository;
+import com.example.FieldFinder.service.BookingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -20,20 +18,20 @@ public class BookingServiceImpl implements BookingService {
     private final BookingRepository bookingRepository;
 
     @Override
-    public BookingDTO createBooking(BookingDTO bookingDTO) {
+    public BookingDto createBooking(BookingDto bookingDTO) {
         Booking booking = BookingMapper.INSTANCE.toEntity(bookingDTO);
         return BookingMapper.INSTANCE.toDTO(bookingRepository.save(booking));
     }
 
     @Override
-    public BookingDTO getBookingById(UUID bookingId) {
+    public BookingDto getBookingById(UUID bookingId) {
         return bookingRepository.findById(bookingId)
                 .map(BookingMapper.INSTANCE::toDTO)
                 .orElse(null);
     }
 
     @Override
-    public List<BookingDTO> getAllBookings() {
+    public List<BookingDto> getAllBookings() {
         return bookingRepository.findAll()
                 .stream()
                 .map(BookingMapper.INSTANCE::toDTO)
@@ -41,7 +39,7 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
-    public BookingDTO updateBooking(UUID bookingId, BookingDTO bookingDTO) {
+    public BookingDto updateBooking(UUID bookingId, BookingDto bookingDTO) {
         if (bookingRepository.existsById(bookingId)) {
             Booking booking = BookingMapper.INSTANCE.toEntity(bookingDTO);
             booking.setBookingId(bookingId);

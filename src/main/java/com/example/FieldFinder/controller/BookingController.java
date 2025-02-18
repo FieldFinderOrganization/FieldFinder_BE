@@ -1,9 +1,7 @@
 package com.example.FieldFinder.controller;
-
-package com.footballbooking.application.controller;
-
-import com.footballbooking.application.entity.Booking;
-import com.footballbooking.application.service.BookingService;
+import com.example.FieldFinder.dto.BookingDto;
+import com.example.FieldFinder.entity.Booking;
+import com.example.FieldFinder.service.BookingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,22 +16,22 @@ public class BookingController {
     private final BookingService bookingService;
 
     @GetMapping
-    public ResponseEntity<List<Booking>> getAllBookings() {
+    public ResponseEntity<List<BookingDto>> getAllBookings() {
         return ResponseEntity.ok(bookingService.getAllBookings());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Booking> getBookingById(@PathVariable UUID id) {
+    public ResponseEntity<BookingDto> getBookingById(@PathVariable UUID id) {
         return ResponseEntity.ok(bookingService.getBookingById(id));
     }
 
     @PostMapping
-    public ResponseEntity<Booking> createBooking(@RequestBody Booking booking) {
+    public ResponseEntity<BookingDto> createBooking(@RequestBody BookingDto booking) {
         return ResponseEntity.ok(bookingService.createBooking(booking));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Booking> updateBooking(@PathVariable UUID id, @RequestBody Booking booking) {
+    public ResponseEntity<BookingDto> updateBooking(@PathVariable UUID id, @RequestBody BookingDto booking) {
         return ResponseEntity.ok(bookingService.updateBooking(id, booking));
     }
 

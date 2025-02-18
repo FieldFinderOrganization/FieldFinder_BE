@@ -1,9 +1,6 @@
 package com.example.FieldFinder.mapper;
-
-package com.pitchbooking.application.mapper;
-
-import com.pitchbooking.application.dto.ReviewDTO;
-import com.pitchbooking.application.entity.Review;
+import com.example.FieldFinder.dto.ReviewDto;
+import com.example.FieldFinder.entity.Review;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.factory.Mappers;
@@ -14,9 +11,9 @@ public interface ReviewMapper {
 
     @Mapping(source = "user.userId", target = "userId")
     @Mapping(source = "pitch.pitchId", target = "pitchId")
-    ReviewDTO toDTO(Review review);
+    ReviewDto toDTO(Review review);
 
     @Mapping(source = "userId", target = "user.userId")
     @Mapping(source = "pitchId", target = "pitch.pitchId")
-    Review toEntity(ReviewDTO reviewDTO);
+    Review toEntity(ReviewDto reviewDTO);
 }

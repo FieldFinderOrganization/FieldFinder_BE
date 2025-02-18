@@ -1,5 +1,4 @@
 package com.example.FieldFinder.entity;
-package com.footballbooking.application.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
@@ -38,7 +37,7 @@ public class Payment {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "PaymentStatus", nullable = false)
-    private PaymentStatus paymentStatus;
+    private Booking.PaymentStatus paymentStatus;
 
     @Column(name = "TransactionId", unique = true, nullable = false)
     private String transactionId;
