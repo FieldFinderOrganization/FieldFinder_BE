@@ -13,10 +13,11 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class BookingServiceImpl implements BookingService {
     private final BookingRepository bookingRepository;
-
+    public BookingServiceImpl(BookingRepository bookingRepository) {
+        this.bookingRepository = bookingRepository;
+    }
     @Override
     public BookingDto createBooking(BookingDto bookingDTO) {
         Booking booking = BookingMapper.INSTANCE.toEntity(bookingDTO);

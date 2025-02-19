@@ -1,6 +1,7 @@
 package com.example.FieldFinder.controller;
 import com.example.FieldFinder.dto.PaymentDto;
 import com.example.FieldFinder.entity.Payment;
+import com.example.FieldFinder.service.BookingService;
 import com.example.FieldFinder.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -11,10 +12,11 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/payments")
-@RequiredArgsConstructor
 public class PaymentController {
     private final PaymentService paymentService;
-
+    public PaymentController(PaymentService paymentService) {
+        this.paymentService = paymentService;
+    }
     @GetMapping
     public ResponseEntity<List<PaymentDto>> getAllPayments() {
         return ResponseEntity.ok(paymentService.getAllPayments());

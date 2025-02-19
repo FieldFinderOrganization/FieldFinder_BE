@@ -1,5 +1,6 @@
 package com.example.FieldFinder.controller;
 import com.example.FieldFinder.dto.UserDto;
+import com.example.FieldFinder.service.ReviewService;
 import com.example.FieldFinder.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -10,10 +11,11 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/users")
-@RequiredArgsConstructor
 public class UserController {
     private final UserService userService;
-
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
     @GetMapping
     public ResponseEntity<List<UserDto>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());

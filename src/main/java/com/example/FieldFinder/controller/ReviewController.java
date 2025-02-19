@@ -1,5 +1,6 @@
 package com.example.FieldFinder.controller;
 import com.example.FieldFinder.dto.ReviewDto;
+import com.example.FieldFinder.service.PitchService;
 import com.example.FieldFinder.service.ReviewService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -10,10 +11,11 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/reviews")
-@RequiredArgsConstructor
 public class ReviewController {
     private final ReviewService reviewService;
-
+    public ReviewController(ReviewService reviewService) {
+        this.reviewService = reviewService;
+    }
     @GetMapping
     public ResponseEntity<List<ReviewDto>> getAllReviews() {
         return ResponseEntity.ok(reviewService.getAllReviews());

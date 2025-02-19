@@ -7,4 +7,10 @@ import java.util.UUID;
 public interface ReviewService {
     ReviewDto createReview(ReviewDto reviewDTO);
     List<ReviewDto> getAllReviews();
+
+    ReviewDto getReviewById(UUID id);
+
+    ReviewDto updateReview(UUID id, ReviewDto review);
+
+    void deleteReview(UUID id);
 }

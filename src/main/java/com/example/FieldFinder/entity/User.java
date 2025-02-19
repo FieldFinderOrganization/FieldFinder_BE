@@ -1,4 +1,5 @@
 package com.example.FieldFinder.entity;
+
 import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.security.core.GrantedAuthority;
@@ -14,9 +15,9 @@ import java.util.UUID;
 @NoArgsConstructor
 @Entity
 @Table(name = "Users")
-@Data
 @Builder
 public class User implements UserDetails {
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "UserId")
@@ -46,6 +47,12 @@ public class User implements UserDetails {
     @Override
     public String getUsername() {
         return this.email;
+    }
+
+    // 🔹 EXPLICITLY OVERRIDE THIS METHOD
+    @Override
+    public String getPassword() {
+        return this.password;
     }
 
     @Override

@@ -58,4 +58,7 @@ public class Booking {
     public enum PaymentStatus {
         PENDING, PAID, REFUNDED
     }
+    public void setBookingId(UUID bookingId) {
+        this.bookingId = bookingId;
+    }
 }

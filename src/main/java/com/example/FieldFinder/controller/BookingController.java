@@ -3,6 +3,7 @@ import com.example.FieldFinder.dto.BookingDto;
 import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.service.BookingService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -11,9 +12,11 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/bookings")
-@RequiredArgsConstructor
 public class BookingController {
     private final BookingService bookingService;
+    public BookingController(BookingService bookingService) {
+        this.bookingService = bookingService;
+    }
 
     @GetMapping
     public ResponseEntity<List<BookingDto>> getAllBookings() {
