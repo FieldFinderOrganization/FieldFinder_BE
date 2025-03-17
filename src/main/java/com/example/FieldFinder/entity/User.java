@@ -8,19 +8,18 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.UUID;
-
 @Getter
 @Setter
+@NoArgsConstructor // ✅ Add this to fix the issue
 @AllArgsConstructor
-@NoArgsConstructor
 @Entity
 @Table(name = "Users")
 @Builder
-public class User implements UserDetails {
+public class User {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "UserId")
+    @Column(name = "UserId", updatable = false, nullable = false)
     private UUID userId;
 
     @Column(name = "Name", nullable = false)
@@ -39,35 +38,8 @@ public class User implements UserDetails {
     @Column(name = "Role", nullable = false)
     private Role role;
 
-    @Override
-    public Collection<? extends GrantedAuthority> getAuthorities() {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public String getUsername() {
-        return this.email;
-    }
-
-    // 🔹 EXPLICITLY OVERRIDE THIS METHOD
-    @Override
-    public String getPassword() {
-        return this.password;
-    }
-
-    @Override
-    public boolean isAccountNonExpired() { return true; }
-
-    @Override
-    public boolean isAccountNonLocked() { return true; }
-
-    @Override
-    public boolean isCredentialsNonExpired() { return true; }
-
-    @Override
-    public boolean isEnabled() { return true; }
-
     public enum Role {
-        PLAYER, OWNER, ADMIN
+        USER, ADMIN
     }
 }
+

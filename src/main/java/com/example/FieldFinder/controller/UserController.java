@@ -1,8 +1,10 @@
 package com.example.FieldFinder.controller;
-import com.example.FieldFinder.dto.UserDto;
-import com.example.FieldFinder.service.ReviewService;
+
+import com.example.FieldFinder.dto.req.LoginRequestDTO;
+import com.example.FieldFinder.dto.req.UserRequestDTO;
+import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
+import com.example.FieldFinder.dto.res.UserResponseDTO;
 import com.example.FieldFinder.service.UserService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,32 +15,37 @@ import java.util.UUID;
 @RequestMapping("/api/users")
 public class UserController {
     private final UserService userService;
+
     public UserController(UserService userService) {
         this.userService = userService;
     }
-    @GetMapping
-    public ResponseEntity<List<UserDto>> getAllUsers() {
-        return ResponseEntity.ok(userService.getAllUsers());
+
+    // Register a new user
+    @PostMapping("/register")
+    public ResponseEntity<UserResponseDTO> registerUser(@RequestBody UserRequestDTO userRequestDTO) {
+        UserResponseDTO createdUser = userService.createUser(userRequestDTO);
+        return ResponseEntity.ok(createdUser);
     }
 
-    @GetMapping("/{id}")
-    public ResponseEntity<UserDto> getUserById(@PathVariable UUID id) {
-        return ResponseEntity.ok(userService.getUserById(id));
+    // Login user
+    @PostMapping("/login")
+    public ResponseEntity<UserResponseDTO> loginUser(@RequestBody LoginRequestDTO loginRequestDTO) {
+        UserResponseDTO loggedInUser = userService.loginUser(loginRequestDTO);
+        return ResponseEntity.ok(loggedInUser);
+    }
+    @PutMapping("/users/{userId}")
+    public ResponseEntity<UserResponseDTO> updateUser(
+            @PathVariable UUID userId,
+            @RequestBody UserUpdateRequestDTO userUpdateRequestDTO) {
+
+        UserResponseDTO updatedUser = userService.updateUser(userId, userUpdateRequestDTO);
+        return ResponseEntity.ok(updatedUser);
+    }
+    @GetMapping("/users")
+    public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
+        List<UserResponseDTO> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
     }
 
-    @PostMapping
-    public ResponseEntity<UserDto> createUser(@RequestBody UserDto user) {
-        return ResponseEntity.ok(userService.createUser(user));
-    }
 
-    @PutMapping("/{id}")
-    public ResponseEntity<UserDto> updateUser(@PathVariable UUID id, @RequestBody UserDto user) {
-        return ResponseEntity.ok(userService.updateUser(id, user));
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteUser(@PathVariable UUID id) {
-        userService.deleteUser(id);
-        return ResponseEntity.noContent().build();
-    }
 }

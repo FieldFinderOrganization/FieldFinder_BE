@@ -1,17 +1,17 @@
 package com.example.FieldFinder.service;
-import com.example.FieldFinder.dto.UserDto;
+
+import com.example.FieldFinder.dto.req.LoginRequestDTO;
+import com.example.FieldFinder.dto.req.UserRequestDTO;
+import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
+import com.example.FieldFinder.dto.res.UserResponseDTO;
 
 import java.util.List;
 import java.util.UUID;
 
 public interface UserService {
-    UserDto getUserById(UUID userId);
+    UserResponseDTO createUser(UserRequestDTO userRequestDTO);
+    UserResponseDTO loginUser(LoginRequestDTO loginRequestDTO);
+    UserResponseDTO updateUser(UUID userId, UserUpdateRequestDTO userUpdateRequestDTO);
+    List<UserResponseDTO> getAllUsers();
 
-    List<UserDto> getAllUsers();
-
-    UserDto createUser(UserDto user);
-
-    UserDto updateUser(UUID id, UserDto user);
-
-    void deleteUser(UUID id);
 }
