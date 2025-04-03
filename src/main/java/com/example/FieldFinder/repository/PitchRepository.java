@@ -10,6 +10,5 @@ import java.util.UUID;
 
 @Repository
 public interface PitchRepository extends JpaRepository<Pitch, UUID> {
-    List<Pitch> findByOwner_UserId(UUID userId);
-    List<Pitch> findByTypeAndPriceLessThanEqualAndAddressContainingIgnoreCase(Pitch.PitchType type, BigDecimal maxPrice, String address);
+    List<Pitch> findByProviderAddressId(UUID providerAddressId);
 }

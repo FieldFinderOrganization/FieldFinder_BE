@@ -18,14 +18,11 @@ import java.util.UUID;
 @Data
 @Builder
 public class Booking {
+    @Setter
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "BookingId")
     private UUID bookingId;
-
-    @ManyToOne
-    @JoinColumn(name = "PitchId", nullable = false)
-    private Pitch pitch;
 
     @ManyToOne
     @JoinColumn(name = "UserId", nullable = false)
@@ -57,8 +54,5 @@ public class Booking {
 
     public enum PaymentStatus {
         PENDING, PAID, REFUNDED
-    }
-    public void setBookingId(UUID bookingId) {
-        this.bookingId = bookingId;
     }
 }

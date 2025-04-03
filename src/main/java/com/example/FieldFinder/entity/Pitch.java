@@ -21,15 +21,12 @@ public class Pitch {
     @Column(name = "PitchId")
     private UUID pitchId;
 
-    @ManyToOne
-    @JoinColumn(name = "OwnerId", nullable = false)
-    private User owner;
+
+    @JoinColumn(name = "ProviderAddressId", nullable = false)
+    private UUID providerAddressId;
 
     @Column(name = "Name", nullable = false)
     private String name;
-
-    @Column(name = "Address", nullable = false)
-    private String address;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "Type", nullable = false)
@@ -37,9 +34,6 @@ public class Pitch {
 
     @Column(name = "Price", nullable = false)
     private BigDecimal price;
-
-    @Column(name = "ImageUrl")
-    private String imageUrl;
 
     @Column(name = "Description")
     private String description;

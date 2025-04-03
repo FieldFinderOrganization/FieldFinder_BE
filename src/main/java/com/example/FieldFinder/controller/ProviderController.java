@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/providers")
@@ -17,23 +18,12 @@ public class ProviderController {
         this.providerService = providerService;
     }
     @PostMapping
-    public ResponseEntity<ProviderResponseDTO> createProvider(@RequestBody ProviderRequestDTO providerRequestDTO) {
-        return ResponseEntity.ok(providerService.createProvider(providerRequestDTO));
+    public ProviderResponseDTO createProvider(@RequestBody ProviderRequestDTO dto) {
+        return providerService.createProvider(dto);
     }
 
-    @PutMapping("/{id}")
-    public ResponseEntity<ProviderResponseDTO> updateProvider(@PathVariable Long id, @RequestBody ProviderRequestDTO providerRequestDTO) {
-        return ResponseEntity.ok(providerService.updateProvider(id, providerRequestDTO));
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteProvider(@PathVariable Long id) {
-        providerService.deleteProvider(id);
-        return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping
-    public ResponseEntity<List<ProviderResponseDTO>> getAllProviders() {
-        return ResponseEntity.ok(providerService.getAllProviders());
+    @PutMapping("/{providerId}")
+    public ProviderResponseDTO updateProvider(@PathVariable UUID providerId, @RequestBody ProviderRequestDTO dto) {
+        return providerService.updateProvider(providerId, dto);
     }
 }

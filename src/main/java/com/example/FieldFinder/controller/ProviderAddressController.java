@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/provider-addresses")
@@ -25,20 +26,20 @@ public class ProviderAddressController {
     }
 
     @PutMapping("/{addressId}")
-    public ResponseEntity<ProviderAddressResponseDTO> updateAddress(@PathVariable Long addressId,
+    public ResponseEntity<ProviderAddressResponseDTO> updateAddress(@PathVariable UUID addressId,
                                                                     @RequestBody ProviderAddressRequestDTO addressRequestDTO) {
         ProviderAddressResponseDTO response = providerAddressService.updateAddress(addressId, addressRequestDTO);
         return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{addressId}")
-    public ResponseEntity<Void> deleteAddress(@PathVariable Long addressId) {
+    public ResponseEntity<Void> deleteAddress(@PathVariable UUID addressId) {
         providerAddressService.deleteAddress(addressId);
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/provider/{providerId}")
-    public ResponseEntity<List<ProviderAddressResponseDTO>> getAddressesByProvider(@PathVariable Long providerId) {
+    public ResponseEntity<List<ProviderAddressResponseDTO>> getAddressesByProvider(@PathVariable UUID providerId) {
         List<ProviderAddressResponseDTO> response = providerAddressService.getAddressesByProvider(providerId);
         return ResponseEntity.ok(response);
     }

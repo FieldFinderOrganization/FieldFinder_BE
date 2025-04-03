@@ -5,11 +5,13 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.UUID;
+
 @Getter
 @Setter
 @AllArgsConstructor
 public class ProviderAddressResponseDTO {
-    private Long providerAddressId;
+    private UUID providerAddressId;
     private String address;
 
     public static ProviderAddressResponseDTO fromEntity(ProviderAddress providerAddress) {

@@ -4,10 +4,9 @@ import com.example.FieldFinder.dto.req.ProviderRequestDTO;
 import com.example.FieldFinder.dto.res.ProviderResponseDTO;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface ProviderService {
-    ProviderResponseDTO createProvider(ProviderRequestDTO providerRequestDTO);
-    ProviderResponseDTO updateProvider(Long providerId, ProviderRequestDTO providerRequestDTO);
-    void deleteProvider(Long providerId);
-    List<ProviderResponseDTO> getAllProviders();
+    ProviderResponseDTO createProvider(ProviderRequestDTO dto);
+    ProviderResponseDTO updateProvider(UUID providerId, ProviderRequestDTO dto);
 }

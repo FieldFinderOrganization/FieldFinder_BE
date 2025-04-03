@@ -33,7 +33,7 @@ public class UserController {
         UserResponseDTO loggedInUser = userService.loginUser(loginRequestDTO);
         return ResponseEntity.ok(loggedInUser);
     }
-    @PutMapping("/users/{userId}")
+    @PutMapping("/{userId}")
     public ResponseEntity<UserResponseDTO> updateUser(
             @PathVariable UUID userId,
             @RequestBody UserUpdateRequestDTO userUpdateRequestDTO) {

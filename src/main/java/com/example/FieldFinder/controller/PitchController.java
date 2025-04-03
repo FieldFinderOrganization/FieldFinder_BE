@@ -19,28 +19,18 @@ public class PitchController {
     }
 
     @PostMapping
-    public ResponseEntity<PitchResponseDTO> createPitch(@RequestBody PitchRequestDTO request) {
-        return ResponseEntity.ok(pitchService.createPitch(request));
+    public PitchResponseDTO createPitch(@RequestBody PitchRequestDTO dto) {
+        return pitchService.createPitch(dto);
     }
 
     @PutMapping("/{pitchId}")
-    public ResponseEntity<PitchResponseDTO> updatePitch(@PathVariable UUID pitchId, @RequestBody PitchRequestDTO request) {
-        return ResponseEntity.ok(pitchService.updatePitch(pitchId, request));
+    public PitchResponseDTO updatePitch(@PathVariable UUID pitchId, @RequestBody PitchRequestDTO dto) {
+        return pitchService.updatePitch(pitchId, dto);
     }
 
-    @DeleteMapping("/{pitchId}")
-    public ResponseEntity<Void> deletePitch(@PathVariable UUID pitchId) {
-        pitchService.deletePitch(pitchId);
-        return ResponseEntity.noContent().build();
+    @GetMapping("/provider/{providerAddressId}")
+    public List<PitchResponseDTO> getPitchesByProviderAddressId(@PathVariable UUID providerAddressId) {
+        return pitchService.getPitchesByProviderAddressId(providerAddressId);
     }
 
-    @GetMapping("/owner/{ownerId}")
-    public ResponseEntity<List<PitchResponseDTO>> getPitchesByOwner(@PathVariable UUID ownerId) {
-        return ResponseEntity.ok(pitchService.getPitchesByOwner(ownerId));
-    }
-
-    @PostMapping("/search")
-    public ResponseEntity<List<PitchResponseDTO>> searchPitches(@RequestBody PitchRequestDTO criteria) {
-        return ResponseEntity.ok(pitchService.searchPitches(criteria));
-    }
 }

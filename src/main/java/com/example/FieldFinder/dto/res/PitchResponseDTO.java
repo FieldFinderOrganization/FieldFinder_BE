@@ -9,11 +9,9 @@ import java.util.UUID;
 @Data
 public class PitchResponseDTO {
     private UUID pitchId;
-    private UUID ownerId;
+    private UUID providerAddressId;
     private String name;
-    private String address;
     private PitchType type;
     private BigDecimal price;
-    private String imageUrl;
     private String description;
 }

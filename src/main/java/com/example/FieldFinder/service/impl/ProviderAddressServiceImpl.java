@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -38,7 +39,7 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
     }
 
     @Override
-    public ProviderAddressResponseDTO updateAddress(Long addressId, ProviderAddressRequestDTO addressRequestDTO) {
+    public ProviderAddressResponseDTO updateAddress(UUID addressId, ProviderAddressRequestDTO addressRequestDTO) {
         ProviderAddress address = addressRepository.findById(addressId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Address not found"));
 
@@ -48,16 +49,14 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
     }
 
     @Override
-    public void deleteAddress(Long addressId) {
+    public void deleteAddress(UUID addressId) {
         ProviderAddress address = addressRepository.findById(addressId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Address not found"));
         addressRepository.delete(address);
     }
 
     @Override
-    public List<ProviderAddressResponseDTO> getAddressesByProvider(Long providerId) {
-        return addressRepository.findByProvider_ProviderId(providerId).stream()
-                .map(ProviderAddressResponseDTO::fromEntity)
-                .collect(Collectors.toList());
+    public List<ProviderAddressResponseDTO> getAddressesByProvider(UUID providerId) {
+        return null;
     }
 }
