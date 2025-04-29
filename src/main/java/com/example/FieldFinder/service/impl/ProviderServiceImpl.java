@@ -8,6 +8,7 @@ import com.example.FieldFinder.service.ProviderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -36,6 +37,21 @@ public class ProviderServiceImpl implements ProviderService {
         provider = providerRepository.save(provider);
         return mapToDto(provider);
     }
+
+    @Override
+    public ProviderResponseDTO getProviderByUserId(UUID userId) {
+        Provider provider = providerRepository.findByUserId(userId)
+                .orElseThrow(() -> new RuntimeException("Provider not found for userId: " + userId));
+        return mapToDto(provider);
+    }
+
+    @Override
+    public List<ProviderResponseDTO> getAllProviders() {
+        return providerRepository.findAll().stream()
+                .map(this::mapToDto)
+                .toList();
+    }
+
 
     private ProviderResponseDTO mapToDto(Provider provider) {
         ProviderResponseDTO dto = new ProviderResponseDTO();

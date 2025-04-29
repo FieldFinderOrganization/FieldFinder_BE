@@ -26,4 +26,13 @@ public class ProviderController {
     public ProviderResponseDTO updateProvider(@PathVariable UUID providerId, @RequestBody ProviderRequestDTO dto) {
         return providerService.updateProvider(providerId, dto);
     }
+    @GetMapping("/user/{userId}")
+    public ProviderResponseDTO getProviderByUserId(@PathVariable UUID userId) {
+        return providerService.getProviderByUserId(userId);
+    }
+    @GetMapping
+    public List<ProviderResponseDTO> getAllProviders() {
+        return providerService.getAllProviders();
+    }
+
 }
