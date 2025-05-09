@@ -9,4 +9,5 @@ import java.util.UUID;
 
 @Repository
 public interface ProviderAddressRepository extends JpaRepository<ProviderAddress, UUID> {
+    List<ProviderAddress> findByProviderProviderId(UUID providerId);
 }
