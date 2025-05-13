@@ -32,5 +32,10 @@ public class PitchController {
     public List<PitchResponseDTO> getPitchesByProviderAddressId(@PathVariable UUID providerAddressId) {
         return pitchService.getPitchesByProviderAddressId(providerAddressId);
     }
+    @DeleteMapping("/{pitchId}")
+    public ResponseEntity<Void> deletePitch(@PathVariable UUID pitchId) {
+        pitchService.deletePitch(pitchId);
+        return ResponseEntity.noContent().build(); // 204 No Content
+    }
 
 }

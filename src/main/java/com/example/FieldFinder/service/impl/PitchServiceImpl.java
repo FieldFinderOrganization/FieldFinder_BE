@@ -61,4 +61,12 @@ public class PitchServiceImpl implements PitchService {
         dto.setDescription(pitch.getDescription());
         return dto;
     }
+    @Override
+    public void deletePitch(UUID pitchId) {
+        if (!pitchRepository.existsById(pitchId)) {
+            throw new RuntimeException("Pitch not found");
+        }
+        pitchRepository.deleteById(pitchId);
+    }
+
 }
