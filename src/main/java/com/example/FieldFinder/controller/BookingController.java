@@ -8,6 +8,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,4 +21,17 @@ public class BookingController {
     public BookingController(BookingService bookingService) {
         this.bookingService = bookingService;
     }
+    @PostMapping
+    public ResponseEntity<Booking> createBooking(@RequestBody BookingRequestDTO bookingRequestDTO) {
+        Booking booking = bookingService.createBooking(bookingRequestDTO);
+        return ResponseEntity.ok(booking);
+    }
+    @GetMapping("/slots/{pitchId}")
+    public ResponseEntity<List<Integer>> getBookedSlots(
+            @PathVariable UUID pitchId,
+            @RequestParam LocalDate date) {
+        List<Integer> bookedSlots = bookingService.getBookedTimeSlots(pitchId, date);
+        return ResponseEntity.ok(bookedSlots);
+    }
+
 }

@@ -17,15 +17,13 @@ public class BookingRequestDTO {
     private UUID pitchId;
     private UUID userId;
     private LocalDate bookingDate;
-    private LocalTime startTime;
-    private LocalTime endTime;
     private List<BookingDetailDTO> bookingDetails;
 
     @Setter
     @Getter
     public static class BookingDetailDTO {
         // Getters and Setters
-        private LocalDateTime timeSlot;
+        private int slot;
         private String name;
         private BigDecimal priceDetail;
 

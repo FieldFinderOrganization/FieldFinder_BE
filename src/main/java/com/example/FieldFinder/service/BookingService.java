@@ -1,6 +1,8 @@
 package com.example.FieldFinder.service;
 
 
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,4 +20,5 @@ public interface BookingService {
     Booking getBookingDetails(UUID bookingId);
     void cancelBooking(UUID bookingId);
     BigDecimal calculateTotalPrice(UUID bookingId);
+    List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate);
 }

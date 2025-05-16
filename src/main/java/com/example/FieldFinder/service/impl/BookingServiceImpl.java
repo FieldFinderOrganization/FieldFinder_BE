@@ -16,7 +16,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -37,11 +40,53 @@ public class BookingServiceImpl implements BookingService {
         this.pitchRepository = pitchRepository;
         this.userRepository = userRepository;
     }
+    @Override
+    public List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate) {
+        List<BookingDetail> bookingDetails = bookingDetailRepository.findByPitch_PitchIdAndBooking_BookingDate(pitchId, bookingDate);
+        return bookingDetails.stream()
+                .map(BookingDetail::getSlot)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
 
     @Override
+    @Transactional
     public Booking createBooking(BookingRequestDTO bookingRequest) {
-        return null;
+        User user = userRepository.findById(bookingRequest.getUserId())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Pitch pitch = pitchRepository.findById(bookingRequest.getPitchId())
+                .orElseThrow(() -> new RuntimeException("Pitch not found"));
+
+        BigDecimal totalPrice = bookingRequest.getBookingDetails().stream()
+                .map(BookingRequestDTO.BookingDetailDTO::getPriceDetail)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        Booking booking = Booking.builder()
+                .user(user)
+                .bookingDate(bookingRequest.getBookingDate())
+                .status(Booking.BookingStatus.PENDING)
+                .paymentStatus(Booking.PaymentStatus.PENDING)
+                .totalPrice(totalPrice)
+                .build();
+
+        bookingRepository.save(booking);
+
+        List<BookingDetail> details = bookingRequest.getBookingDetails().stream().map(detailDTO -> {
+            BookingDetail detail = new BookingDetail();
+            detail.setBooking(booking);
+            detail.setPitch(pitch);
+            detail.setSlot(detailDTO.getSlot()); // NEW: use slot number
+            detail.setName(detailDTO.getName());
+            detail.setPriceDetail(detailDTO.getPriceDetail());
+            return detail;
+        }).collect(Collectors.toList());
+
+
+        bookingDetailRepository.saveAll(details);
+        return booking;
     }
+
 
     @Override
     public Booking updateBookingStatus(UUID bookingId, String status) {

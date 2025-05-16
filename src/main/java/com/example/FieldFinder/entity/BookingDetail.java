@@ -19,10 +19,10 @@ public class BookingDetail implements Serializable {
     private Long bookingDetailId;
 
     @ManyToOne
-    @JoinColumn(name = "booking_id", nullable = false)
-    private Booking bookingId;
+    @JoinColumn(name = "booking", nullable = false)
+    private Booking booking;
 
-    private LocalDateTime timeSlot;
+    private int slot;
     private String name;
 
     @ManyToOne

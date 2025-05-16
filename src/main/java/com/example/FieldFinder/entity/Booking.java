@@ -31,12 +31,6 @@ public class Booking {
     @Column(name = "BookingDate", nullable = false)
     private LocalDate bookingDate;
 
-    @Column(name = "StartTime", nullable = false)
-    private LocalTime startTime;
-
-    @Column(name = "EndTime", nullable = false)
-    private LocalTime endTime;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "Status", nullable = false)
     private BookingStatus status;
