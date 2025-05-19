@@ -28,6 +28,12 @@ public class PitchController {
         return pitchService.updatePitch(pitchId, dto);
     }
 
+    @GetMapping
+    public ResponseEntity<List<PitchResponseDTO>> getAllPitches() {
+        List<PitchResponseDTO> pitches = pitchService.getAllPitches();
+        return ResponseEntity.ok(pitches);
+    }
+
     @GetMapping("/provider/{providerAddressId}")
     public List<PitchResponseDTO> getPitchesByProviderAddressId(@PathVariable UUID providerAddressId) {
         return pitchService.getPitchesByProviderAddressId(providerAddressId);

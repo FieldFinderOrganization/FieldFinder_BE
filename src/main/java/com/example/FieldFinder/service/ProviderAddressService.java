@@ -11,4 +11,6 @@ public interface ProviderAddressService {
     ProviderAddressResponseDTO updateAddress(UUID addressId, ProviderAddressRequestDTO addressRequestDTO);
     void deleteAddress(UUID addressId);
     List<ProviderAddressResponseDTO> getAddressesByProvider(UUID providerId);
+    List<ProviderAddressResponseDTO> getAllAddresses();
+
 }

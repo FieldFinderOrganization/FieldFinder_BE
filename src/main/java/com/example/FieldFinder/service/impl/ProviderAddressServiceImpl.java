@@ -64,4 +64,12 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
                 .toList();
     }
 
+    @Override
+    public List<ProviderAddressResponseDTO> getAllAddresses() {
+        List<ProviderAddress> addresses = addressRepository.findAll();
+        return addresses.stream()
+                .map(addr -> new ProviderAddressResponseDTO(addr.getProviderAddressId(), addr.getAddress()))
+                .toList();
+    }
+
 }

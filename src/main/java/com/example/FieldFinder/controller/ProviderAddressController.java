@@ -43,4 +43,10 @@ public class ProviderAddressController {
         List<ProviderAddressResponseDTO> response = providerAddressService.getAddressesByProvider(providerId);
         return ResponseEntity.ok(response);
     }
+    @GetMapping
+    public ResponseEntity<List<ProviderAddressResponseDTO>> getAllProviderAddresses() {
+        List<ProviderAddressResponseDTO> response = providerAddressService.getAllAddresses();
+        return ResponseEntity.ok(response);
+    }
+
 }

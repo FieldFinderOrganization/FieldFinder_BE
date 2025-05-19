@@ -68,5 +68,10 @@ public class PitchServiceImpl implements PitchService {
         }
         pitchRepository.deleteById(pitchId);
     }
-
+    @Override
+    public List<PitchResponseDTO> getAllPitches() {
+        return pitchRepository.findAll().stream()
+                .map(PitchResponseDTO::fromEntity)
+                .toList();
+    }
 }

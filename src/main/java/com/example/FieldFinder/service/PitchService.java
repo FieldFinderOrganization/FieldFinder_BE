@@ -11,5 +11,6 @@ public interface PitchService {
     PitchResponseDTO updatePitch(UUID pitchId, PitchRequestDTO dto);
     List<PitchResponseDTO> getPitchesByProviderAddressId(UUID providerAddressId);
     void deletePitch(UUID pitchId);
+    List<PitchResponseDTO> getAllPitches();
 
 }
