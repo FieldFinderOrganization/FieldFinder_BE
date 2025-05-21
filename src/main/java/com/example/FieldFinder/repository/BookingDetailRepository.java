@@ -15,6 +15,7 @@ public interface BookingDetailRepository extends JpaRepository<BookingDetail, Lo
     //List<BookingDetail> findByBookingId(Booking booking);
 
     List<BookingDetail> findByPitch_PitchIdAndBooking_BookingDate(UUID pitchId, LocalDate bookingDate);
+    List<BookingDetail> findByBooking_BookingDate(LocalDate bookingDate);
 
 
 

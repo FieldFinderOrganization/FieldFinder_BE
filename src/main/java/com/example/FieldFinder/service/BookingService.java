@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
+import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
 import com.example.FieldFinder.entity.Booking;
 
 import java.math.BigDecimal;
@@ -21,4 +22,8 @@ public interface BookingService {
     void cancelBooking(UUID bookingId);
     BigDecimal calculateTotalPrice(UUID bookingId);
     List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate);
+
+    List<PitchBookedSlotsDTO> getAllBookedTimeSlots(LocalDate date);
+
+    List<String> getAvailablePitches(LocalDate date, List<Integer> slots);
 }

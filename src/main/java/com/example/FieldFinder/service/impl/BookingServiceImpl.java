@@ -1,6 +1,7 @@
 package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
+import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
 import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.entity.Booking.BookingStatus;
 import com.example.FieldFinder.entity.Booking.PaymentStatus;
@@ -12,16 +13,16 @@ import com.example.FieldFinder.repository.BookingDetailRepository;
 import com.example.FieldFinder.repository.PitchRepository;
 import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.BookingService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -30,7 +31,7 @@ public class BookingServiceImpl implements BookingService {
     private final BookingDetailRepository bookingDetailRepository;
     private final PitchRepository pitchRepository;
     private final UserRepository userRepository;
-
+    private final RestTemplate restTemplate;
     public BookingServiceImpl(BookingRepository bookingRepository,
                               BookingDetailRepository bookingDetailRepository,
                               PitchRepository pitchRepository,
@@ -39,6 +40,7 @@ public class BookingServiceImpl implements BookingService {
         this.bookingDetailRepository = bookingDetailRepository;
         this.pitchRepository = pitchRepository;
         this.userRepository = userRepository;
+        this.restTemplate = new RestTemplate();
     }
     @Override
     public List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate) {
@@ -48,7 +50,47 @@ public class BookingServiceImpl implements BookingService {
                 .distinct()
                 .collect(Collectors.toList());
     }
+    @Override
+    public List<PitchBookedSlotsDTO> getAllBookedTimeSlots(LocalDate bookingDate) {
+        List<BookingDetail> bookingDetails = bookingDetailRepository.findByBooking_BookingDate(bookingDate);
 
+        // Group by pitchId and collect slot lists
+        Map<UUID, List<Integer>> grouped = bookingDetails.stream()
+                .collect(Collectors.groupingBy(
+                        bd -> bd.getPitch().getPitchId(),
+                        Collectors.mapping(BookingDetail::getSlot, Collectors.toList())
+                ));
+
+        // Map to DTO list
+        return grouped.entrySet().stream()
+                .map(entry -> new PitchBookedSlotsDTO(entry.getKey(),
+                        entry.getValue().stream().distinct().collect(Collectors.toList())))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<String> getAvailablePitches(LocalDate bookingDate, List<Integer> requestedSlots) {
+        // Gọi API nội bộ để lấy danh sách pitch đã được đặt slot trong ngày đó
+        String url = "http://localhost:8080/api/bookings/slots/all?date=" + bookingDate.toString();
+        ResponseEntity<PitchBookedSlotsDTO[]> response = restTemplate.getForEntity(url, PitchBookedSlotsDTO[].class);
+        PitchBookedSlotsDTO[] bookedSlots = response.getBody();
+
+        // Lấy danh sách tất cả pitchId từ DB
+        List<String> allPitchIds = pitchRepository.findAll().stream()
+                .map(p -> p.getPitchId().toString()) // hoặc để nguyên UUID tùy bạn
+                .collect(Collectors.toList());
+
+        // Lọc ra pitch có slot trùng với requestedSlots
+        Set<String> bookedPitches = Arrays.stream(bookedSlots)
+                .filter(p -> p.getBookedSlots().stream().anyMatch(requestedSlots::contains))
+                .map(p -> p.getPitchId().toString())
+                .collect(Collectors.toSet());
+
+        // Trả về danh sách sân còn trống (không bị trùng slot)
+        return allPitchIds.stream()
+                .filter(pitchId -> !bookedPitches.contains(pitchId))
+                .collect(Collectors.toList());
+    }
 
     @Override
     @Transactional
