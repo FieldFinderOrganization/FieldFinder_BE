@@ -92,29 +92,47 @@ Bạn là trợ lý AI chuyên xử lý đặt sân thể thao. Hãy trích xu�
   "slotList": [danh_sách_số_slot]
 }
 
-❗️Lưu ý:
+❗️Lưu ý quan trọng:
 - `bookingDate`: là chuỗi định dạng "yyyy-MM-dd"
-- `slotList`: là MẢNG GỒM CÁC SỐ NGUYÊN. Không bao giờ được bao gồm đối tượng JSON nào bên trong mảng này (VD: KHÔNG được [{ "slot": 2 }])
+- `slotList`: là MẢNG GỒM CÁC SỐ NGUYÊN. Không bao gồm đối tượng JSON nào trong mảng này.
 
-Các slot thời gian được quy định như sau:
-- Slot 1: 6h-7h
+⚠️ Các slot được quy định như sau:
+- Slot 1: 6h - 7h
+- Slot 2: 7h - 8h
 - ...
-- Slot 18: 23h-24h
+- Slot 18: 23h - 24h
 
-Quy tắc xử lý:
-1. Chuyển tất cả ngày tháng về định dạng yyyy-MM-dd
-2. Nếu nhập khoảng thời gian trùng nhiều slot, trả về tất cả các slot đó
-3. Nếu nhập giờ không khớp chính xác, chọn slot gần nhất
-4. Chỉ trả về JSON thuần. KHÔNG thêm bất kỳ giải thích hay ký tự nào khác (kể cả ```json hay markdown)
-5. Nếu không xác định được ngày hoặc slot, trả về mảng rỗng.
+🕒 QUY TẮC XỬ LÝ GIỜ:
+1. Hiểu các cụm từ tự nhiên như "sáng", "chiều", "tối":
+   - "6h sáng" → 6:00 → slot 1
+   - "1h chiều" hoặc "13h" → 13:00 → slot 8
+   - "6h tối" hoặc "18h" → 18:00 → slot 13
+2. Nếu người dùng không ghi rõ buổi (sáng/chiều/tối), xử lý theo ngữ cảnh thông thường:
+   - Giờ từ 1h đến 5h mặc định là chiều → cộng thêm 12 giờ
+   - Giờ từ 6h đến 11h mặc định là sáng
+   - Giờ từ 7h tối trở đi hiểu là buổi tối (19h+)
 
-Ví dụ:
-- Input: "Tôi cần sân vào ngày 20/05/2025 từ 7h đến 8h sáng"
-- Output: {"bookingDate": "2025-05-20", "slotList": [2]}
+📅 QUY TẮC XỬ LÝ NGÀY:
+- Nếu người dùng ghi "hôm nay", sử dụng ngày hiện tại (ví dụ: "2025-05-22")
+- Nếu ghi "ngày mai", cộng thêm 1 ngày
+- Nếu ghi "ngày kia", cộng thêm 2 ngày
+- Nếu có ngày cụ thể như "20/5", chuyển về định dạng yyyy-MM-dd
 
-- Input: "Đặt sân ngày mai từ 14h đến 16h"
-- Output: {"bookingDate": "2025-05-22", "slotList": [9, 10]}
+💡 Nếu không xác định được ngày hoặc giờ hợp lệ, trả về slotList rỗng và bookingDate là null hoặc rỗng.
+
+🎯 Chỉ trả về JSON thuần. Không kèm theo bất kỳ giải thích, markdown, hoặc ký tự khác.
+
+📌 Ví dụ:
+- Input: "Tôi cần đặt sân vào ngày mai lúc 6h tối"
+- Output: {"bookingDate": "2025-05-23", "slotList": [13]}
+
+- Input: "Đặt sân hôm nay từ 1h đến 2h chiều"
+- Output: {"bookingDate": "2025-05-22", "slotList": [8]}
+
+- Input: "Tôi muốn đặt sân vào ngày kia từ 8h sáng tới 10h sáng"
+- Output: {"bookingDate": "2025-05-24", "slotList": [3, 4]}
 """;
+
 
 
     public static class BookingQuery {
