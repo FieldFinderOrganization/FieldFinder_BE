@@ -4,6 +4,7 @@ import com.example.FieldFinder.ai.AIChat;
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
 import com.example.FieldFinder.dto.res.PitchBookingResponse;
+import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.service.BookingService;
 import com.example.FieldFinder.service.PitchService;
@@ -48,14 +49,15 @@ public class BookingController {
     @GetMapping("/available-pitches")
     public ResponseEntity<List<String>> getAvailablePitches(
             @RequestParam LocalDate date,
-            @RequestParam List<Integer> slots) {
-        List<String> availablePitches = bookingService.getAvailablePitches(date, slots);
+            @RequestParam List<Integer> slots,
+            @RequestParam String pitchType) {
+        List<String> availablePitches = bookingService.getAvailablePitches(date, slots, pitchType);
         return ResponseEntity.ok(availablePitches);
     }
     @PostMapping("/ai-chat")
-    public ResponseEntity<?> getAvailablePitchIdsFromAI(@RequestBody String userInput) {
+    public ResponseEntity<?> getAvailablePitchFromAI(@RequestBody String userInput) {
         try {
-            // Bước 1: Dùng AI để phân tích câu nhập
+            // Step 1: Use AI to parse user input
             AIChat.BookingQuery query = aiChat.parseBookingInput(userInput);
 
             if (query.bookingDate == null || query.slotList == null || query.slotList.isEmpty()) {
@@ -64,13 +66,26 @@ public class BookingController {
                 );
             }
 
-            // Bước 2: Gọi service có sẵn
+            // Step 2: Call service to get available pitch IDs
             LocalDate date = LocalDate.parse(query.bookingDate);
-            List<String> pitchIds = bookingService.getAvailablePitches(date, query.slotList);
+            List<String> pitchIds = bookingService.getAvailablePitches(date, query.slotList, query.pitchType);
 
-            // Bước 3: Chuyển đổi sang danh sách các đối tượng PitchBookingResponse
+            // Step 3: Fetch pitch details and prepare response list
             List<PitchBookingResponse> responseList = pitchIds.stream()
-                    .map(pitchId -> new PitchBookingResponse(pitchId, query.bookingDate, query.slotList))
+                    .map(pitchIdStr -> {
+                        UUID pitchId = UUID.fromString(pitchIdStr);
+                        PitchResponseDTO pitchDTO = pitchService.getPitchById(pitchId);
+
+                        return new PitchBookingResponse(
+                                pitchDTO.getPitchId(),
+                                pitchDTO.getName(),
+                                pitchDTO.getPrice(),
+                                pitchDTO.getDescription(),
+                                query.bookingDate,
+                                query.slotList,
+                                query.pitchType
+                        );
+                    })
                     .collect(Collectors.toList());
 
             return ResponseEntity.ok(responseList);
@@ -86,7 +101,5 @@ public class BookingController {
             );
         }
     }
-
-
 
 }

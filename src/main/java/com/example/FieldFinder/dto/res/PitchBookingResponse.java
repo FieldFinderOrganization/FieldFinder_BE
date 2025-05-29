@@ -1,26 +1,64 @@
 package com.example.FieldFinder.dto.res;
 
+import com.example.FieldFinder.entity.Pitch;
+
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 public class PitchBookingResponse {
-    private String pitchId;
+    private UUID pitchId;
+    private String name;
+    private BigDecimal price;
+    private String description;
     private String bookingDate;
     private List<Integer> slotList;
+    private String pitchType;
 
     public PitchBookingResponse() {}
 
-    public PitchBookingResponse(String pitchId, String bookingDate, List<Integer> slotList) {
+    public PitchBookingResponse(UUID pitchId, String name, BigDecimal price, String description,
+                                String bookingDate, List<Integer> slotList, String pitchType) {
         this.pitchId = pitchId;
+        this.name = name;
+        this.price = price;
+        this.description = description;
         this.bookingDate = bookingDate;
         this.slotList = slotList;
+        this.pitchType = pitchType;
     }
 
-    public String getPitchId() {
+    // Getters and Setters
+    public UUID getPitchId() {
         return pitchId;
     }
 
-    public void setPitchId(String pitchId) {
+    public void setPitchId(UUID pitchId) {
         this.pitchId = pitchId;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public BigDecimal getPrice() {
+        return price;
+    }
+
+    public void setPrice(BigDecimal price) {
+        this.price = price;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
     }
 
     public String getBookingDate() {
@@ -37,5 +75,13 @@ public class PitchBookingResponse {
 
     public void setSlotList(List<Integer> slotList) {
         this.slotList = slotList;
+    }
+
+    public String getPitchType() {
+        return pitchType;
+    }
+
+    public void setPitchType(String pitchType) {
+        this.pitchType = pitchType;
     }
 }

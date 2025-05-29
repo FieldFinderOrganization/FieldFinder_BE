@@ -13,4 +13,5 @@ public interface PitchService {
     void deletePitch(UUID pitchId);
     List<PitchResponseDTO> getAllPitches();
 
+    PitchResponseDTO getPitchById(UUID pitchId);
 }

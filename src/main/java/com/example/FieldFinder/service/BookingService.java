@@ -25,5 +25,5 @@ public interface BookingService {
 
     List<PitchBookedSlotsDTO> getAllBookedTimeSlots(LocalDate date);
 
-    List<String> getAvailablePitches(LocalDate date, List<Integer> slots);
+    List<String> getAvailablePitches(LocalDate date, List<Integer> slots, String pitchType );
 }

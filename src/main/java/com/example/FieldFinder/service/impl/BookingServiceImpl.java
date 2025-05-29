@@ -69,28 +69,32 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
-    public List<String> getAvailablePitches(LocalDate bookingDate, List<Integer> requestedSlots) {
-        // Gọi API nội bộ để lấy danh sách pitch đã được đặt slot trong ngày đó
-        String url = "http://localhost:8080/api/bookings/slots/all?date=" + bookingDate.toString();
+    public List<String> getAvailablePitches(LocalDate bookingDate, List<Integer> requestedSlots, String pitchType) {
+        // 1. Gọi API nội bộ để lấy danh sách pitch đã được đặt slot trong ngày đó
+        String url = "http://localhost:8080/api/bookings/slots/all?date=" + bookingDate;
         ResponseEntity<PitchBookedSlotsDTO[]> response = restTemplate.getForEntity(url, PitchBookedSlotsDTO[].class);
         PitchBookedSlotsDTO[] bookedSlots = response.getBody();
 
-        // Lấy danh sách tất cả pitchId từ DB
+        // 2. Lấy danh sách tất cả pitchId từ DB, có lọc theo pitchType nếu được chỉ định
         List<String> allPitchIds = pitchRepository.findAll().stream()
-                .map(p -> p.getPitchId().toString()) // hoặc để nguyên UUID tùy bạn
+                .filter(p -> pitchType == null || pitchType.isBlank() ||
+                        p.getType().name().equalsIgnoreCase(pitchType))
+                .map(p -> p.getPitchId().toString())
                 .collect(Collectors.toList());
 
-        // Lọc ra pitch có slot trùng với requestedSlots
+        // 3. Lọc ra pitch có slot trùng với requestedSlots
         Set<String> bookedPitches = Arrays.stream(bookedSlots)
                 .filter(p -> p.getBookedSlots().stream().anyMatch(requestedSlots::contains))
                 .map(p -> p.getPitchId().toString())
                 .collect(Collectors.toSet());
 
-        // Trả về danh sách sân còn trống (không bị trùng slot)
+        // 4. Trả về danh sách sân còn trống (không bị trùng slot và đúng loại sân)
         return allPitchIds.stream()
                 .filter(pitchId -> !bookedPitches.contains(pitchId))
                 .collect(Collectors.toList());
     }
+
+
 
     @Override
     @Transactional

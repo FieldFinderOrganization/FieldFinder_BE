@@ -74,4 +74,12 @@ public class PitchServiceImpl implements PitchService {
                 .map(PitchResponseDTO::fromEntity)
                 .toList();
     }
+
+    @Override
+    public PitchResponseDTO getPitchById(UUID pitchId) {
+        Pitch pitch = pitchRepository.findById(pitchId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy sân với ID: " + pitchId));
+
+        return PitchResponseDTO.fromEntity(pitch);
+    }
 }

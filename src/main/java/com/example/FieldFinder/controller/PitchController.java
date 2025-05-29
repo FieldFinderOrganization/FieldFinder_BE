@@ -43,5 +43,11 @@ public class PitchController {
         pitchService.deletePitch(pitchId);
         return ResponseEntity.noContent().build(); // 204 No Content
     }
+    @GetMapping("/{pitchId}")
+    public ResponseEntity<PitchResponseDTO> getPitchById(@PathVariable UUID pitchId) {
+        PitchResponseDTO pitch = pitchService.getPitchById(pitchId);
+        return ResponseEntity.ok(pitch);
+    }
+
 
 }
