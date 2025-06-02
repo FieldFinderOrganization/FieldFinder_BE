@@ -18,7 +18,7 @@ public class PitchResponseDTO {
     public static PitchResponseDTO fromEntity(Pitch pitch) {
         PitchResponseDTO dto = new PitchResponseDTO();
         dto.setPitchId(pitch.getPitchId());
-        dto.setProviderAddressId(pitch.getProviderAddressId());
+        dto.setProviderAddressId(pitch.getProviderAddress().getProviderAddressId());
         dto.setName(pitch.getName());
         dto.setType(pitch.getType());
         dto.setPrice(pitch.getPrice());

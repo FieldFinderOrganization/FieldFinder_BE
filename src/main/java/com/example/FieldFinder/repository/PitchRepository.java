@@ -10,5 +10,5 @@ import java.util.UUID;
 
 @Repository
 public interface PitchRepository extends JpaRepository<Pitch, UUID> {
-    List<Pitch> findByProviderAddressId(UUID providerAddressId);
+    List<Pitch> findByProviderAddressProviderAddressId(UUID providerAddressId);
 }

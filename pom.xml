@@ -58,7 +58,10 @@
 			<artifactId>okhttp</artifactId>
 			<version>4.10.0</version>
 		</dependency>
-
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webflux</artifactId>
+		</dependency>
 		<!-- JSON parsing -->
 		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>

@@ -22,8 +22,9 @@ public class Pitch {
     private UUID pitchId;
 
 
+    @ManyToOne
     @JoinColumn(name = "ProviderAddressId", nullable = false)
-    private UUID providerAddressId;
+    private ProviderAddress providerAddress;
 
     @Column(name = "Name", nullable = false)
     private String name;

@@ -43,6 +43,6 @@ public class Payment {
     private String transactionId;
 
     public enum PaymentMethod {
-        MOMO, VNPAY, PAYPAL, BANK
+        BANK, TIENMAT
     }
 }
