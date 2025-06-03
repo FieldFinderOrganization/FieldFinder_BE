@@ -11,7 +11,9 @@ import com.example.FieldFinder.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -95,4 +97,95 @@ public class PaymentServiceImpl implements PaymentService {
                 .build();
     }
 
+
+    @Override
+    public List<PaymentResponseDTO> getPaymentsByUserId(UUID userId) {
+        // Optionally check if user exists, else throw exception
+        userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        List<Payment> payments = paymentRepository.findByUser_UserId(userId);
+        return payments.stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<PaymentResponseDTO> getAllPayments() {
+        List<Payment> payments = paymentRepository.findAll();
+        return payments.stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+    }
+
+
+    private PaymentResponseDTO convertToDTO(Payment payment) {
+        Booking booking = payment.getBooking();
+
+        // Get the first booking detail
+        BookingDetail bookingDetail = booking.getBookingDetails().stream()
+                .findFirst()
+                .orElse(null);
+
+        if (bookingDetail == null) {
+            throw new RuntimeException("BookingDetail not found for this booking");
+        }
+
+        Provider provider = bookingDetail.getPitch()
+                .getProviderAddress()
+                .getProvider();
+
+        if (provider == null) {
+            throw new RuntimeException("Provider not found");
+        }
+
+        // Fetch User manually by provider's userId
+        UUID providerUserId = provider.getUserId();
+        User providerUser = userRepository.findById(providerUserId)
+                .orElseThrow(() -> new RuntimeException("User not found for provider"));
+
+        String bankAccountName = providerUser.getName() != null ? providerUser.getName() : "SAN BONG";
+
+        return PaymentResponseDTO.builder()
+                .transactionId(payment.getTransactionId())
+                .amount(payment.getAmount().toString())
+                .bankAccountName(bankAccountName)
+                .bankAccountNumber(provider.getCardNumber())
+                .bankName(provider.getBank())
+                .qrCodeUrl(generateQrCodeUrl(payment))
+                .build();
+    }
+
+
+    private String generateQrCodeUrl(Payment payment) {
+        String bankBin = BankBinMapper.getBankBin(payment.getBooking()
+                .getBookingDetails()
+                .stream()
+                .findFirst()
+                .map(detail -> detail.getPitch()
+                        .getProviderAddress()
+                        .getProvider()
+                        .getBank())
+                .orElse(""));
+
+        if (bankBin == null) bankBin = "default";
+
+        String bankAccountNumber = payment.getBooking()
+                .getBookingDetails()
+                .stream()
+                .findFirst()
+                .map(detail -> detail.getPitch()
+                        .getProviderAddress()
+                        .getProvider()
+                        .getCardNumber())
+                .orElse("");
+
+        return String.format(
+                "https://img.vietqr.io/image/%s-%s-qr_only.png?amount=%s&addInfo=%s",
+                bankBin,
+                bankAccountNumber,
+                payment.getAmount().toString(),
+                "Booking_" + payment.getTransactionId()
+        );
+    }
 }

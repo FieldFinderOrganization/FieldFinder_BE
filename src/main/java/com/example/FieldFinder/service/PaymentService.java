@@ -8,4 +8,7 @@ import java.util.UUID;
 
 public interface PaymentService {
     PaymentResponseDTO createPaymentQRCode(PaymentRequestDTO requestDTO);
+    List<PaymentResponseDTO> getPaymentsByUserId(UUID userId);
+
+    List<PaymentResponseDTO> getAllPayments();
 }

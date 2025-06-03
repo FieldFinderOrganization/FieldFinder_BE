@@ -3,6 +3,7 @@ package com.example.FieldFinder.controller;
 import com.example.FieldFinder.ai.AIChat;
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
+import com.example.FieldFinder.dto.res.BookingResponseDTO;
 import com.example.FieldFinder.dto.res.PitchBookingResponse;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.entity.Booking;
@@ -34,6 +35,13 @@ public class BookingController {
         Booking booking = bookingService.createBooking(bookingRequestDTO);
         return ResponseEntity.ok(booking);
     }
+    @PutMapping("/{bookingId}/payment-status")
+    public ResponseEntity<String> updatePaymentStatus(
+            @PathVariable UUID bookingId,
+            @RequestParam("status") String status) {
+        return bookingService.updatePaymentStatus(bookingId, status);
+    }
+
     @GetMapping("/slots/{pitchId}")
     public ResponseEntity<List<Integer>> getBookedSlots(
             @PathVariable UUID pitchId,
@@ -101,5 +109,21 @@ public class BookingController {
             );
         }
     }
+    // Cập nhật trạng thái đặt sân
+    @PutMapping("/{bookingId}/status")
+    public ResponseEntity<String> updateBookingStatus(
+            @PathVariable UUID bookingId,
+            @RequestParam("status") String status) {
+        return bookingService.updateBookingStatus(bookingId, status);
+    }
+
+
+    // Lấy danh sách đặt sân theo User ID
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<List<BookingResponseDTO>> getBookingsByUser(@PathVariable UUID userId) {
+        List<BookingResponseDTO> bookings = bookingService.getBookingsByUser(userId);
+        return ResponseEntity.ok(bookings);
+    }
+
 
 }
