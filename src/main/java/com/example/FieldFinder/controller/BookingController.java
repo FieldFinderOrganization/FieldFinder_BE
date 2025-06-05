@@ -124,6 +124,10 @@ public class BookingController {
         List<BookingResponseDTO> bookings = bookingService.getBookingsByUser(userId);
         return ResponseEntity.ok(bookings);
     }
+    @GetMapping("/api/bookings")
+    public ResponseEntity<List<BookingResponseDTO>> getAllBookings() {
+        return ResponseEntity.ok(bookingService.getAllBookings());
+    }
 
 
 }

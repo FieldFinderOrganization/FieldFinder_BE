@@ -21,7 +21,7 @@ public interface BookingService {
     void cancelBooking(UUID bookingId);
     BigDecimal calculateTotalPrice(UUID bookingId);
     List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate);
-
+    List<BookingResponseDTO> getAllBookings();
     List<PitchBookedSlotsDTO> getAllBookedTimeSlots(LocalDate date);
 
     List<String> getAvailablePitches(LocalDate date, List<Integer> slots, String pitchType );
