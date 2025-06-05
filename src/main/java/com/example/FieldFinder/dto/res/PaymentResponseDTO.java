@@ -11,4 +11,5 @@ public class PaymentResponseDTO {
     private String bankName;
     private String amount;
     private String transactionId;
+    private String paymentMethod;
 }

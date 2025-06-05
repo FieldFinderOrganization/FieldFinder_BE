@@ -153,6 +153,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .bankAccountNumber(provider.getCardNumber())
                 .bankName(provider.getBank())
                 .qrCodeUrl(generateQrCodeUrl(payment))
+                .paymentMethod(payment.getPaymentMethod().name())
                 .build();
     }
 
