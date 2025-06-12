@@ -48,15 +48,19 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserResponseDTO loginUser(LoginRequestDTO loginRequestDTO) {
         User user = userRepository.findByEmail(loginRequestDTO.getEmail())
-                .orElseThrow(() -> new RuntimeException("Invalid email or password"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password"));
 
-        // Kiểm tra mật khẩu bằng BCrypt
         if (!passwordEncoder.matches(loginRequestDTO.getPassword(), user.getPassword())) {
-            throw new RuntimeException("Invalid email or password");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
+        }
+
+        if (user.getStatus() == User.Status.BLOCKED) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your account has been blocked. Please contact admin.");
         }
 
         return UserResponseDTO.toDto(user);
     }
+
 
     @Override
     @Transactional
@@ -73,6 +77,7 @@ public class UserServiceImpl implements UserService {
         user.setName(userUpdateRequestDTO.getName());
         user.setEmail(userUpdateRequestDTO.getEmail());
         user.setPhone(userUpdateRequestDTO.getPhone());
+        user.setStatus(userUpdateRequestDTO.getStatus());
 
         // Lưu vào database
         User updatedUser = userRepository.save(user);
@@ -82,6 +87,21 @@ public class UserServiceImpl implements UserService {
     public List<UserResponseDTO> getAllUsers() {
         List<User> users = userRepository.findAll();
         return users.stream().map(UserResponseDTO::toDto).collect(Collectors.toList());
+    }
+    @Override
+    public UserResponseDTO updateUserStatus(UUID userId, String statusStr) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        try {
+            User.Status newStatus = User.Status.valueOf(statusStr.toUpperCase());
+            user.setStatus(newStatus);
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Invalid status. Allowed: ACTIVE, BLOCKED");
+        }
+
+        userRepository.save(user);
+        return UserResponseDTO.toDto(user);
     }
 
 

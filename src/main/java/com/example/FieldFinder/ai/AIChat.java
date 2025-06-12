@@ -7,6 +7,7 @@ import okhttp3.*;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.time.LocalDate;
 import java.util.*;
 
 @Component
@@ -45,7 +46,7 @@ public class AIChat {
         String requestBody = mapper.writeValueAsString(Map.of(
                 "model", MODEL_NAME,
                 "messages", List.of(
-                        Map.of("role", "system", "content", SYSTEM_INSTRUCTION),
+                        Map.of("role", "system", "content", finalPrompt),
                         Map.of("role", "user", "content", prompt)
                 ),
                 "temperature", 0.3,
@@ -83,6 +84,16 @@ public class AIChat {
                 "%s"
                 """.formatted(userInput);
     }
+    LocalDate today = LocalDate.now();
+    String todayStr = today.toString(); // yyyy-MM-dd
+    String plus1 = today.plusDays(1).toString();
+    String plus2 = today.plusDays(2).toString();
+
+    String finalPrompt = SYSTEM_INSTRUCTION
+            .replace("{{today}}", todayStr)
+            .replace("{{plus1}}", plus1)
+            .replace("{{plus2}}", plus2);
+
 
     private static final String SYSTEM_INSTRUCTION = """
 Bạn là trợ lý AI chuyên xử lý đặt sân thể thao. Hãy trích xuất ngày, khoảng thời gian đặt sân, và loại sân từ yêu cầu của người dùng và trả về dưới dạng JSON **THUẦN** với định dạng sau:
@@ -142,24 +153,24 @@ Bạn là trợ lý AI chuyên xử lý đặt sân thể thao. Hãy trích xu�
 
 🎯 Chỉ trả về JSON thuần. Không kèm theo bất kỳ giải thích, markdown, hoặc ký tự khác.
 
-📌 Ví dụ:
-- Input: "Tôi cần đặt sân vào ngày mai lúc 6h tối"
-- Output: {"bookingDate": "2025-05-30", "slotList": [13], "pitchType": null}
+            📌 Ví dụ (giả sử hôm nay là {{today}}):
+            - Input: "Tôi cần đặt sân vào ngày mai lúc 6h tối" \s
+            - Output: {"bookingDate": "{{plus1}}", "slotList": [13], "pitchType": null}
 
-- Input: "Đặt sân hôm nay từ 1h đến 2h chiều"
-- Output: {"bookingDate": "2025-05-29", "slotList": [8], "pitchType": null}
+            - Input: "Đặt sân hôm nay từ 1h đến 2h chiều" \s
+            - Output: {"bookingDate": "{{today}}", "slotList": [8], "pitchType": null}
 
-- Input: "Tôi muốn đặt sân vào ngày kia từ 8h sáng tới 10h sáng"
-- Output: {"bookingDate": "2025-05-31", "slotList": [3, 4], "pitchType": null}
+            - Input: "Tôi muốn đặt sân vào ngày kia từ 8h sáng tới 10h sáng" \s
+            - Output: {"bookingDate": "{{plus2}}", "slotList": [3, 4], "pitchType": null}
 
-- Input: "Cho tôi đặt sân 5 lúc 6h-7h hôm nay"
-- Output: {"bookingDate": "2025-05-29", "slotList": [1], "pitchType": "FIVE_A_SIDE"}
+            - Input: "Cho tôi đặt sân 5 lúc 6h-7h hôm nay" \s
+            - Output: {"bookingDate": "{{today}}", "slotList": [1], "pitchType": "FIVE_A_SIDE"}
 
-- Input: "Tôi muốn đặt sân lớn vào ngày mai từ 19h đến 21h"
-- Output: {"bookingDate": "2025-05-30", "slotList": [14,15], "pitchType": "ELEVEN_A_SIDE"}
+            - Input: "Tôi muốn đặt sân lớn vào ngày mai từ 19h đến 21h" \s
+            - Output: {"bookingDate": "{{plus1}}", "slotList": [14, 15], "pitchType": "ELEVEN_A_SIDE"}
 
-- Input: "Đặt sân lúc 9h hôm nay"
-- Output: {"bookingDate": "2025-05-29", "slotList": [4], "pitchType": null}
+            - Input: "Đặt sân lúc 9h hôm nay" \s
+            - Output: {"bookingDate": "{{today}}", "slotList": [4], "pitchType": null}
 """;
 
 

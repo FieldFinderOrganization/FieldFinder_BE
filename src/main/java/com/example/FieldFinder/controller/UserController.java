@@ -46,6 +46,14 @@ public class UserController {
         List<UserResponseDTO> users = userService.getAllUsers();
         return ResponseEntity.ok(users);
     }
+    @PatchMapping("/{userId}/status")
+    public ResponseEntity<UserResponseDTO> updateUserStatus(
+            @PathVariable UUID userId,
+            @RequestParam("status") String status) {
+
+        UserResponseDTO updatedUser = userService.updateUserStatus(userId, status);
+        return ResponseEntity.ok(updatedUser);
+    }
 
 
 }

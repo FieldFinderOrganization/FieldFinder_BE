@@ -15,6 +15,7 @@ public class UserRequestDTO {
     private String phone;
     private String password;
     private User.Role role;
+    private User.Status status;
 
     // Chuyển từ DTO sang Entity
     public User toEntity(UUID userId, String encodedPassword) {
@@ -24,6 +25,7 @@ public class UserRequestDTO {
                 this.email,
                 this.phone,
                 encodedPassword, // Mã hóa trước khi lưu vào DB
+                this.status,
                 this.role
         );
     }

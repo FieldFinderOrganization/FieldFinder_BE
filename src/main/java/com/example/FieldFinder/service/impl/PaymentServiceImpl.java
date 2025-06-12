@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -188,5 +190,49 @@ public class PaymentServiceImpl implements PaymentService {
                 payment.getAmount().toString(),
                 "Booking_" + payment.getTransactionId()
         );
+    }
+
+    public void processWebhook(Map<String, Object> payload) {
+        String transactionId = (String) payload.get("transactionId");
+        String status = (String) payload.get("status");
+
+        if (transactionId == null || status == null) {
+            System.out.println("Webhook missing required fields");
+            return;
+        }
+
+        Optional<Payment> optionalPayment = paymentRepository.findByTransactionId(transactionId);
+
+        if (optionalPayment.isPresent()) {
+            Payment payment = optionalPayment.get();
+            Booking booking = payment.getBooking();
+
+            switch (status.toLowerCase()) {
+                case "success":
+                    payment.setPaymentStatus(Booking.PaymentStatus.PAID);
+
+                    // ✅ Đặt booking status thành CONFIRMED khi đã thanh toán
+                    if (booking != null) {
+                        booking.setPaymentStatus(Booking.PaymentStatus.PAID);
+                        booking.setStatus(Booking.BookingStatus.CONFIRMED);
+                    }
+
+                    break;
+                case "fail":
+                    payment.setPaymentStatus(Booking.PaymentStatus.PENDING);
+                    if (booking != null) {
+                        booking.setPaymentStatus(Booking.PaymentStatus.PENDING);
+                    }
+                    break;
+                default:
+                    System.out.println("Unknown status: " + status);
+                    return;
+            }
+
+            paymentRepository.save(payment); // Cascade sẽ cập nhật booking nếu liên kết đúng
+            System.out.println("Payment and Booking updated with status: " + status);
+        } else {
+            System.out.println("Payment not found for transactionId: " + transactionId);
+        }
     }
 }

@@ -15,6 +15,7 @@ public class UserResponseDTO {
     private String email;
     private String phone;
     private User.Role role;
+    private User.Status status;
 
     // Chuyển từ Entity sang DTO
     public static UserResponseDTO toDto(User user) {
@@ -23,7 +24,8 @@ public class UserResponseDTO {
                 user.getName(),
                 user.getEmail(),
                 user.getPhone(),
-                user.getRole()
+                user.getRole(),
+                user.getStatus()
         );
     }
 }
