@@ -1,15 +1,17 @@
 package com.example.FieldFinder.dto.res;
-import lombok.Builder;
-import lombok.Data;
+import lombok.*;
 
-@Data
+import java.math.BigDecimal;
+
 @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class PaymentResponseDTO {
-    private String qrCodeUrl;
-    private String bankAccountNumber;
-    private String bankAccountName;
-    private String bankName;
-    private String amount;
     private String transactionId;
-    private String paymentMethod;
+    private String checkoutUrl;
+    private String amount;
+    private String status;
 }
+

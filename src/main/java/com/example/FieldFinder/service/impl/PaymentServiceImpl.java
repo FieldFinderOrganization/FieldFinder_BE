@@ -24,28 +24,23 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
     private final UserRepository userRepository;
+    private final PayOSService payOSService;
 
     @Override
     public PaymentResponseDTO createPaymentQRCode(PaymentRequestDTO requestDTO) {
         Booking booking = bookingRepository.findById(requestDTO.getBookingId())
                 .orElseThrow(() -> new RuntimeException("Booking not found"));
 
-        // Lấy bookingDetail đầu tiên
         BookingDetail bookingDetail = booking.getBookingDetails().stream()
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("BookingDetail not found for this booking"));
+                .orElseThrow(() -> new RuntimeException("BookingDetail not found"));
 
-        // Truy xuất provider qua chuỗi: bookingDetail -> pitch -> providerAddress -> provider
         Provider provider = bookingDetail.getPitch()
                 .getProviderAddress()
                 .getProvider();
 
-        if (provider == null) {
-            throw new RuntimeException("Provider not found");
-        }
-        if (provider.getBank() == null || provider.getCardNumber() == null) {
-            throw new RuntimeException("Provider bank info is missing");
-        }
+        if (provider == null || provider.getBank() == null || provider.getCardNumber() == null)
+            throw new RuntimeException("Provider or bank info missing");
 
         String bankName = provider.getBank();
         String bankAccountNumber = provider.getCardNumber();
@@ -53,15 +48,21 @@ public class PaymentServiceImpl implements PaymentService {
                 .orElseThrow(() -> new RuntimeException("User not found for provider"));
         String bankAccountName = providerUser.getName() != null ? providerUser.getName() : "SAN BONG";
 
-        // Lấy bankBin từ bankName bằng BankBinMapper
         String bankBin = BankBinMapper.getBankBin(bankName);
-        if (bankBin == null) {
+        if (bankBin == null)
             throw new RuntimeException("Không tìm thấy mã bankBin cho ngân hàng: " + bankName);
-        }
 
-        String transactionId = UUID.randomUUID().toString();
+        // Tạo orderCode
+        int orderCode = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
 
-        // Chuyển paymentMethod String sang Enum, xử lý nếu không hợp lệ
+        // Gọi PayOS để tạo payment
+        PayOSService.PaymentResult result = payOSService.createPayment(
+                requestDTO.getAmount(),
+                orderCode,
+                "Thanh toán đặt sân"
+        );
+
+        // Lưu payment với transactionId từ PayOS
         Payment.PaymentMethod paymentMethod;
         try {
             paymentMethod = Payment.PaymentMethod.valueOf(requestDTO.getPaymentMethod());
@@ -75,27 +76,17 @@ public class PaymentServiceImpl implements PaymentService {
                 .amount(requestDTO.getAmount())
                 .paymentMethod(paymentMethod)
                 .paymentStatus(Booking.PaymentStatus.PENDING)
-                .transactionId(transactionId)
+                .checkoutUrl(result.checkoutUrl())
+                .transactionId(result.paymentLinkId()) // ✅ Lưu đúng ID từ PayOS
                 .build();
 
         paymentRepository.save(payment);
 
-        // Tạo QR code URL sử dụng bankBin thay vì bankShortName
-        String qrCodeUrl = String.format(
-                "https://img.vietqr.io/image/%s-%s-qr_only.png?amount=%s&addInfo=%s",
-                bankBin,
-                bankAccountNumber,
-                requestDTO.getAmount().toString(),
-                "Booking_" + transactionId
-        );
-
         return PaymentResponseDTO.builder()
-                .qrCodeUrl(qrCodeUrl)
-                .amount(requestDTO.getAmount().toString())
-                .bankAccountName(bankAccountName)
-                .bankAccountNumber(bankAccountNumber)
-                .bankName(bankName)
-                .transactionId(transactionId)
+                .transactionId(result.paymentLinkId())
+                .checkoutUrl(result.checkoutUrl())
+                .amount((requestDTO.getAmount()).toString())
+                .status("PENDING")
                 .build();
     }
 
@@ -150,47 +141,15 @@ public class PaymentServiceImpl implements PaymentService {
 
         return PaymentResponseDTO.builder()
                 .transactionId(payment.getTransactionId())
-                .amount(payment.getAmount().toString())
-                .bankAccountName(bankAccountName)
-                .bankAccountNumber(provider.getCardNumber())
-                .bankName(provider.getBank())
-                .qrCodeUrl(generateQrCodeUrl(payment))
-                .paymentMethod(payment.getPaymentMethod().name())
+                .checkoutUrl(payment.getCheckoutUrl())
+                .amount(payment.getAmount().toPlainString()) // đảm bảo không có format lạ như '1E+3'
+                .status(payment.getPaymentStatus().name()) // ví dụ: PENDING, PAID, REFUNDED
                 .build();
+
     }
 
 
-    private String generateQrCodeUrl(Payment payment) {
-        String bankBin = BankBinMapper.getBankBin(payment.getBooking()
-                .getBookingDetails()
-                .stream()
-                .findFirst()
-                .map(detail -> detail.getPitch()
-                        .getProviderAddress()
-                        .getProvider()
-                        .getBank())
-                .orElse(""));
 
-        if (bankBin == null) bankBin = "default";
-
-        String bankAccountNumber = payment.getBooking()
-                .getBookingDetails()
-                .stream()
-                .findFirst()
-                .map(detail -> detail.getPitch()
-                        .getProviderAddress()
-                        .getProvider()
-                        .getCardNumber())
-                .orElse("");
-
-        return String.format(
-                "https://img.vietqr.io/image/%s-%s-qr_only.png?amount=%s&addInfo=%s",
-                bankBin,
-                bankAccountNumber,
-                payment.getAmount().toString(),
-                "Booking_" + payment.getTransactionId()
-        );
-    }
 
     public void processWebhook(Map<String, Object> payload) {
         String transactionId = (String) payload.get("transactionId");
