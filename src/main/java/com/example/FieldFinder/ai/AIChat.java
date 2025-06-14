@@ -9,14 +9,14 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.regex.*;
 
 @Component
 public class AIChat {
 
     private static final String OPENROUTER_API_KEY;
     private static final String OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-    private static final String MODEL_NAME = "mistralai/mistral-7b-instruct"; // hoặc llama-3...
-
+    private static final String MODEL_NAME = "openai/gpt-3.5-turbo";
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -43,39 +43,67 @@ public class AIChat {
     public BookingQuery parseBookingInput(String userInput) throws IOException, InterruptedException {
         String prompt = buildPrompt(userInput);
 
-        String requestBody = mapper.writeValueAsString(Map.of(
-                "model", MODEL_NAME,
-                "messages", List.of(
-                        Map.of("role", "system", "content", finalPrompt),
-                        Map.of("role", "user", "content", prompt)
-                ),
-                "temperature", 0.3,
-                "max_tokens", 200
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", MODEL_NAME);
+        body.put("messages", List.of(
+                Map.of("role", "system", "content", SYSTEM_INSTRUCTION),
+                Map.of("role", "user", "content", prompt)
         ));
+        body.put("temperature", 0.3);
+        body.put("max_tokens", 200);
+        body.put("stop", List.of("\n\n", "```")); // ✅ Ngắt trước khi giải thích hoặc markdown
+
+        String requestBody = mapper.writeValueAsString(body);
 
         Request request = new Request.Builder()
                 .url(OPENROUTER_API_URL)
                 .addHeader("Authorization", "Bearer " + OPENROUTER_API_KEY)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("HTTP-Referer", "https://yourdomain.com") // Tuỳ chọn
-                .addHeader("User-Agent", "FieldFinderApp/1.0")       // BẮT BUỘC
+                .addHeader("HTTP-Referer", "https://yourdomain.com")
+                .addHeader("User-Agent", "FieldFinderApp/1.0")
                 .post(RequestBody.create(requestBody, MediaType.parse("application/json")))
                 .build();
 
         waitIfNeeded();
 
         try (Response response = client.newCall(request).execute()) {
-            if (response.isSuccessful()) {
-                String responseBody = response.body().string();
-                JsonNode root = mapper.readTree(responseBody);
-                String content = root.at("/choices/0/message/content").asText();
-
-                String cleanJson = content.replaceAll("```json", "").replaceAll("```", "").trim();
-                return mapper.readValue(cleanJson, BookingQuery.class);
-            } else {
+            if (!response.isSuccessful()) {
                 throw new IOException("OpenRouter API error: " + response.code() + " - " + response.message());
             }
+
+            String responseBody = response.body().string();
+            JsonNode root = mapper.readTree(responseBody);
+            String content = root.at("/choices/0/message/content").asText();
+
+            String cleanJson = extractPureJson(content);
+
+            try {
+                return mapper.readValue(cleanJson, BookingQuery.class);
+            } catch (Exception e) {
+                System.err.println("❌ JSON không hợp lệ:\n" + cleanJson);
+                throw e;
+            }
         }
+    }
+
+    private String extractPureJson(String content) {
+        // ✅ Loại bỏ markdown ```json ... ```
+        content = content.replaceAll("(?s)```json\\s*(\\{.*?})\\s*```", "$1")
+                .replaceAll("(?s)```\\s*(\\{.*?})\\s*```", "$1");
+
+        // ✅ Tìm đoạn JSON hợp lệ
+        Pattern pattern = Pattern.compile("\\{.*?}", Pattern.DOTALL);
+        Matcher matcher = pattern.matcher(content);
+
+        while (matcher.find()) {
+            String candidate = matcher.group();
+            try {
+                mapper.readTree(candidate); // check hợp lệ
+                return candidate;
+            } catch (Exception ignored) {}
+        }
+
+        throw new IllegalArgumentException("❌ Không tìm thấy JSON hợp lệ:\n" + content);
     }
 
     private String buildPrompt(String userInput) {
@@ -84,18 +112,16 @@ public class AIChat {
                 "%s"
                 """.formatted(userInput);
     }
-    LocalDate today = LocalDate.now();
-    String todayStr = today.toString(); // yyyy-MM-dd
-    String plus1 = today.plusDays(1).toString();
-    String plus2 = today.plusDays(2).toString();
 
-    String finalPrompt = SYSTEM_INSTRUCTION
-            .replace("{{today}}", todayStr)
-            .replace("{{plus1}}", plus1)
-            .replace("{{plus2}}", plus2);
+    private static final String SYSTEM_INSTRUCTION;
 
+    static {
+        LocalDate today = LocalDate.now();
+        String todayStr = today.toString();
+        String plus1 = today.plusDays(1).toString();
+        String plus2 = today.plusDays(2).toString();
 
-    private static final String SYSTEM_INSTRUCTION = """
+        SYSTEM_INSTRUCTION = """
 Bạn là trợ lý AI chuyên xử lý đặt sân thể thao. Hãy trích xuất ngày, khoảng thời gian đặt sân, và loại sân từ yêu cầu của người dùng và trả về dưới dạng JSON **THUẦN** với định dạng sau:
 
 {
@@ -144,37 +170,16 @@ Bạn là trợ lý AI chuyên xử lý đặt sân thể thao. Hãy trích xu�
    - Giờ từ 7h tối trở đi hiểu là buổi tối (19h+)
 
 📅 QUY TẮC XỬ LÝ NGÀY:
-- Nếu người dùng ghi "hôm nay", sử dụng ngày hiện tại (ví dụ: "2025-05-29")
-- Nếu ghi "ngày mai", cộng thêm 1 ngày
-- Nếu ghi "ngày kia", cộng thêm 2 ngày
+- Nếu người dùng ghi "hôm nay", sử dụng ngày hiện tại (ví dụ: "%s")
+- Nếu ghi "ngày mai", cộng thêm 1 ngày (%s)
+- Nếu ghi "ngày kia", cộng thêm 2 ngày (%s)
 - Nếu có ngày cụ thể như "20/5", chuyển về định dạng yyyy-MM-dd
 
 💡 Nếu không xác định được ngày hoặc giờ hợp lệ, trả về slotList rỗng và bookingDate là null hoặc rỗng. Nếu không xác định được loại sân thì pitchType là null.
 
 🎯 Chỉ trả về JSON thuần. Không kèm theo bất kỳ giải thích, markdown, hoặc ký tự khác.
-
-            📌 Ví dụ (giả sử hôm nay là {{today}}):
-            - Input: "Tôi cần đặt sân vào ngày mai lúc 6h tối" \s
-            - Output: {"bookingDate": "{{plus1}}", "slotList": [13], "pitchType": null}
-
-            - Input: "Đặt sân hôm nay từ 1h đến 2h chiều" \s
-            - Output: {"bookingDate": "{{today}}", "slotList": [8], "pitchType": null}
-
-            - Input: "Tôi muốn đặt sân vào ngày kia từ 8h sáng tới 10h sáng" \s
-            - Output: {"bookingDate": "{{plus2}}", "slotList": [3, 4], "pitchType": null}
-
-            - Input: "Cho tôi đặt sân 5 lúc 6h-7h hôm nay" \s
-            - Output: {"bookingDate": "{{today}}", "slotList": [1], "pitchType": "FIVE_A_SIDE"}
-
-            - Input: "Tôi muốn đặt sân lớn vào ngày mai từ 19h đến 21h" \s
-            - Output: {"bookingDate": "{{plus1}}", "slotList": [14, 15], "pitchType": "ELEVEN_A_SIDE"}
-
-            - Input: "Đặt sân lúc 9h hôm nay" \s
-            - Output: {"bookingDate": "{{today}}", "slotList": [4], "pitchType": null}
-""";
-
-
-
+""".formatted(todayStr, plus1, plus2);
+    }
 
     public static class BookingQuery {
         public String bookingDate;
