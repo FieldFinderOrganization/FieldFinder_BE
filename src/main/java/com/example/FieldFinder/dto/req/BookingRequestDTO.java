@@ -17,6 +17,7 @@ public class BookingRequestDTO {
     private UUID pitchId;
     private UUID userId;
     private LocalDate bookingDate;
+    private BigDecimal totalPrice;
     private List<BookingDetailDTO> bookingDetails;
 
     @Setter

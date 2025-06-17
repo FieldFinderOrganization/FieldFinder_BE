@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+@CrossOrigin("*")
 @RestController
 @RequestMapping("/api/payment")
 @RequiredArgsConstructor
@@ -27,7 +28,10 @@ public class PaymentWebhookController {
     public ResponseEntity<String> handleWebhook(@RequestBody WebhookRequestDTO request) {
         String transactionId = request.getData().getTransactionId();
 
-        log.info("📩 Received webhook for transactionId: {}", transactionId);
+        if ("124c33293c43417ab7879e14c8d9eb18".equals(transactionId)) {
+            log.info("✅ Received test webhook. Ignoring.");
+            return ResponseEntity.ok("Test webhook received");
+        }
 
         Payment payment = paymentRepository.findByTransactionId(transactionId)
                 .orElseThrow(() -> new RuntimeException("Payment not found"));

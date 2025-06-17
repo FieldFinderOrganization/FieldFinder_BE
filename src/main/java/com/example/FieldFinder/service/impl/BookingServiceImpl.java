@@ -101,10 +101,11 @@ public class BookingServiceImpl implements BookingService {
         Pitch pitch = pitchRepository.findById(bookingRequest.getPitchId())
                 .orElseThrow(() -> new RuntimeException("Pitch not found"));
 
-        BigDecimal totalPrice = bookingRequest.getBookingDetails().stream()
-                .map(BookingRequestDTO.BookingDetailDTO::getPriceDetail)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+//        BigDecimal totalPrice = bookingRequest.getBookingDetails().stream()
+//                .map(BookingRequestDTO.BookingDetailDTO::getPriceDetail)
+//                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        BigDecimal totalPrice = bookingRequest.getTotalPrice();
         Booking booking = Booking.builder()
                 .user(user)
                 .bookingDate(bookingRequest.getBookingDate())
