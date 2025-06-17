@@ -14,5 +14,7 @@ public interface UserService {
     UserResponseDTO updateUser(UUID userId, UserUpdateRequestDTO userUpdateRequestDTO);
     List<UserResponseDTO> getAllUsers();
     UserResponseDTO updateUserStatus(UUID userId, String status);
+    void sendPasswordResetEmail(String email);
+    void resetPassword(String token, String newPassword);
 
 }

@@ -4,8 +4,11 @@ import com.example.FieldFinder.dto.req.LoginRequestDTO;
 import com.example.FieldFinder.dto.req.UserRequestDTO;
 import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
 import com.example.FieldFinder.dto.res.UserResponseDTO;
+import com.example.FieldFinder.entity.PasswordResetToken;
 import com.example.FieldFinder.entity.User;
+import com.example.FieldFinder.repository.PasswordResetTokenRepository;
 import com.example.FieldFinder.repository.UserRepository;
+import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.UserService;
 import jakarta.transaction.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -16,6 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -24,10 +28,14 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final EmailService emailService;
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
 
-    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, EmailService emailService, PasswordResetTokenRepository passwordResetTokenRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.emailService = emailService;
+        this.passwordResetTokenRepository = passwordResetTokenRepository;
     }
 
     @Override
@@ -103,6 +111,44 @@ public class UserServiceImpl implements UserService {
         userRepository.save(user);
         return UserResponseDTO.toDto(user);
     }
+    @Override
+    public void sendPasswordResetEmail(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Email not found"));
 
+        String token = UUID.randomUUID().toString();
 
+        PasswordResetToken resetToken = PasswordResetToken.builder()
+                .token(token)
+                .user(user)
+                .expiryDate(LocalDateTime.now().plusMinutes(30))
+                .build();
+
+        passwordResetTokenRepository.save(resetToken);
+
+        String resetLink = "http://localhost:8080/api/users/reset-password?token=" + token;
+
+        emailService.send(
+                email,
+                "Password Reset",
+                "Click the link below to reset your password:\n" + resetLink
+        );
+    }
+
+    @Override
+    public void resetPassword(String token, String newPassword) {
+        PasswordResetToken resetToken = passwordResetTokenRepository.findByToken(token)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid token"));
+
+        if (resetToken.getExpiryDate().isBefore(LocalDateTime.now())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token expired");
+        }
+
+        User user = resetToken.getUser();
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        passwordResetTokenRepository.delete(resetToken); // invalidate token
+    }
 }
+
