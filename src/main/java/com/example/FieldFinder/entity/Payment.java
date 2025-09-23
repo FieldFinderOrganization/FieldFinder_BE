@@ -42,7 +42,10 @@ public class Payment {
     @Column(name = "TransactionId", unique = true, nullable = false)
     private String transactionId;
 
+    @Column(name = "checkout_url")
+    private String checkoutUrl;
+
     public enum PaymentMethod {
-        MOMO, VNPAY, PAYPAL, BANK
+        BANK, TIENMAT
     }
 }

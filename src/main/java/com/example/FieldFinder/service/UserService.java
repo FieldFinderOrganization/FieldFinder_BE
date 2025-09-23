@@ -13,5 +13,6 @@ public interface UserService {
     UserResponseDTO loginUser(LoginRequestDTO loginRequestDTO);
     UserResponseDTO updateUser(UUID userId, UserUpdateRequestDTO userUpdateRequestDTO);
     List<UserResponseDTO> getAllUsers();
+    UserResponseDTO updateUserStatus(UUID userId, String status);
 
 }

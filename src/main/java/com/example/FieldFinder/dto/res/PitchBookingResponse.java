@@ -15,8 +15,10 @@ public class PitchBookingResponse {
     private List<Integer> slotList;
     private String pitchType;
 
+    // Constructor mặc định
     public PitchBookingResponse() {}
 
+    // Constructor với tất cả tham số kiểu String
     public PitchBookingResponse(UUID pitchId, String name, BigDecimal price, String description,
                                 String bookingDate, List<Integer> slotList, String pitchType) {
         this.pitchId = pitchId;
@@ -28,7 +30,19 @@ public class PitchBookingResponse {
         this.pitchType = pitchType;
     }
 
-    // Getters and Setters
+    // Constructor với Pitch.PitchType, chuyển đổi enum thành String
+    public PitchBookingResponse(UUID pitchId, String name, BigDecimal price, String description,
+                                String bookingDate, List<Integer> slotList, Pitch.PitchType type) {
+        this.pitchId = pitchId;
+        this.name = name;
+        this.price = price;
+        this.description = description;
+        this.bookingDate = bookingDate;
+        this.slotList = slotList;
+        this.pitchType = type != null ? type.name() : null; // Chuyển đổi PitchType thành String
+    }
+
+    // Getters và Setters
     public UUID getPitchId() {
         return pitchId;
     }
@@ -77,6 +91,7 @@ public class PitchBookingResponse {
         this.slotList = slotList;
     }
 
+    // Phương thức getPitchType đã có sẵn
     public String getPitchType() {
         return pitchType;
     }

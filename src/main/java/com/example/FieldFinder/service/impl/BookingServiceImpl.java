@@ -2,9 +2,8 @@ package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
+import com.example.FieldFinder.dto.res.BookingResponseDTO;
 import com.example.FieldFinder.entity.Booking;
-import com.example.FieldFinder.entity.Booking.BookingStatus;
-import com.example.FieldFinder.entity.Booking.PaymentStatus;
 import com.example.FieldFinder.entity.BookingDetail;
 import com.example.FieldFinder.entity.Pitch;
 import com.example.FieldFinder.entity.User;
@@ -20,8 +19,6 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -70,25 +67,25 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public List<String> getAvailablePitches(LocalDate bookingDate, List<Integer> requestedSlots, String pitchType) {
-        // 1. Gọi API nội bộ để lấy danh sách pitch đã được đặt slot trong ngày đó
+        // 1. Gọi API nội bộ để lấy danh sách các sân đã được đặt trong ngày
         String url = "http://localhost:8080/api/bookings/slots/all?date=" + bookingDate;
         ResponseEntity<PitchBookedSlotsDTO[]> response = restTemplate.getForEntity(url, PitchBookedSlotsDTO[].class);
         PitchBookedSlotsDTO[] bookedSlots = response.getBody();
 
-        // 2. Lấy danh sách tất cả pitchId từ DB, có lọc theo pitchType nếu được chỉ định
+        // 2. Lấy danh sách tất cả pitchId từ cơ sở dữ liệu, lọc theo pitchType nếu cần
         List<String> allPitchIds = pitchRepository.findAll().stream()
-                .filter(p -> pitchType == null || pitchType.isBlank() ||
+                .filter(p -> pitchType == null || pitchType.isBlank() || pitchType.equals("ALL") ||
                         p.getType().name().equalsIgnoreCase(pitchType))
                 .map(p -> p.getPitchId().toString())
-                .collect(Collectors.toList());
+                .toList();
 
-        // 3. Lọc ra pitch có slot trùng với requestedSlots
+        // 3. Xác định các sân đã được đặt trong các slot yêu cầu
         Set<String> bookedPitches = Arrays.stream(bookedSlots)
                 .filter(p -> p.getBookedSlots().stream().anyMatch(requestedSlots::contains))
                 .map(p -> p.getPitchId().toString())
                 .collect(Collectors.toSet());
 
-        // 4. Trả về danh sách sân còn trống (không bị trùng slot và đúng loại sân)
+        // 4. Trả về danh sách các sân còn trống
         return allPitchIds.stream()
                 .filter(pitchId -> !bookedPitches.contains(pitchId))
                 .collect(Collectors.toList());
@@ -133,15 +130,63 @@ public class BookingServiceImpl implements BookingService {
         return booking;
     }
 
+    @Transactional
+    public ResponseEntity<String> updatePaymentStatus(UUID bookingId, String status) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new RuntimeException("Booking not found"));
+
+        Booking.PaymentStatus newStatus;
+        try {
+            newStatus = Booking.PaymentStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body("Invalid payment status. Allowed values: PENDING, PAID, REFUNDED");
+        }
+
+        booking.setPaymentStatus(newStatus);
+        bookingRepository.save(booking);
+
+        return ResponseEntity.ok("Payment status updated successfully");
+    }
+
 
     @Override
-    public Booking updateBookingStatus(UUID bookingId, String status) {
-        return null;
+    @Transactional
+    public ResponseEntity<String> updateBookingStatus(UUID bookingId, String status) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new RuntimeException("Booking not found"));
+
+        Booking.BookingStatus newStatus;
+        try {
+            newStatus = Booking.BookingStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body("Invalid booking status. Allowed values: PENDING, CONFIRMED, CANCELED");
+        }
+
+        booking.setStatus(newStatus);
+        bookingRepository.save(booking);
+
+        return ResponseEntity.ok("Booking status updated successfully");
+    }
+
+
+    @Override
+    public List<BookingResponseDTO> getBookingsByUser(UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        List<Booking> bookings = bookingRepository.findByUser(user);
+
+        return bookings.stream()
+                .map(BookingResponseDTO::fromEntity)  // convert each booking to DTO
+                .collect(Collectors.toList());
     }
 
     @Override
-    public List<Booking> getBookingsByUser(UUID userId) {
-        return List.of();
+    public List<BookingResponseDTO> getAllBookings() {
+        List<Booking> bookings = bookingRepository.findAll();
+        return bookings.stream()
+                .map(BookingResponseDTO::fromEntity)
+                .collect(Collectors.toList());
     }
 
     @Override
