@@ -58,7 +58,7 @@ public class BookingServiceImpl implements BookingService {
                         Collectors.mapping(BookingDetail::getSlot, Collectors.toList())
                 ));
 
-        // Map to a DTO list
+        // Map to DTO list
         return grouped.entrySet().stream()
                 .map(entry -> new PitchBookedSlotsDTO(entry.getKey(),
                         entry.getValue().stream().distinct().collect(Collectors.toList())))
@@ -67,36 +67,31 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public List<String> getAvailablePitches(LocalDate bookingDate, List<Integer> requestedSlots, String pitchType) {
-        // 1. Lấy danh sách tất cả pitchId từ DB, có lọc theo pitchType
-        List<Pitch> allPitches = pitchRepository.findAll();
-        List<String> allPitchIds = allPitches.stream()
-                .filter(p -> "ALL".equalsIgnoreCase(pitchType) || p.getType().name().equalsIgnoreCase(pitchType))
+        // 1. Gọi API nội bộ để lấy danh sách pitch đã được đặt slot trong ngày đó
+        String url = "http://localhost:8080/api/bookings/slots/all?date=" + bookingDate;
+        ResponseEntity<PitchBookedSlotsDTO[]> response = restTemplate.getForEntity(url, PitchBookedSlotsDTO[].class);
+        PitchBookedSlotsDTO[] bookedSlots = response.getBody();
+
+        // 2. Lấy danh sách tất cả pitchId từ DB, có lọc theo pitchType nếu được chỉ định
+        List<String> allPitchIds = pitchRepository.findAll().stream()
+                .filter(p -> pitchType == null || pitchType.isBlank() ||
+                        p.getType().name().equalsIgnoreCase(pitchType))
                 .map(p -> p.getPitchId().toString())
                 .collect(Collectors.toList());
 
-        // 2. Lấy danh sách slot đã đặt cho ngày yêu cầu
-        List<BookingDetail> bookingDetails = bookingDetailRepository.findByBooking_BookingDate(bookingDate);
-        Map<UUID, List<Integer>> bookedSlotsByPitch = bookingDetails.stream()
-                .collect(Collectors.groupingBy(
-                        bd -> bd.getPitch().getPitchId(),
-                        Collectors.mapping(BookingDetail::getSlot, Collectors.toList())
-                ));
+        // 3. Lọc ra pitch có slot trùng với requestedSlots
+        Set<String> bookedPitches = Arrays.stream(bookedSlots)
+                .filter(p -> p.getBookedSlots().stream().anyMatch(requestedSlots::contains))
+                .map(p -> p.getPitchId().toString())
+                .collect(Collectors.toSet());
 
-        // 3. Lọc sân trống (không có slot nào trong requestedSlots bị đặt)
+        // 4. Trả về danh sách sân còn trống (không bị trùng slot và đúng loại sân)
         return allPitchIds.stream()
-                .filter(pitchId -> {
-                    List<Integer> bookedSlots = bookedSlotsByPitch.getOrDefault(UUID.fromString(pitchId), Collections.emptyList());
-                    // Sân trống nếu không có slot nào trong requestedSlots bị đặt
-                    return requestedSlots.stream().noneMatch(bookedSlots::contains);
-                })
+                .filter(pitchId -> !bookedPitches.contains(pitchId))
                 .collect(Collectors.toList());
     }
 
-    @Override
-    public boolean isPitchAvailable(UUID pitchId, LocalDate date, List<Integer> slotList, String pitchType) {
-        List<String> availablePitches = (List<String>) getAvailablePitches(date, slotList, pitchType);
-        return availablePitches.contains(pitchId.toString());
-    }
+
 
     @Override
     @Transactional
