@@ -2,6 +2,7 @@ package com.example.FieldFinder.ai;
 
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.service.PitchService;
+import com.example.FieldFinder.service.ReviewService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.cdimascio.dotenv.Dotenv;
@@ -23,6 +24,7 @@ public class AIChat {
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
     private final PitchService pitchService;
+    private final ReviewService reviewService;
 
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 1100;
     private long lastCallTime = 0;
@@ -38,8 +40,9 @@ public class AIChat {
         }
     }
 
-    public AIChat(PitchService pitchService) {
+    public AIChat(PitchService pitchService, ReviewService reviewService) {
         this.pitchService = pitchService;
+        this.reviewService = reviewService;
     }
 
     private synchronized void waitIfNeeded() throws InterruptedException {
@@ -76,7 +79,6 @@ public class AIChat {
 
         waitIfNeeded();
 
-        // Sửa lại cách tạo Headers
         Headers headers = new Headers.Builder()
                 .add("Authorization", "Bearer " + OPENROUTER_API_KEY)
                 .add("Content-Type", "application/json")
@@ -88,7 +90,7 @@ public class AIChat {
                 .url(OPENROUTER_API_URL)
                 .post(RequestBody.create(mapper.writeValueAsString(body),
                         MediaType.parse("application/json")))
-                .headers(headers)  // Sử dụng headers đã tạo
+                .headers(headers)
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
@@ -109,55 +111,118 @@ public class AIChat {
         return mapper.readValue(cleanJson, BookingQuery.class);
     }
 
-    private void processSpecialCases(String userInput, String sessionId,
-                                     BookingQuery query, List<PitchResponseDTO> allPitches) {
-        // Xử lý sân rẻ nhất/mắc nhất
+    private void processSpecialCases(String userInput, String sessionId, BookingQuery query, List<PitchResponseDTO> allPitches) {
+        String pitchType = extractPitchType(userInput); // Trích xuất loại sân từ input
+
         if (query.message != null) {
             if (query.message.contains("giá rẻ nhất") || query.message.contains("giá mắc nhất")) {
-                PitchResponseDTO selectedPitch = findPitchByPrice(allPitches,
-                        query.message.contains("giá rẻ nhất"));
-
+                boolean findCheapest = query.message.contains("giá rẻ nhất");
+                PitchResponseDTO selectedPitch = findPitchByPrice(allPitches, findCheapest, pitchType);
                 if (selectedPitch != null) {
                     sessionPitches.put(sessionId, selectedPitch);
                     query.data.put("selectedPitch", selectedPitch);
+                    query.message = findCheapest
+                            ? "Sân rẻ nhất loại " + formatPitchType(pitchType) + " là " + selectedPitch.getName() + " với giá " + selectedPitch.getPrice() + " VNĐ."
+                            : "Sân mắc nhất loại " + formatPitchType(pitchType) + " là " + selectedPitch.getName() + " với giá " + selectedPitch.getPrice() + " VNĐ.";
+                } else {
+                    query.message = "Không tìm thấy sân nào loại " + formatPitchType(pitchType) + ".";
+                }
+            } else if (query.message.contains("đánh giá cao nhất") ||
+                    query.message.contains("sân tốt nhất") ||
+                    query.message.contains("sân đánh giá tốt nhất")) {
+                PitchResponseDTO selectedPitch = findPitchByHighestRating(allPitches, pitchType);
+                if (selectedPitch != null) {
+                    sessionPitches.put(sessionId, selectedPitch);
+                    query.data.put("selectedPitch", selectedPitch);
+                    query.message = "Sân có đánh giá cao nhất loại " + formatPitchType(pitchType) + " là " + selectedPitch.getName() + ".";
+                } else {
+                    query.message = "Không tìm thấy sân nào có đánh giá loại " + formatPitchType(pitchType) + ".";
                 }
             }
         }
 
-        // Xử lý "sân này" với fallback
         if (userInput.contains("sân này")) {
             PitchResponseDTO selectedPitch = sessionPitches.get(sessionId);
             if (selectedPitch == null) {
                 selectedPitch = findPitchByContext(userInput, allPitches);
+                if (selectedPitch != null) {
+                    sessionPitches.put(sessionId, selectedPitch);
+                }
             }
-
             if (selectedPitch != null) {
                 query.data.put("selectedPitch", selectedPitch);
+                if (query.message == null) {
+                    query.message = "Đang xử lý đặt sân " + selectedPitch.getName() + "...";
+                }
             } else {
                 query.message = "Không tìm thấy sân phù hợp. Vui lòng chọn sân trước.";
             }
         }
     }
 
-    private PitchResponseDTO findPitchByPrice(List<PitchResponseDTO> pitches, boolean findCheapest) {
-        if (pitches.isEmpty()) return null;
+    private PitchResponseDTO findPitchByPrice(List<PitchResponseDTO> pitches, boolean findCheapest, String pitchType) {
+        List<PitchResponseDTO> filteredPitches = pitches;
+        if (!pitchType.equals("ALL")) {
+            filteredPitches = pitches.stream()
+                    .filter(p -> p.getType().name().equals(pitchType))
+                    .collect(Collectors.toList());
+        }
+        if (filteredPitches.isEmpty()) return null;
 
         return findCheapest
-                ? pitches.stream().min(Comparator.comparing(PitchResponseDTO::getPrice)).orElse(null)
-                : pitches.stream().max(Comparator.comparing(PitchResponseDTO::getPrice)).orElse(null);
+                ? filteredPitches.stream().min(Comparator.comparing(PitchResponseDTO::getPrice)).orElse(null)
+                : filteredPitches.stream().max(Comparator.comparing(PitchResponseDTO::getPrice)).orElse(null);
+    }
+
+    private PitchResponseDTO findPitchByHighestRating(List<PitchResponseDTO> pitches, String pitchType) {
+        List<PitchResponseDTO> filteredPitches = pitches;
+        if (!pitchType.equals("ALL")) {
+            filteredPitches = pitches.stream()
+                    .filter(p -> p.getType().name().equals(pitchType))
+                    .collect(Collectors.toList());
+        }
+        if (filteredPitches.isEmpty()) return null;
+
+        return filteredPitches.stream()
+                .map(pitch -> new AbstractMap.SimpleEntry<>(pitch, reviewService.getAverageRating(pitch.getPitchId())))
+                .filter(entry -> entry.getValue() != null)
+                .max(Comparator.comparingDouble(entry -> entry.getValue()))
+                .map(Map.Entry::getKey)
+                .orElse(null);
+    }
+
+    private String extractPitchType(String userInput) {
+        String lowerInput = userInput.toLowerCase();
+        if (lowerInput.contains("sân 5") || lowerInput.contains("sân 5 người") || lowerInput.contains("sân nhỏ") || lowerInput.contains("sân mini")) {
+            return "FIVE_A_SIDE";
+        } else if (lowerInput.contains("sân 7") || lowerInput.contains("sân 7 người") || lowerInput.contains("sân trung")) {
+            return "SEVEN_A_SIDE";
+        } else if (lowerInput.contains("sân 11") || lowerInput.contains("sân 11 người") || lowerInput.contains("sân lớn")) {
+            return "ELEVEN_A_SIDE";
+        }
+        return "ALL";
     }
 
     private PitchResponseDTO findPitchByContext(String userInput, List<PitchResponseDTO> pitches) {
+        String pitchType = extractPitchType(userInput);
         if (userInput.contains("rẻ nhất")) {
-            return findPitchByPrice(pitches, true);
+            return findPitchByPrice(pitches, true, pitchType);
         } else if (userInput.contains("mắc nhất")) {
-            return findPitchByPrice(pitches, false);
+            return findPitchByPrice(pitches, false, pitchType);
+        } else if (isHighestRatedPitchQuestion(userInput)) {
+            return findPitchByHighestRating(pitches, pitchType);
         }
         return null;
     }
 
+    private boolean isHighestRatedPitchQuestion(String input) {
+        String lowerInput = input.toLowerCase();
+        return lowerInput.contains("đánh giá cao nhất") ||
+                lowerInput.contains("sân tốt nhất") ||
+                lowerInput.contains("sân đánh giá tốt nhất");
+    }
+
     public BookingQuery parseBookingInput(String userInput, String sessionId) throws IOException, InterruptedException {
-        // Xử lý câu chào
         if (isGreeting(userInput)) {
             BookingQuery query = new BookingQuery();
             query.message = "Xin chào! Tôi là trợ lý đặt sân thể thao. Bạn muốn đặt sân vào ngày nào và khung giờ nào?";
@@ -167,12 +232,10 @@ public class AIChat {
             return query;
         }
 
-        // Chuẩn bị dữ liệu sân cho prompt
         List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
         Map<String, Long> pitchCount = allPitches.stream()
                 .collect(Collectors.groupingBy(p -> p.getType().name(), Collectors.counting()));
 
-        // Chuẩn bị prompt với thông tin cập nhật
         String finalPrompt = buildSystemPrompt(
                 allPitches.size(),
                 pitchCount.getOrDefault("FIVE_A_SIDE", 0L),
@@ -180,11 +243,9 @@ public class AIChat {
                 pitchCount.getOrDefault("ELEVEN_A_SIDE", 0L)
         );
 
-        // Gọi API AI
         String cleanJson = callOpenRouterAPI(userInput, finalPrompt);
         System.out.println("Cleaned JSON: " + cleanJson);
 
-        // Parse response
         BookingQuery query = parseAIResponse(cleanJson);
 
         if (isTotalPitchesQuestion(userInput)) {
@@ -200,7 +261,24 @@ public class AIChat {
             return handlePitchCountByTypeQuestion();
         }
 
-        // Xử lý logic đặc biệt
+        if (isHighestRatedPitchQuestion(userInput)) {
+            String pitchType = extractPitchType(userInput);
+            PitchResponseDTO highestRatedPitch = findPitchByHighestRating(allPitches, pitchType);
+            BookingQuery response = new BookingQuery();
+            response.message = highestRatedPitch != null
+                    ? "Sân có đánh giá cao nhất loại " + formatPitchType(pitchType) + " là " + highestRatedPitch.getName() + "."
+                    : "Không tìm thấy sân nào có đánh giá loại " + formatPitchType(pitchType) + ".";
+            response.bookingDate = null;
+            response.slotList = new ArrayList<>();
+            response.pitchType = pitchType;
+            response.data = new HashMap<>();
+            if (highestRatedPitch != null) {
+                response.data.put("selectedPitch", highestRatedPitch);
+                sessionPitches.put(sessionId, highestRatedPitch);
+            }
+            return response;
+        }
+
         processSpecialCases(userInput, sessionId, query, allPitches);
 
         return query;
@@ -209,17 +287,14 @@ public class AIChat {
     private BookingQuery handlePitchCountByTypeQuestion() {
         List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
 
-        // Đếm số sân theo loại
         Map<String, Long> pitchCounts = allPitches.stream()
                 .collect(Collectors.groupingBy(
                         p -> p.getType().name(),
                         Collectors.counting()
                 ));
 
-        // Tạo thông điệp trả về - CHỈ MỘT DÒNG DUY NHẤT
         StringBuilder message = new StringBuilder("Số lượng sân theo loại: ");
 
-        // Sắp xếp các loại sân theo thứ tự: 5, 7, 11
         List<Map.Entry<String, Long>> sortedEntries = new ArrayList<>(pitchCounts.entrySet());
         sortedEntries.sort(Comparator.comparing(entry -> {
             String type = entry.getKey();
@@ -229,22 +304,19 @@ public class AIChat {
             return 4;
         }));
 
-        // Tạo danh sách các phần tử đã định dạng
         List<String> parts = new ArrayList<>();
         for (Map.Entry<String, Long> entry : sortedEntries) {
             String typeName = formatPitchType(entry.getKey());
             parts.add(typeName + ": " + entry.getValue() + " sân");
         }
 
-        // Ghép các phần tử thành một chuỗi duy nhất
         message.append(String.join(", ", parts));
 
-        // Tạo response
         BookingQuery query = new BookingQuery();
-        query.message = message.toString(); // CHỈ TRẢ VỀ MỘT CHUỖI
+        query.message = message.toString();
         query.bookingDate = null;
         query.slotList = new ArrayList<>();
-        query.pitchType = "ALL";
+        query.pitchType = "Tất cả";
         query.data = new HashMap<>();
 
         return query;
@@ -253,12 +325,10 @@ public class AIChat {
     private BookingQuery handlePitchTypesQuestion() {
         List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
 
-        // Lấy tất cả các loại sân duy nhất
         Set<String> pitchTypes = allPitches.stream()
                 .map(p -> p.getType().name())
                 .collect(Collectors.toSet());
 
-        // Tạo message trả về
         String message;
         if (pitchTypes.isEmpty()) {
             message = "Hiện không có sân nào trong hệ thống";
@@ -359,6 +429,36 @@ public class AIChat {
                 """.formatted(userInput);
     }
 
+    public static class BookingQuery {
+        public String bookingDate;
+        public List<Integer> slotList;
+        public String pitchType;
+        public String message;
+        public Map<String, Object> data;
+
+        @Override
+        public String toString() {
+            return "BookingQuery{" +
+                    "bookingDate='" + bookingDate + '\'' +
+                    ", slotList=" + slotList +
+                    ", pitchType='" + pitchType + '\'' +
+                    ", message='" + message + '\'' +
+                    ", data=" + data +
+                    '}';
+        }
+    }
+
+    public PitchResponseDTO findPitchByContext(String userInput) {
+        List<PitchResponseDTO> pitches = pitchService.getAllPitches();
+        String pitchType = extractPitchType(userInput);
+        if (userInput.contains("rẻ nhất")) {
+            return findPitchByPrice(pitches, true, pitchType);
+        } else if (userInput.contains("mắc nhất")) {
+            return findPitchByPrice(pitches, false, pitchType);
+        }
+        return null;
+    }
+
     private static final String SYSTEM_INSTRUCTION = """
 Bạn là trợ lý AI chuyên xử lý các yêu cầu liên quan đến sân thể thao. Hãy phân tích input của người dùng và trả về JSON **THUẦN** với định dạng sau, đảm bảo không có lỗi cú pháp và đúng chính tả:
 
@@ -446,42 +546,12 @@ Bạn là trợ lý AI chuyên xử lý các yêu cầu liên quan đến sân t
 6. Hỏi số sân theo loại (ví dụ: "Mỗi loại sân có bao nhiêu sân?"):
    - `data`: {"pitchCounts": {"FIVE_A_SIDE": {{fiveASideCount}}, "SEVEN_A_SIDE": {{sevenASideCount}}, "ELEVEN_A_SIDE": {{elevenASideCount}}}}
    - `message`: "Số lượng sân theo loại: sân 5 người: {{fiveASideCount}} sân, sân 7 người: {{sevenASideCount}} sân, sân 11 người: {{elevenASideCount}} sân."
-7. Đề cập "sân này" (ví dụ: "Đặt sân này lúc 7h ngày mai"):
-   - Nếu có sân trong ngữ cảnh (rẻ nhất/mắc nhất), tự động sử dụng sân đó
-   - Nếu không có sân trong session, tìm sân rẻ/mắc nhất theo yêu cầu trước đó
+7. Hỏi sân có đánh giá cao nhất (ví dụ: "Sân nào có đánh giá cao nhất?"):
+   - `data`: {"selectedPitch": {"pitchId": "uuid", "name": "tên sân", "price": số, "description": "mô tả", "type": "FIVE_A_SIDE | SEVEN_A_SIDE | ELEVEN_A_SIDE"}}
+   - `message`: "Sân có đánh giá cao nhất là [tên sân]."
+8. Đề cập "sân này" (ví dụ: "Đặt sân này lúc 7h ngày mai"):
+   - Nếu có sân trong ngữ cảnh (rẻ nhất/mắc nhất/đánh giá cao nhất), tự động sử dụng sân đó
+   - Nếu không có sân trong session, tìm sân rẻ/mắc nhất/đánh giá cao nhất theo yêu cầu trước đó
    - `message`: "Đang xử lý đặt sân [tên sân]..."
 """;
-
-    public static class BookingQuery {
-        public String bookingDate;
-        public List<Integer> slotList;
-        public String pitchType;
-        public String message;
-        public Map<String, Object> data;
-
-        @Override
-        public String toString() {
-            return "BookingQuery{" +
-                    "bookingDate='" + bookingDate + '\'' +
-                    ", slotList=" + slotList +
-                    ", pitchType='" + pitchType + '\'' +
-                    ", message='" + message + '\'' +
-                    ", data=" + data +
-                    '}';
-        }
-    }
-
-    public PitchResponseDTO findPitchByContext(String userInput) {
-        List<PitchResponseDTO> pitches = pitchService.getAllPitches();
-        if (userInput.contains("rẻ nhất")) {
-            return pitches.stream()
-                    .min(Comparator.comparing(PitchResponseDTO::getPrice))
-                    .orElse(null);
-        } else if (userInput.contains("mắc nhất")) {
-            return pitches.stream()
-                    .max(Comparator.comparing(PitchResponseDTO::getPrice))
-                    .orElse(null);
-        }
-        return null;
-    }
 }
