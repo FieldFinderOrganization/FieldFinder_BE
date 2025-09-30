@@ -27,4 +27,5 @@ public interface BookingService {
     List<String> getAvailablePitches(LocalDate date, List<Integer> slots, String pitchType );
     ResponseEntity<String> updatePaymentStatus(UUID bookingId, String paymentStatus);
 
+    boolean isPitchAvailable(UUID pitchId, LocalDate date, List<Integer> slotList, String name);
 }

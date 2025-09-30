@@ -71,6 +71,8 @@ public class BookingController {
         return ResponseEntity.ok(availablePitches);
     }
 
+
+
     @PostMapping("/ai-chat")
     public ResponseEntity<?> getAvailablePitchFromAI(
             @RequestBody String userInput,
@@ -79,16 +81,40 @@ public class BookingController {
         try {
             // Tạo sessionId mới nếu không có từ header
             if (sessionId == null || sessionId.isEmpty()) {
-                sessionId = getSessionId();
+                sessionId = UUID.randomUUID().toString();
             }
 
             AIChat.BookingQuery query = aiChat.parseBookingInput(userInput, sessionId);
 
-            // Thêm sessionId vào response để FE có thể sử dụng
-            Map<String, Object> responseHeaders = new HashMap<>();
-            responseHeaders.put("X-Session-Id", sessionId);
+            // Xử lý câu hỏi về sân có đánh giá cao nhất
+            if (query.message != null && query.message.contains("đánh giá cao nhất")) {
+                PitchResponseDTO selectedPitch = (PitchResponseDTO) query.data.get("selectedPitch");
+                if (selectedPitch != null) {
+                    PitchBookingResponse response = new PitchBookingResponse(
+                            selectedPitch.getPitchId(),
+                            selectedPitch.getName(),
+                            selectedPitch.getPrice(),
+                            selectedPitch.getDescription(),
+                            null,
+                            new ArrayList<>(),
+                            selectedPitch.getType()
+                    );
+                    return ResponseEntity.ok()
+                            .header("X-Session-Id", sessionId)
+                            .body(List.of(response));
+                } else {
+                    return ResponseEntity.ok()
+                            .header("X-Session-Id", sessionId)
+                            .body(Map.of(
+                                    "message", "Không tìm thấy sân nào có đánh giá.",
+                                    "data", new HashMap<>()
+                            ));
+                }
+            }
 
+            // Xử lý các trường hợp đặc biệt
             if (query.message != null) {
+                // Xử lý câu hỏi về giá rẻ nhất hoặc mắc nhất
                 if (query.message.contains("giá rẻ nhất") || query.message.contains("giá mắc nhất")) {
                     PitchResponseDTO selectedPitch = (PitchResponseDTO) query.data.get("selectedPitch");
                     if (selectedPitch != null) {
@@ -112,19 +138,29 @@ public class BookingController {
                                         "data", new HashMap<>()
                                 ));
                     }
-                } else if (userInput.contains("sân này")) {
-                    // Xử lý fallback nếu không có sân trong session
+                }
+                // Xử lý yêu cầu đặt "sân này"
+                else if (userInput.contains("sân này")) {
                     PitchResponseDTO selectedPitch = (PitchResponseDTO) query.data.get("selectedPitch");
                     if (selectedPitch == null) {
-                        selectedPitch = aiChat.findPitchByContext(userInput);
+                        return ResponseEntity.ok()
+                                .header("X-Session-Id", sessionId)
+                                .body(Map.of(
+                                        "message", "Không tìm thấy sân phù hợp. Vui lòng chọn sân trước.",
+                                        "data", new HashMap<>()
+                                ));
                     }
 
-                    if (selectedPitch != null && query.bookingDate != null && !query.slotList.isEmpty()) {
+                    if (query.bookingDate != null && !query.slotList.isEmpty()) {
                         LocalDate date = LocalDate.parse(query.bookingDate);
-                        List<String> availablePitches = bookingService.getAvailablePitches(
-                                date, query.slotList, selectedPitch.getType().name());
+                        boolean isAvailable = bookingService.isPitchAvailable(
+                                selectedPitch.getPitchId(),
+                                date,
+                                query.slotList,
+                                selectedPitch.getType().name()
+                        );
 
-                        if (availablePitches.contains(selectedPitch.getPitchId().toString())) {
+                        if (isAvailable) {
                             PitchBookingResponse response = new PitchBookingResponse(
                                     selectedPitch.getPitchId(),
                                     selectedPitch.getName(),
@@ -141,7 +177,7 @@ public class BookingController {
                             return ResponseEntity.ok()
                                     .header("X-Session-Id", sessionId)
                                     .body(Map.of(
-                                            "message", "Sân này không trống vào thời gian bạn chọn.",
+                                            "message", "Sân " + selectedPitch.getName() + " không trống vào thời gian bạn chọn.",
                                             "data", new HashMap<>()
                                     ));
                         }
@@ -149,14 +185,13 @@ public class BookingController {
                         return ResponseEntity.ok()
                                 .header("X-Session-Id", sessionId)
                                 .body(Map.of(
-                                        "message", selectedPitch == null ?
-                                                "Không tìm thấy sân phù hợp. Vui lòng chọn sân trước." :
-                                                "Vui lòng cung cấp ngày và giờ để đặt sân.",
+                                        "message", "Vui lòng cung cấp ngày và giờ để đặt sân.",
                                         "data", new HashMap<>()
                                 ));
                     }
                 }
 
+                // Trả về phản hồi mặc định cho các câu hỏi khác
                 Map<String, Object> response = new HashMap<>();
                 response.put("message", query.message);
                 response.put("data", query.data);
@@ -165,6 +200,7 @@ public class BookingController {
                         .body(response);
             }
 
+            // Xử lý yêu cầu đặt sân thông thường
             if (query.bookingDate == null || query.slotList == null || query.slotList.isEmpty()) {
                 return ResponseEntity.badRequest()
                         .header("X-Session-Id", sessionId)
@@ -220,12 +256,6 @@ public class BookingController {
             case "ELEVEN_A_SIDE": return "sân 11 người";
             default: return "tất cả sân";
         }
-    }
-
-    private String formatPitchCount(Map<String, Long> pitchCount) {
-        return pitchCount.entrySet().stream()
-                .map(e -> formatPitchType(e.getKey()) + ": " + e.getValue() + " sân")
-                .collect(Collectors.joining(", "));
     }
 
     @PutMapping("/{bookingId}/status")

@@ -37,6 +37,8 @@ public class User {
     @Enumerated(EnumType.STRING)
     private Status status = Status.ACTIVE;
 
+    private String firebaseUid;
+
     public enum Status {
         ACTIVE, BLOCKED
     }
