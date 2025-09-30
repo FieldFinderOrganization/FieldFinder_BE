@@ -213,7 +213,7 @@ public class UserServiceImpl implements UserService {
                             .firebaseUid(uid)
                             .email(email)
                             .name(decodedToken.getName() != null ? decodedToken.getName() : "")
-                            .phone("N/A")
+                            .phone(null)
                             .password("firebase-user")
                             .role(User.Role.USER)
                             .status(User.Status.ACTIVE)
