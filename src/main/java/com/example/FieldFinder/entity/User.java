@@ -33,7 +33,15 @@ public class User {
 
     @Column(name = "Password", nullable = false)
     private String password;
+    @Column(name = "Status", nullable = false)
+    @Enumerated(EnumType.STRING)
+    private Status status = Status.ACTIVE;
 
+    private String firebaseUid;
+
+    public enum Status {
+        ACTIVE, BLOCKED
+    }
     @Enumerated(EnumType.STRING)
     @Column(name = "Role", nullable = false)
     private Role role;
