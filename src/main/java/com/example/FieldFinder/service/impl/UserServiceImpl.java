@@ -61,6 +61,14 @@ public class UserServiceImpl implements UserService {
 
             UserRecord firebaseUser = FirebaseAuth.getInstance().createUser(request);
 
+            String link = FirebaseAuth.getInstance().generateEmailVerificationLink(userRequestDTO.getEmail());
+
+            emailService.send(
+                    userRequestDTO.getEmail(),
+                    "Verify your FieldFinder account",
+                    "Click this link to verify your account: " + link
+            );
+
             // 2. Lưu user vào DB (Firebase quản lý password, nên để null trong DB)
             String encodedPassword = passwordEncoder.encode(userRequestDTO.getPassword());
 
@@ -225,7 +233,5 @@ public class UserServiceImpl implements UserService {
 
         return UserResponseDTO.toDto(user);
     }
-
-
 }
 

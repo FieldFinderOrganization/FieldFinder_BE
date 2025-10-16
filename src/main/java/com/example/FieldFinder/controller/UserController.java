@@ -33,7 +33,6 @@ public class UserController {
         return ResponseEntity.ok(createdUser);
     }
 
-    // ✅ Login with Firebase ID Token (Google, Email/Password, ...)
     @PostMapping("/login")
     public ResponseEntity<?> loginUser(@RequestBody Map<String, String> body) {
         String idToken = body.get("idToken");
