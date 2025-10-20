@@ -25,8 +25,8 @@ public class Category {
 
     @ManyToOne
     @JoinColumn(name = "parent_id")
-    private Category parent; // danh mục cha (nếu có)
+    private Category parent;
 
     @OneToMany(mappedBy = "category", cascade = CascadeType.ALL)
-    private List<Product> products; // danh sách sản phẩm trong danh mục
+    private List<Product> products;
 }

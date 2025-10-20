@@ -28,4 +28,5 @@ public class Product {
     private String imageUrl;
     private String brand;
     private LocalDateTime createdAt = LocalDateTime.now();
+
 }
