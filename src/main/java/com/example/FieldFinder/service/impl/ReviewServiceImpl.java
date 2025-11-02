@@ -29,8 +29,8 @@ public class ReviewServiceImpl implements ReviewService {
 
     @Override
     public ReviewResponseDTO addReview(ReviewRequestDTO requestDTO) {
-        Pitch pitch = pitchRepository.findById(requestDTO.getPitchId()).orElseThrow(() -> new RuntimeException("Pitch not found"));
-        User user = userRepository.findById(requestDTO.getUserId()).orElseThrow(() -> new RuntimeException("User not found"));
+        Pitch pitch = pitchRepository.findById(requestDTO.getPitchId()).orElseThrow(() -> new RuntimeException("Pitch not found!"));
+        User user = userRepository.findById(requestDTO.getUserId()).orElseThrow(() -> new RuntimeException("User not found!"));
 
         Review review = Review.builder()
                 .pitch(pitch)
@@ -46,7 +46,7 @@ public class ReviewServiceImpl implements ReviewService {
 
     @Override
     public ReviewResponseDTO updateReview(UUID reviewId, ReviewRequestDTO requestDTO) {
-        Review review = reviewRepository.findById(reviewId).orElseThrow(() -> new RuntimeException("Review not found"));
+        Review review = reviewRepository.findById(reviewId).orElseThrow(() -> new RuntimeException("Review not found!"));
         review.setRating(requestDTO.getRating());
         review.setComment(requestDTO.getComment());
         review = reviewRepository.save(review);
@@ -55,7 +55,7 @@ public class ReviewServiceImpl implements ReviewService {
 
     @Override
     public void deleteReview(UUID reviewId) {
-        Review review = reviewRepository.findById(reviewId).orElseThrow(() -> new RuntimeException("Review not found"));
+        Review review = reviewRepository.findById(reviewId).orElseThrow(() -> new RuntimeException("Review not found!"));
         reviewRepository.delete(review);
     }
 

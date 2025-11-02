@@ -11,4 +11,5 @@ public class ProductRequestDTO {
     private Integer stockQuantity;
     private String imageUrl;
     private String brand;
+    private String sex;
 }

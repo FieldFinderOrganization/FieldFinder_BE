@@ -52,12 +52,12 @@ public class AuthServiceImpl implements AuthService {
 
 
         if (!otp.getCode().equals(code)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mã OTP không đúng");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP is not correct");
         }
 
         if (otp.getExpiry().isBefore(LocalDateTime.now())) {
             otpRepository.delete(otp);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mã OTP đã hết hạn");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP is expired");
         }
 
         otpRepository.delete(otp);

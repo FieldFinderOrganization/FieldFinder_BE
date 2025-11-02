@@ -47,7 +47,7 @@ public class UserServiceImpl implements UserService {
     public UserResponseDTO createUser(UserRequestDTO userRequestDTO) {
         if (userRepository.existsByEmail(userRequestDTO.getEmail())) {
             throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN, "Email already exists. Please use a different email."
+                    HttpStatus.FORBIDDEN, "Email already exists. Please use a different email!"
             );
         }
 
@@ -89,38 +89,31 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public UserResponseDTO loginUser(LoginRequestDTO loginRequestDTO) {
-        try {
-            // 1. Verify token từ Firebase
-            FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(loginRequestDTO.getIdToken());
-            String uid = decodedToken.getUid();
-            String email = decodedToken.getEmail();
+    public UserResponseDTO loginUser(FirebaseToken decodedToken) {
+        String email = decodedToken.getEmail();
 
-            // 2. Tìm user trong DB theo email (hoặc UID)
-            User user = userRepository.findByEmail(email)
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+        // 1. Tìm user trong DB theo email
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found. Please check your email or register!"));
 
-            if (user.getStatus() == User.Status.BLOCKED) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your account has been blocked. Please contact admin.");
-            }
-
-            // 3. Trả về DTO
-            return UserResponseDTO.toDto(user);
-
-        } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Firebase token: " + e.getMessage());
+        // 2. Kiểm tra trạng thái
+        if (user.getStatus() == User.Status.BLOCKED) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your account has been blocked. Please contact admin!");
         }
+
+        // 3. Trả về DTO
+        return UserResponseDTO.toDto(user);
     }
 
     @Override
     @Transactional
     public UserResponseDTO updateUser(UUID userId, UserUpdateRequestDTO userUpdateRequestDTO) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!"));
 
         // Kiểm tra xem email có bị trùng không (nếu email thay đổi)
         if (!user.getEmail().equals(userUpdateRequestDTO.getEmail()) && userRepository.existsByEmail(userUpdateRequestDTO.getEmail())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists. Please use a different email.");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists. Please use a different email!");
         }
 
         // Cập nhật thông tin
@@ -141,13 +134,13 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserResponseDTO updateUserStatus(UUID userId, String statusStr) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new RuntimeException("User not found!"));
 
         try {
             User.Status newStatus = User.Status.valueOf(statusStr.toUpperCase());
             user.setStatus(newStatus);
         } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Invalid status. Allowed: ACTIVE, BLOCKED");
+            throw new RuntimeException("Invalid status. Allowed: ACTIVE, BLOCKED!");
         }
 
         userRepository.save(user);
@@ -157,7 +150,7 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public void sendPasswordResetEmail(String email) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Email not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Email not found!"));
 
         // Check for an existing token
         PasswordResetToken existingToken = passwordResetTokenRepository.findByUser(user)
@@ -230,6 +223,10 @@ public class UserServiceImpl implements UserService {
 
                     return userRepository.save(newUser);
                 });
+
+        if (user.getStatus() == User.Status.BLOCKED) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your account has been blocked. Please contact admin for more information!");
+        }
 
         return UserResponseDTO.toDto(user);
     }

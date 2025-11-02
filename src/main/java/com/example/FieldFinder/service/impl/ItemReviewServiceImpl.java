@@ -33,10 +33,10 @@ public class ItemReviewServiceImpl implements ItemReviewService {
     @Transactional
     public ItemReviewResponseDTO createReview(ItemReviewRequestDTO request) {
         User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!"));
 
         Product product = productRepository.findById(request.getProductId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy sản phẩm"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find product!"));
 
         Item_Review review = Item_Review.builder()
                 .user(user)

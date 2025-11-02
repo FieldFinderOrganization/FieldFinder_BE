@@ -29,22 +29,24 @@ public class CartServiceImpl implements CartService {
     @Transactional
     public CartResponseDTO createCart(CartRequestDTO request) {
         User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!"));
+
+        List<Cart> existingCarts = cartRepository.findByUser(user);
+
+        if (!existingCarts.isEmpty()) {
+
+            Cart existingCart = existingCarts.get(0);
+            return mapToResponse(existingCart);
+        }
 
         Cart cart = Cart.builder()
                 .user(user)
                 .createdAt(LocalDateTime.now())
                 .build();
 
-
         Cart savedCart = cartRepository.save(cart);
 
-        return CartResponseDTO.builder()
-                .cartId(savedCart.getCartId())
-                .userId(user.getUserId())
-                .userName(user.getName())
-                .createdAt(savedCart.getCreatedAt())
-                .build();
+        return mapToResponse(savedCart);
     }
 
     @Override
@@ -62,7 +64,7 @@ public class CartServiceImpl implements CartService {
     @Override
     public List<CartResponseDTO> getCartsByUserId(UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find user!"));
 
         return cartRepository.findByUser(user).stream()
                 .map(cart -> CartResponseDTO.builder()
@@ -78,7 +80,16 @@ public class CartServiceImpl implements CartService {
     @Transactional
     public void deleteCart(Long cartId) {
         Cart cart = cartRepository.findById(cartId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy giỏ hàng"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find cart!"));
         cartRepository.delete(cart);
+    }
+
+    private CartResponseDTO mapToResponse(Cart cart) {
+        return CartResponseDTO.builder()
+                .cartId(cart.getCartId())
+                .userId(cart.getUser().getUserId())
+                .userName(cart.getUser().getName())
+                .createdAt(cart.getCreatedAt())
+                .build();
     }
 }

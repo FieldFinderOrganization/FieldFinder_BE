@@ -29,23 +29,23 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     public PaymentResponseDTO createPaymentQRCode(PaymentRequestDTO requestDTO) {
         Booking booking = bookingRepository.findById(requestDTO.getBookingId())
-                .orElseThrow(() -> new RuntimeException("Booking not found"));
+                .orElseThrow(() -> new RuntimeException("Booking not found!"));
 
         BookingDetail bookingDetail = booking.getBookingDetails().stream()
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("BookingDetail not found"));
+                .orElseThrow(() -> new RuntimeException("BookingDetail not found!"));
 
         Provider provider = bookingDetail.getPitch()
                 .getProviderAddress()
                 .getProvider();
 
         if (provider == null || provider.getBank() == null || provider.getCardNumber() == null)
-            throw new RuntimeException("Provider or bank info missing");
+            throw new RuntimeException("Provider or bank info missing!");
 
         String bankName = provider.getBank();
         String bankAccountNumber = provider.getCardNumber();
         User providerUser = userRepository.findById(provider.getUserId())
-                .orElseThrow(() -> new RuntimeException("User not found for provider"));
+                .orElseThrow(() -> new RuntimeException("User not found for provider!"));
         String bankAccountName = providerUser.getName() != null ? providerUser.getName() : "SAN BONG";
 
         String bankBin = BankBinMapper.getBankBin(bankName);
@@ -95,7 +95,7 @@ public class PaymentServiceImpl implements PaymentService {
     public List<PaymentResponseDTO> getPaymentsByUserId(UUID userId) {
         // Optionally check if user exists, else throw exception
         userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new RuntimeException("User not found!"));
 
         List<Payment> payments = paymentRepository.findByUser_UserId(userId);
         return payments.stream()
@@ -121,7 +121,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .orElse(null);
 
         if (bookingDetail == null) {
-            throw new RuntimeException("BookingDetail not found for this booking");
+            throw new RuntimeException("BookingDetail not found for this booking!");
         }
 
         Provider provider = bookingDetail.getPitch()
@@ -129,13 +129,13 @@ public class PaymentServiceImpl implements PaymentService {
                 .getProvider();
 
         if (provider == null) {
-            throw new RuntimeException("Provider not found");
+            throw new RuntimeException("Provider not found!");
         }
 
         // Fetch User manually by provider's userId
         UUID providerUserId = provider.getUserId();
         User providerUser = userRepository.findById(providerUserId)
-                .orElseThrow(() -> new RuntimeException("User not found for provider"));
+                .orElseThrow(() -> new RuntimeException("User not found for provider!"));
 
         String bankAccountName = providerUser.getName() != null ? providerUser.getName() : "SAN BONG";
 

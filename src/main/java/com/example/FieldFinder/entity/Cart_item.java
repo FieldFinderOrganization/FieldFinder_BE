@@ -32,4 +32,8 @@ public class Cart_item {
 
     @Column(name = "PriceAtTime", nullable = false)
     private Double priceAtTime;
+
+    @Column(name = "Size", nullable = false)
+    private String size;
+
 }

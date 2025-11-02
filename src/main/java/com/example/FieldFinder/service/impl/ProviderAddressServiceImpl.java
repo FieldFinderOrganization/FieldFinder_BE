@@ -28,7 +28,7 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
     @Override
     public ProviderAddressResponseDTO addAddress(ProviderAddressRequestDTO addressRequestDTO) {
         Provider provider = providerRepository.findById(addressRequestDTO.getProviderId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Provider not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Provider not found!"));
 
         ProviderAddress address = new ProviderAddress();
         address.setAddress(addressRequestDTO.getAddress());
@@ -41,7 +41,7 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
     @Override
     public ProviderAddressResponseDTO updateAddress(UUID addressId, ProviderAddressRequestDTO addressRequestDTO) {
         ProviderAddress address = addressRepository.findById(addressId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Address not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Address not found!"));
 
         address.setAddress(addressRequestDTO.getAddress());
         address = addressRepository.save(address);
@@ -51,7 +51,7 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
     @Override
     public void deleteAddress(UUID addressId) {
         ProviderAddress address = addressRepository.findById(addressId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Address not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Address not found!"));
         addressRepository.delete(address);
     }
 

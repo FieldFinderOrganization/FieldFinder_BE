@@ -97,9 +97,9 @@ public class BookingServiceImpl implements BookingService {
     @Transactional
     public Booking createBooking(BookingRequestDTO bookingRequest) {
         User user = userRepository.findById(bookingRequest.getUserId())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new RuntimeException("User not found!"));
         Pitch pitch = pitchRepository.findById(bookingRequest.getPitchId())
-                .orElseThrow(() -> new RuntimeException("Pitch not found"));
+                .orElseThrow(() -> new RuntimeException("Pitch not found!"));
 
 //        BigDecimal totalPrice = bookingRequest.getBookingDetails().stream()
 //                .map(BookingRequestDTO.BookingDetailDTO::getPriceDetail)
@@ -134,19 +134,19 @@ public class BookingServiceImpl implements BookingService {
     @Transactional
     public ResponseEntity<String> updatePaymentStatus(UUID bookingId, String status) {
         Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new RuntimeException("Booking not found"));
+                .orElseThrow(() -> new RuntimeException("Booking not found!"));
 
         Booking.PaymentStatus newStatus;
         try {
             newStatus = Booking.PaymentStatus.valueOf(status.toUpperCase());
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body("Invalid payment status. Allowed values: PENDING, PAID, REFUNDED");
+            return ResponseEntity.badRequest().body("Invalid payment status. Allowed values: PENDING, PAID, REFUNDED!");
         }
 
         booking.setPaymentStatus(newStatus);
         bookingRepository.save(booking);
 
-        return ResponseEntity.ok("Payment status updated successfully");
+        return ResponseEntity.ok("Payment status updated successfully!");
     }
 
 
@@ -154,26 +154,26 @@ public class BookingServiceImpl implements BookingService {
     @Transactional
     public ResponseEntity<String> updateBookingStatus(UUID bookingId, String status) {
         Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new RuntimeException("Booking not found"));
+                .orElseThrow(() -> new RuntimeException("Booking not found!"));
 
         Booking.BookingStatus newStatus;
         try {
             newStatus = Booking.BookingStatus.valueOf(status.toUpperCase());
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body("Invalid booking status. Allowed values: PENDING, CONFIRMED, CANCELED");
+            return ResponseEntity.badRequest().body("Invalid booking status. Allowed values: PENDING, CONFIRMED, CANCELED!");
         }
 
         booking.setStatus(newStatus);
         bookingRepository.save(booking);
 
-        return ResponseEntity.ok("Booking status updated successfully");
+        return ResponseEntity.ok("Booking status updated successfully!");
     }
 
 
     @Override
     public List<BookingResponseDTO> getBookingsByUser(UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new RuntimeException("User not found!"));
 
         List<Booking> bookings = bookingRepository.findByUser(user);
 

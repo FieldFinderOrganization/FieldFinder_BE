@@ -9,9 +9,11 @@ import lombok.Data;
 public class ProductResponseDTO {
     private Long id;
     private String name;
+    private String description;
     private String categoryName;
     private Double price;
     private Integer stockQuantity;
-    private String brand;
     private String imageUrl;
+    private String brand;
+    private String sex;
 }

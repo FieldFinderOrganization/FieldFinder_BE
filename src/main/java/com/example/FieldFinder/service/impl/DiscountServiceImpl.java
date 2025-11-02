@@ -28,7 +28,7 @@ public class DiscountServiceImpl implements DiscountService {
     @Override
     public DiscountResponseDTO updateDiscount(String id, DiscountRequestDTO dto) {
         Discount discount = discountRepository.findById(UUID.fromString(id))
-                .orElseThrow(() -> new RuntimeException("Discount not found"));
+                .orElseThrow(() -> new RuntimeException("Discount not found!"));
 
         // Cập nhật thủ công các trường (vì toEntity tạo mới chứ không update)
         discount.setCode(dto.getCode());
@@ -60,6 +60,6 @@ public class DiscountServiceImpl implements DiscountService {
     public DiscountResponseDTO getDiscountById(String id) {
         return discountRepository.findById(UUID.fromString(id))
                 .map(DiscountResponseDTO::fromEntity)
-                .orElseThrow(() -> new RuntimeException("Discount not found"));
+                .orElseThrow(() -> new RuntimeException("Discount not found!"));
     }
 }

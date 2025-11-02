@@ -26,7 +26,7 @@ public class PitchServiceImpl implements PitchService {
     public PitchResponseDTO createPitch(PitchRequestDTO dto) {
         // Tìm providerAddress bên trong method
         ProviderAddress providerAddress = providerAddressRepository.findById(dto.getProviderAddressId())
-                .orElseThrow(() -> new RuntimeException("ProviderAddress not found"));
+                .orElseThrow(() -> new RuntimeException("ProviderAddress not found!"));
 
         Pitch pitch = Pitch.builder()
                 .providerAddress(providerAddress)
@@ -43,7 +43,7 @@ public class PitchServiceImpl implements PitchService {
     @Override
     public PitchResponseDTO updatePitch(UUID pitchId, PitchRequestDTO dto) {
         Pitch pitch = pitchRepository.findById(pitchId)
-                .orElseThrow(() -> new RuntimeException("Pitch not found"));
+                .orElseThrow(() -> new RuntimeException("Pitch not found!"));
         pitch.setName(dto.getName());
         pitch.setType(dto.getType());
         pitch.setPrice(dto.getPrice());
@@ -72,7 +72,7 @@ public class PitchServiceImpl implements PitchService {
     @Override
     public void deletePitch(UUID pitchId) {
         if (!pitchRepository.existsById(pitchId)) {
-            throw new RuntimeException("Pitch not found");
+            throw new RuntimeException("Pitch not found!");
         }
         pitchRepository.deleteById(pitchId);
     }
@@ -86,7 +86,7 @@ public class PitchServiceImpl implements PitchService {
     @Override
     public PitchResponseDTO getPitchById(UUID pitchId) {
         Pitch pitch = pitchRepository.findById(pitchId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy sân với ID: " + pitchId));
+                .orElseThrow(() -> new RuntimeException("Cannot find pitch with id: " + pitchId));
 
         return PitchResponseDTO.fromEntity(pitch);
     }

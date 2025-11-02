@@ -26,7 +26,7 @@ public class UserController {
         this.userService = userService;
     }
 
-    // ✅ Register a new user
+    // Register a new user
     @PostMapping("/register")
     public ResponseEntity<UserResponseDTO> registerUser(@RequestBody UserRequestDTO userRequestDTO) {
         UserResponseDTO createdUser = userService.createUser(userRequestDTO);
@@ -38,10 +38,32 @@ public class UserController {
         String idToken = body.get("idToken");
 
         try {
-            // ✅ Verify Firebase token
+            // Verify Firebase token
             FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
 
-            // ✅ Xử lý login
+            // *** GỌI SERVICE "FIND-OR-THROW" ***
+            UserResponseDTO loggedInUser = userService.loginUser(decodedToken);
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Login successful",
+                    "user", loggedInUser
+            ));
+
+        } catch (FirebaseAuthException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Invalid Firebase ID token", "details", e.getMessage()));
+        }
+        // Lưu ý: Lỗi ResponseStatusException (401, 403) từ service sẽ tự động được xử lý
+    }
+
+    @PostMapping("/login-social")
+    public ResponseEntity<?> loginWithSocial(@RequestBody Map<String, String> body) {
+        String idToken = body.get("idToken");
+
+        try {
+            // Verify Firebase token
+            FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
+
             UserResponseDTO loggedInUser = userService.loginWithFirebase(decodedToken);
 
             return ResponseEntity.ok(Map.of(
@@ -56,7 +78,7 @@ public class UserController {
     }
 
 
-    // ✅ Update user
+    // Update user
     @PutMapping("/{userId}")
     public ResponseEntity<UserResponseDTO> updateUser(
             @PathVariable UUID userId,
@@ -66,14 +88,14 @@ public class UserController {
         return ResponseEntity.ok(updatedUser);
     }
 
-    // ✅ Get all users
+    // Get all users
     @GetMapping
     public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
         List<UserResponseDTO> users = userService.getAllUsers();
         return ResponseEntity.ok(users);
     }
 
-    // ✅ Update user status
+    // Update user status
     @PatchMapping("/{userId}/status")
     public ResponseEntity<UserResponseDTO> updateUserStatus(
             @PathVariable UUID userId,
@@ -83,14 +105,14 @@ public class UserController {
         return ResponseEntity.ok(updatedUser);
     }
 
-    // ✅ Forgot password (send email)
+    // Forgot password (send email)
     @PostMapping("/forgot-password")
     public ResponseEntity<String> forgotPassword(@RequestParam String email) {
         userService.sendPasswordResetEmail(email);
         return ResponseEntity.ok("Password reset email sent.");
     }
 
-    // ✅ Reset password
+    // Reset password
     @PostMapping("/reset-password")
     public ResponseEntity<String> resetPassword(
             @RequestParam String token,

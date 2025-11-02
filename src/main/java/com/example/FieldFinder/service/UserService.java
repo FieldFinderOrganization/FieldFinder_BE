@@ -11,7 +11,7 @@ import java.util.UUID;
 
 public interface UserService {
     UserResponseDTO createUser(UserRequestDTO userRequestDTO);
-    UserResponseDTO loginUser(LoginRequestDTO loginRequestDTO);
+    UserResponseDTO loginUser(FirebaseToken decodedToken);
     UserResponseDTO updateUser(UUID userId, UserUpdateRequestDTO userUpdateRequestDTO);
     List<UserResponseDTO> getAllUsers();
     UserResponseDTO updateUserStatus(UUID userId, String status);

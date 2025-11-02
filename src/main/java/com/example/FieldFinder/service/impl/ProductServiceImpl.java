@@ -23,7 +23,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public ProductResponseDTO createProduct(ProductRequestDTO request) {
         Category category = categoryRepository.findById(request.getCategoryId())
-                .orElseThrow(() -> new RuntimeException("Category not found"));
+                .orElseThrow(() -> new RuntimeException("Category not found!"));
 
         Product product = Product.builder()
                 .category(category)
@@ -33,6 +33,7 @@ public class ProductServiceImpl implements ProductService {
                 .stockQuantity(request.getStockQuantity())
                 .imageUrl(request.getImageUrl())
                 .brand(request.getBrand())
+                .sex(request.getSex())
                 .build();
 
         productRepository.save(product);
@@ -44,7 +45,7 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponseDTO getProductById(Long id) {
         return productRepository.findById(id)
                 .map(this::mapToResponse)
-                .orElseThrow(() -> new RuntimeException("Product not found"));
+                .orElseThrow(() -> new RuntimeException("Product not found!"));
     }
 
     @Override
@@ -58,7 +59,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     public ProductResponseDTO updateProduct(Long id, ProductRequestDTO request) {
         Product product = productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Product not found"));
+                .orElseThrow(() -> new RuntimeException("Product not found!"));
 
         product.setName(request.getName());
         product.setDescription(request.getDescription());
@@ -66,6 +67,7 @@ public class ProductServiceImpl implements ProductService {
         product.setStockQuantity(request.getStockQuantity());
         product.setImageUrl(request.getImageUrl());
         product.setBrand(request.getBrand());
+        product.setSex(request.getSex());
         productRepository.save(product);
 
         return mapToResponse(product);
@@ -80,11 +82,13 @@ public class ProductServiceImpl implements ProductService {
         return ProductResponseDTO.builder()
                 .id(product.getProductId())
                 .name(product.getName())
+                .description(product.getDescription())
                 .categoryName(product.getCategory().getName())
                 .price(product.getPrice())
                 .stockQuantity(product.getStockQuantity())
                 .brand(product.getBrand())
                 .imageUrl(product.getImageUrl())
+                .sex(product.getSex())
                 .build();
     }
 }

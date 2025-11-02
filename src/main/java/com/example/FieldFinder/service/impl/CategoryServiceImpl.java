@@ -20,13 +20,13 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     public CategoryResponseDTO createCategory(CategoryRequestDTO request) {
         if (categoryRepository.existsByName(request.getName())) {
-            throw new RuntimeException("Tên danh mục đã tồn tại!");
+            throw new RuntimeException("Category already exists!");
         }
 
         Category parent = null;
         if (request.getParentId() != null) {
             parent = categoryRepository.findById(request.getParentId())
-                    .orElseThrow(() -> new RuntimeException("Không tìm thấy danh mục cha"));
+                    .orElseThrow(() -> new RuntimeException("Cannot find parent category!"));
         }
 
         Category category = Category.builder()
@@ -51,18 +51,18 @@ public class CategoryServiceImpl implements CategoryService {
     public CategoryResponseDTO getCategoryById(Long id) {
         return categoryRepository.findById(id)
                 .map(this::mapToResponse)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy danh mục"));
+                .orElseThrow(() -> new RuntimeException("Cannot find category!"));
     }
 
     @Override
     public CategoryResponseDTO updateCategory(Long id, CategoryRequestDTO request) {
         Category category = categoryRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy danh mục"));
+                .orElseThrow(() -> new RuntimeException("Cannot find category"));
 
         Category parent = null;
         if (request.getParentId() != null) {
             parent = categoryRepository.findById(request.getParentId())
-                    .orElseThrow(() -> new RuntimeException("Không tìm thấy danh mục cha"));
+                    .orElseThrow(() -> new RuntimeException("Cannot find parent category!"));
         }
 
         category.setName(request.getName());

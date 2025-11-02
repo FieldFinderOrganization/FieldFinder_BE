@@ -17,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -30,53 +31,65 @@ public class CartItemServiceImpl implements CartItemService {
     @Transactional
     public CartItemResponseDTO addItemToCart(CartItemRequestDTO request) {
         Cart cart = cartRepository.findById(request.getCartId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cart not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cart not found!"));
 
         Product product = productRepository.findById(request.getProductId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found!"));
 
-        if (request.getQuantity() > product.getStockQuantity()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Requested quantity exceeds available stock");
+
+        Optional<Cart_item> existingItemOpt = cartItemRepository.findByCartAndProductAndSize(
+                cart, product, request.getSize()
+        );
+
+        Cart_item item;
+        if (existingItemOpt.isPresent()) {
+            item = existingItemOpt.get();
+            int newQuantity = item.getQuantity() + request.getQuantity();
+
+            if (newQuantity > product.getStockQuantity()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Requested quantity exceeds available stock!");
+            }
+            item.setQuantity(newQuantity);
+            item.setPriceAtTime(product.getPrice() * newQuantity);
+
+        } else {
+            if (request.getQuantity() > product.getStockQuantity()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Requested quantity exceeds available stock!");
+            }
+            double totalPrice = product.getPrice() * request.getQuantity();
+
+            item = Cart_item.builder()
+                    .cart(cart)
+                    .product(product)
+                    .quantity(request.getQuantity())
+                    .priceAtTime(totalPrice)
+                    .size(request.getSize())
+                    .build();
         }
-
-        double totalPrice = product.getPrice() * request.getQuantity();
-
-        Cart_item item = Cart_item.builder()
-                .cart(cart)
-                .product(product)
-                .quantity(request.getQuantity())
-                .priceAtTime(totalPrice)
-                .build();
 
         Cart_item saved = cartItemRepository.save(item);
 
-        return CartItemResponseDTO.builder()
-                .id(saved.getId())
-                .cartId(cart.getCartId())
-                .productId(product.getProductId())
-                .productName(product.getName())
-                .quantity(saved.getQuantity())
-                .priceAtTime(saved.getPriceAtTime())
-                .build();
+        return mapToResponse(saved);
     }
 
     @Override
     @Transactional
     public CartItemResponseDTO updateCartItem(Long cartItemId, int quantity) {
         Cart_item item = cartItemRepository.findById(cartItemId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy sản phẩm trong giỏ"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find cart item!"));
 
         Product product = item.getProduct();
 
         if (quantity <= 0) {
-            cartItemRepository.delete(item);
-            throw new ResponseStatusException(HttpStatus.OK, "Sản phẩm được xóa khỏi giỏ hàng thành công");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Quantity must be greater than 0. Use DELETE endpoint to remove.");
         }
 
         if (quantity > product.getStockQuantity()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Số lượng sản phẩm vượt quá số lượng tồn kho");
+                    "The quantity exceeds available stock!");
         }
 
         item.setQuantity(quantity);
@@ -84,38 +97,37 @@ public class CartItemServiceImpl implements CartItemService {
 
         Cart_item updated = cartItemRepository.save(item);
 
-        return CartItemResponseDTO.builder()
-                .id(updated.getId())
-                .cartId(updated.getCart().getCartId())
-                .productId(updated.getProduct().getProductId())
-                .productName(updated.getProduct().getName())
-                .quantity(updated.getQuantity())
-                .priceAtTime(updated.getPriceAtTime())
-                .build();
+        return mapToResponse(updated);
     }
 
     @Override
     @Transactional
     public void removeCartItem(Long cartItemId) {
         Cart_item item = cartItemRepository.findById(cartItemId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy sản phẩm trong giỏ"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find  cart item!"));
         cartItemRepository.delete(item);
     }
 
     @Override
     public List<CartItemResponseDTO> getItemsByCart(Long cartId) {
         Cart cart = cartRepository.findById(cartId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy giỏ hàng"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find cart!"));
 
         return cartItemRepository.findByCart(cart).stream()
-                .map(item -> CartItemResponseDTO.builder()
-                        .id(item.getId())
-                        .cartId(cart.getCartId())
-                        .productId(item.getProduct().getProductId())
-                        .productName(item.getProduct().getName())
-                        .quantity(item.getQuantity())
-                        .priceAtTime(item.getPriceAtTime())
-                        .build())
+                .map(this::mapToResponse)
                 .collect(Collectors.toList());
+    }
+
+    private CartItemResponseDTO mapToResponse(Cart_item item) {
+        return CartItemResponseDTO.builder()
+                .id(item.getId())
+                .cartId(item.getCart().getCartId())
+                .productId(item.getProduct().getProductId())
+                .productName(item.getProduct().getName())
+                .imageUrl(item.getProduct().getImageUrl())
+                .quantity(item.getQuantity())
+                .size(item.getSize())
+                .priceAtTime(item.getPriceAtTime())
+                .build();
     }
 }

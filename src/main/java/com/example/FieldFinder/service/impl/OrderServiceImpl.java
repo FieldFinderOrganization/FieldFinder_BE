@@ -35,7 +35,7 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public OrderResponseDTO createOrder(OrderRequestDTO request) {
         User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
+                .orElseThrow(() -> new RuntimeException("User not found!"));
 
         double total = 0.0;
         Order order = Order.builder()
@@ -48,7 +48,7 @@ public class OrderServiceImpl implements OrderService {
 
         for (OrderItemRequestDTO itemDTO : request.getItems()) {
             Product product = productRepository.findById(itemDTO.getProductId())
-                    .orElseThrow(() -> new RuntimeException("Không tìm thấy sản phẩm"));
+                    .orElseThrow(() -> new RuntimeException("Product not found!"));
 
             double price = product.getPrice() * itemDTO.getQuantity();
             total += price;
@@ -73,7 +73,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponseDTO getOrderById(Long id) {
         return orderRepository.findById(id)
                 .map(this::mapToResponse)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy đơn hàng"));
+                .orElseThrow(() -> new RuntimeException("Order not found!"));
     }
 
     @Override
@@ -87,7 +87,7 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderResponseDTO updateOrderStatus(Long id, String status) {
         Order order = orderRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy đơn hàng"));
+                .orElseThrow(() -> new RuntimeException("Order not found!"));
 
         order.setStatus(OrderStatus.valueOf(status));
         orderRepository.save(order);

@@ -31,7 +31,7 @@ public class ProviderServiceImpl implements ProviderService {
     @Override
     public ProviderResponseDTO updateProvider(UUID providerId, ProviderRequestDTO dto) {
         Provider provider = providerRepository.findById(providerId)
-                .orElseThrow(() -> new RuntimeException("Provider not found"));
+                .orElseThrow(() -> new RuntimeException("Provider not found!"));
         provider.setCardNumber(dto.getCardNumber());
         provider.setBank(dto.getBank());
         provider = providerRepository.save(provider);
