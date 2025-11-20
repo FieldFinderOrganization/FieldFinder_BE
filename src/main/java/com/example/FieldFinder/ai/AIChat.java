@@ -1,6 +1,7 @@
 package com.example.FieldFinder.ai;
 
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
+import com.example.FieldFinder.service.OpenWeatherService;
 import com.example.FieldFinder.service.PitchService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +28,8 @@ public class AIChat {
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 1100;
     private long lastCallTime = 0;
 
+    private final OpenWeatherService weatherService;
+
     // Bản đồ lưu trữ thông tin sân cho mỗi phiên
     private final Map<String, PitchResponseDTO> sessionPitches = new HashMap<>();
 
@@ -38,8 +41,9 @@ public class AIChat {
         }
     }
 
-    public AIChat(PitchService pitchService) {
+    public AIChat(PitchService pitchService, OpenWeatherService openWeatherService, OpenWeatherService weatherService) {
         this.pitchService = pitchService;
+        this.weatherService = weatherService;
     }
 
     private synchronized void waitIfNeeded() throws InterruptedException {
@@ -156,6 +160,22 @@ public class AIChat {
         return null;
     }
 
+    private BookingQuery handleWeatherQuery(BookingQuery query) {
+        String city = query.data.getOrDefault("city", "Hà Nội").toString();
+
+        try {
+            String weatherDescription = weatherService.getCurrentWeather(city);
+
+            query.message = String.format("Thời tiết ở %s hiện là: %s", city, weatherDescription);
+            query.data.clear(); // Xóa data tool
+            return query;
+        } catch (IOException e) {
+            query.message = String.format("Xin lỗi, tôi không thể lấy dữ liệu thời tiết cho %s lúc này.", city);
+            query.data.clear();
+            return query;
+        }
+    }
+
     public BookingQuery parseBookingInput(String userInput, String sessionId) throws IOException, InterruptedException {
         // Xử lý câu chào
         if (isGreeting(userInput)) {
@@ -187,6 +207,10 @@ public class AIChat {
         // Parse response
         BookingQuery query = parseAIResponse(cleanJson);
 
+        if (query.data != null && query.data.containsKey("action") && "get_weather".equals(query.data.get("action"))) {
+            return handleWeatherQuery(query);
+        }
+
         if (isTotalPitchesQuestion(userInput)) {
             int totalPitches = pitchService.getAllPitches().size();
             return createBasicResponse("Hệ thống hiện có " + totalPitches + " sân");
@@ -209,7 +233,6 @@ public class AIChat {
     private BookingQuery handlePitchCountByTypeQuestion() {
         List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
 
-        // Đếm số sân theo loại
         Map<String, Long> pitchCounts = allPitches.stream()
                 .collect(Collectors.groupingBy(
                         p -> p.getType().name(),
@@ -311,6 +334,8 @@ public class AIChat {
                 lowerInput.contains("có bao nhiêu sân");
     }
 
+
+
     private BookingQuery createBasicResponse(String message) {
         BookingQuery query = new BookingQuery();
         query.message = message;
@@ -360,7 +385,7 @@ public class AIChat {
     }
 
     private static final String SYSTEM_INSTRUCTION = """
-Bạn là trợ lý AI chuyên xử lý các yêu cầu liên quan đến sân thể thao. Hãy phân tích input của người dùng và trả về JSON **THUẦN** với định dạng sau, đảm bảo không có lỗi cú pháp và đúng chính tả:
+Bạn là trợ lý AI chuyên xử lý các yêu cầu liên quan đến sân thể thao. Bạn có thể sử dụng công cụ "get_weather" để tra cứu thời tiết. Hãy phân tích input của người dùng và trả về JSON **THUẦN** với định dạng sau:
 
 {
   "bookingDate": "yyyy-MM-dd",
@@ -450,6 +475,9 @@ Bạn là trợ lý AI chuyên xử lý các yêu cầu liên quan đến sân t
    - Nếu có sân trong ngữ cảnh (rẻ nhất/mắc nhất), tự động sử dụng sân đó
    - Nếu không có sân trong session, tìm sân rẻ/mắc nhất theo yêu cầu trước đó
    - `message`: "Đang xử lý đặt sân [tên sân]..."
+8. Hỏi thời tiết:
+   - Nếu người dùng hỏi về thời tiết, hãy trả về JSON với trường "action": "get_weather" và "city" trong data.
+   - Ví dụ: "Thời tiết hôm nay ở Sài Gòn?" -> {"bookingDate": null, "slotList": [], "pitchType": "ALL", "message": null, "data": {"action": "get_weather", "city": "Ho Chi Minh"}}
 """;
 
     public static class BookingQuery {
