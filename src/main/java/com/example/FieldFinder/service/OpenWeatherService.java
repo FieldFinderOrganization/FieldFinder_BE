@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -12,8 +13,9 @@ import java.io.IOException;
 @Service
 public class OpenWeatherService {
 
-    // Thay thế bằng khóa API OpenWeatherMap của bạn
-    private static final String WEATHER_API_KEY = "7b371e851bb81069b5aa19ba5a85918e";
+    @Value("${weather_api_key}")
+    private String weatherApiKey;
+
     private static final String BASE_URL = "http://api.openweathermap.org/data/2.5/weather";
 
     private final OkHttpClient client = new OkHttpClient();
@@ -21,13 +23,12 @@ public class OpenWeatherService {
 
     public String getCurrentWeather(String city) throws IOException {
         String url = String.format("%s?q=%s&appid=%s&units=metric&lang=vi",
-                BASE_URL, city, WEATHER_API_KEY);
+                BASE_URL, city, weatherApiKey);
 
         Request request = new Request.Builder().url(url).build();
 
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful()) {
-                // Nếu API trả lỗi (ví dụ: 404 Not Found), ném IOException
                 throw new IOException("Không tìm thấy dữ liệu thời tiết cho thành phố này: " + city);
             }
 

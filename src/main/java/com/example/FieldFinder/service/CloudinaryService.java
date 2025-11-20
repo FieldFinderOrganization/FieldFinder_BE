@@ -18,8 +18,6 @@ public class CloudinaryService {
     private final Cloudinary cloudinary;
 
     public Map<String, Object> uploadProductImage(MultipartFile file, List<String> categories) throws IOException {
-        // Let the SDK handle the list joining.
-        // Do NOT manually join with "," as it might cause signature mismatches with spaces.
         Map params = ObjectUtils.asMap(
                 "folder", "field_finder_products",
                 "categorization", "google_tagging",
@@ -27,8 +25,6 @@ public class CloudinaryService {
                 "tags", categories
         );
 
-        // Upload to Cloudinary
-        // The SDK will sort parameters and sign them automatically using your API_SECRET
         Map uploadResult = cloudinary.uploader().upload(file.getBytes(), params);
 
         return buildResponseMap(uploadResult);

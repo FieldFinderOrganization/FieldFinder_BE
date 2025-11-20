@@ -9,6 +9,7 @@ import com.example.FieldFinder.repository.PaymentRepository;
 import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.PaymentService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -25,6 +26,9 @@ public class PaymentServiceImpl implements PaymentService {
     private final BookingRepository bookingRepository;
     private final UserRepository userRepository;
     private final PayOSService payOSService;
+
+    @Value("${front_end_url}")
+    private String frontEndUrl;
 
     @Override
     public PaymentResponseDTO createPaymentQRCode(PaymentRequestDTO requestDTO) {
@@ -52,14 +56,45 @@ public class PaymentServiceImpl implements PaymentService {
         if (bankBin == null)
             throw new RuntimeException("Không tìm thấy mã bankBin cho ngân hàng: " + bankName);
 
-        // Tạo orderCode
+        // Tạo orderCode (đảm bảo duy nhất và nằm trong giới hạn của PayOS)
         int orderCode = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
+        if (orderCode < 0) orderCode = -orderCode; // Đảm bảo dương
 
-        // Gọi PayOS để tạo payment
+        // 2. Cấu hình returnUrl và cancelUrl trỏ về Frontend
+        String returnUrl = frontEndUrl;
+        String cancelUrl = frontEndUrl;
+
+        // Gọi PayOS để tạo payment (Cần truyền thêm returnUrl và cancelUrl vào đây)
+        // Giả sử hàm createPayment của PayOSService đã được cập nhật để nhận 2 tham số này
+        // Hoặc bạn tạo PaymentData trực tiếp ở đây giống như ví dụ trước
+
+        // CÁCH 1: Nếu PayOSService.createPayment nhận returnUrl/cancelUrl
+        /* PayOSService.PaymentResult result = payOSService.createPayment(
+                requestDTO.getAmount(),
+                orderCode,
+                "Thanh toán đặt sân",
+                returnUrl,
+                cancelUrl
+        );
+        */
+
+        // CÁCH 2 (An toàn hơn): Tự tạo PaymentData và gọi PayOS trực tiếp (như ví dụ trước bạn làm)
+        // Nhưng vì bạn đang dùng `payOSService.createPayment` (được gói gọn),
+        // bạn cần ĐẢM BẢO hàm đó bên trong PayOSService đã set returnUrl đúng.
+
+        // Nếu bạn muốn sửa trực tiếp ở đây, bạn nên dùng PayOS SDK trực tiếp hoặc sửa PayOSService.
+        // Giả sử PayOSService của bạn cho phép tùy chỉnh hoặc mặc định.
+        // TỐT NHẤT LÀ SỬA TRONG `PayOSService.java` ĐỂ NÓ NHẬN URL TỪ THAM SỐ HOẶC CONFIG.
+
+        // Tuy nhiên, để sửa nhanh theo yêu cầu "sửa giúp mình đoạn này":
+        // Mình sẽ giả định bạn CẦN TRUYỀN nó vào `payOSService`.
+
         PayOSService.PaymentResult result = payOSService.createPayment(
                 requestDTO.getAmount(),
                 orderCode,
-                "Thanh toán đặt sân"
+                "Thanh toán đặt sân",
+                returnUrl, // 👈 Thêm tham số này (bạn cần update PayOSService tương ứng)
+                cancelUrl  // 👈 Thêm tham số này
         );
 
         // Lưu payment với transactionId từ PayOS
@@ -77,7 +112,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .paymentMethod(paymentMethod)
                 .paymentStatus(Booking.PaymentStatus.PENDING)
                 .checkoutUrl(result.checkoutUrl())
-                .transactionId(result.paymentLinkId()) // ✅ Lưu đúng ID từ PayOS
+                .transactionId(result.paymentLinkId())
                 .build();
 
         paymentRepository.save(payment);

@@ -37,22 +37,25 @@ public class PayOSService {
     private String checksumKey;
 
     @Value("${payos.cancelUrl}")
-    private String cancelUrl;
+    private String defaultCancelUrl;
 
     @Value("${payos.returnUrl}")
-    private String returnUrl;
+    private String defaultReturnUrl;
 
     public record PaymentResult(String checkoutUrl, String paymentLinkId) {}
 
-    public PaymentResult createPayment(BigDecimal amount, int orderCode, String description) {
+    public PaymentResult createPayment(BigDecimal amount, int orderCode, String description, String returnUrl, String cancelUrl) {
         int amountInt = amount.intValue();
+
+        String finalReturnUrl = (returnUrl != null && !returnUrl.isEmpty()) ? returnUrl : defaultReturnUrl;
+        String finalCancelUrl = (cancelUrl != null && !cancelUrl.isEmpty()) ? cancelUrl : defaultCancelUrl;
 
         Map<String, Object> params = new TreeMap<>();
         params.put("amount", amountInt);
-        params.put("cancelUrl", cancelUrl);
+        params.put("cancelUrl", finalCancelUrl);
         params.put("description", description);
         params.put("orderCode", orderCode);
-        params.put("returnUrl", returnUrl);
+        params.put("returnUrl", finalReturnUrl);
 
         StringBuilder rawData = new StringBuilder();
         for (Map.Entry<String, Object> entry : params.entrySet()) {
