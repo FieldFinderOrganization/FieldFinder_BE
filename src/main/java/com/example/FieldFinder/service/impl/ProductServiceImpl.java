@@ -1,6 +1,5 @@
 package com.example.FieldFinder.service.impl;
 
-
 import com.example.FieldFinder.dto.req.ProductRequestDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.entity.Category;
@@ -10,8 +9,10 @@ import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -31,13 +32,13 @@ public class ProductServiceImpl implements ProductService {
                 .description(request.getDescription())
                 .price(request.getPrice())
                 .stockQuantity(request.getStockQuantity())
+                .lockedQuantity(0)
                 .imageUrl(request.getImageUrl())
                 .brand(request.getBrand())
                 .sex(request.getSex())
                 .build();
 
         productRepository.save(product);
-
         return mapToResponse(product);
     }
 
@@ -53,7 +54,7 @@ public class ProductServiceImpl implements ProductService {
         return productRepository.findAll()
                 .stream()
                 .map(this::mapToResponse)
-                .toList();
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -82,6 +83,65 @@ public class ProductServiceImpl implements ProductService {
         productRepository.deleteById(id);
     }
 
+    @Override
+    @Transactional
+    public void holdStock(Long productId, int quantity) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new RuntimeException("Product not found with id: " + productId));
+
+        System.out.println("HOLDING STOCK: Product " + productId + ", Qty: " + quantity);
+        System.out.println("Before: Stock=" + product.getStockQuantity() + ", Locked=" + product.getLockedQuantity());
+
+        int availableStock = product.getStockQuantity() - product.getLockedQuantity();
+
+        if (availableStock < quantity) {
+            throw new RuntimeException("Sản phẩm " + product.getName() + " không đủ hàng (Còn lại: " + availableStock + ")");
+        }
+
+        product.setLockedQuantity(product.getLockedQuantity() + quantity);
+        productRepository.save(product);
+
+        System.out.println("After:  Stock=" + product.getStockQuantity() + ", Locked=" + product.getLockedQuantity());
+    }
+
+    @Override
+    @Transactional
+    public void commitStock(Long productId, int quantity) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new RuntimeException("Product not found with id: " + productId));
+
+        System.out.println("COMMIT STOCK: Product " + productId + ", Qty: " + quantity);
+        System.out.println("Before: Stock=" + product.getStockQuantity() + ", Locked=" + product.getLockedQuantity());
+
+        int newStock = product.getStockQuantity() - quantity;
+
+        int newLocked = product.getLockedQuantity() - quantity;
+
+        product.setStockQuantity(Math.max(newStock, 0));
+        product.setLockedQuantity(Math.max(newLocked, 0));
+
+        productRepository.save(product);
+
+        System.out.println("After: Stock=" + product.getStockQuantity() + ", Locked=" + product.getLockedQuantity());
+    }
+
+    @Override
+    @Transactional
+    public void releaseStock(Long productId, int quantity) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new RuntimeException("Product not found with id: " + productId));
+
+        System.out.println("RELEASE STOCK: Product " + productId + ", Qty: " + quantity);
+        System.out.println("Before: Stock=" + product.getStockQuantity() + ", Locked=" + product.getLockedQuantity());
+
+        int newLocked = product.getLockedQuantity() - quantity;
+        product.setLockedQuantity(Math.max(newLocked, 0));
+
+        productRepository.save(product);
+
+        System.out.println("After: Stock=" + product.getStockQuantity() + ", Locked=" + product.getLockedQuantity());
+    }
+
     private ProductResponseDTO mapToResponse(Product product) {
         return ProductResponseDTO.builder()
                 .id(product.getProductId())
@@ -90,8 +150,8 @@ public class ProductServiceImpl implements ProductService {
                 .categoryName(product.getCategory().getName())
                 .price(product.getPrice())
                 .stockQuantity(product.getStockQuantity())
-                .brand(product.getBrand())
                 .imageUrl(product.getImageUrl())
+                .brand(product.getBrand())
                 .sex(product.getSex())
                 .build();
     }

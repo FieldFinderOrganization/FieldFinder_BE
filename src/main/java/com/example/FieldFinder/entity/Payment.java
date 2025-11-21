@@ -1,28 +1,31 @@
 package com.example.FieldFinder.entity;
 
+import com.example.FieldFinder.entity.Booking.PaymentStatus; // Import enum
 import jakarta.persistence.*;
 import lombok.*;
-
 import java.math.BigDecimal;
-import java.util.UUID;
+import java.time.LocalDateTime;
 
-@Getter
-@Setter
-@AllArgsConstructor
-@NoArgsConstructor
 @Entity
-@Table(name = "Payments")
+@Table(name = "Payment")
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
 @Builder
 public class Payment {
+
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "PaymentId")
-    private UUID paymentId;
+    private Long paymentId;
 
     @ManyToOne
-    @JoinColumn(name = "BookingId", nullable = false)
+    @JoinColumn(name = "BookingId", nullable = true)
     private Booking booking;
+
+    @ManyToOne
+    @JoinColumn(name = "OrderId", nullable = true)
+    private Order order;
 
     @ManyToOne
     @JoinColumn(name = "UserId", nullable = false)
@@ -37,15 +40,18 @@ public class Payment {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "PaymentStatus", nullable = false)
-    private Booking.PaymentStatus paymentStatus;
+    private PaymentStatus paymentStatus;
 
-    @Column(name = "TransactionId", unique = true, nullable = false)
-    private String transactionId;
-
-    @Column(name = "checkout_url")
+    @Column(name = "CheckoutUrl")
     private String checkoutUrl;
 
+    @Column(name = "TransactionId") // paymentLinkId của PayOS
+    private String transactionId;
+
+    @Column(name = "CreatedAt")
+    private LocalDateTime createdAt = LocalDateTime.now();
+
     public enum PaymentMethod {
-        BANK, TIENMAT
+        CASH, BANK
     }
 }

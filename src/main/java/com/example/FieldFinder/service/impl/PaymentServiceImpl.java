@@ -1,17 +1,22 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.Enum.OrderStatus;
+import com.example.FieldFinder.Enum.PaymentMethod;
 import com.example.FieldFinder.dto.req.PaymentRequestDTO;
+import com.example.FieldFinder.dto.req.ShopPaymentRequestDTO;
 import com.example.FieldFinder.dto.res.PaymentResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.mapper.BankBinMapper;
-import com.example.FieldFinder.repository.BookingRepository;
-import com.example.FieldFinder.repository.PaymentRepository;
-import com.example.FieldFinder.repository.UserRepository;
+import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.PaymentService;
+import com.example.FieldFinder.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -24,13 +29,18 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
+    private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
+    private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final PayOSService payOSService;
+    private final ProductService productService;
 
     @Value("${front_end_url}")
     private String frontEndUrl;
 
     @Override
+    @Transactional
     public PaymentResponseDTO createPaymentQRCode(PaymentRequestDTO requestDTO) {
         Booking booking = bookingRepository.findById(requestDTO.getBookingId())
                 .orElseThrow(() -> new RuntimeException("Booking not found!"));
@@ -39,71 +49,27 @@ public class PaymentServiceImpl implements PaymentService {
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("BookingDetail not found!"));
 
-        Provider provider = bookingDetail.getPitch()
-                .getProviderAddress()
-                .getProvider();
+        Provider provider = bookingDetail.getPitch().getProviderAddress().getProvider();
 
         if (provider == null || provider.getBank() == null || provider.getCardNumber() == null)
             throw new RuntimeException("Provider or bank info missing!");
 
         String bankName = provider.getBank();
-        String bankAccountNumber = provider.getCardNumber();
-        User providerUser = userRepository.findById(provider.getUserId())
-                .orElseThrow(() -> new RuntimeException("User not found for provider!"));
-        String bankAccountName = providerUser.getName() != null ? providerUser.getName() : "SAN BONG";
-
         String bankBin = BankBinMapper.getBankBin(bankName);
         if (bankBin == null)
-            throw new RuntimeException("Không tìm thấy mã bankBin cho ngân hàng: " + bankName);
+            throw new RuntimeException("Không tìm thấy mã bankBin cho: " + bankName);
 
-        // Tạo orderCode (đảm bảo duy nhất và nằm trong giới hạn của PayOS)
-        int orderCode = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
-        if (orderCode < 0) orderCode = -orderCode; // Đảm bảo dương
-
-        // 2. Cấu hình returnUrl và cancelUrl trỏ về Frontend
-        String returnUrl = frontEndUrl;
-        String cancelUrl = frontEndUrl;
-
-        // Gọi PayOS để tạo payment (Cần truyền thêm returnUrl và cancelUrl vào đây)
-        // Giả sử hàm createPayment của PayOSService đã được cập nhật để nhận 2 tham số này
-        // Hoặc bạn tạo PaymentData trực tiếp ở đây giống như ví dụ trước
-
-        // CÁCH 1: Nếu PayOSService.createPayment nhận returnUrl/cancelUrl
-        /* PayOSService.PaymentResult result = payOSService.createPayment(
-                requestDTO.getAmount(),
-                orderCode,
-                "Thanh toán đặt sân",
-                returnUrl,
-                cancelUrl
-        );
-        */
-
-        // CÁCH 2 (An toàn hơn): Tự tạo PaymentData và gọi PayOS trực tiếp (như ví dụ trước bạn làm)
-        // Nhưng vì bạn đang dùng `payOSService.createPayment` (được gói gọn),
-        // bạn cần ĐẢM BẢO hàm đó bên trong PayOSService đã set returnUrl đúng.
-
-        // Nếu bạn muốn sửa trực tiếp ở đây, bạn nên dùng PayOS SDK trực tiếp hoặc sửa PayOSService.
-        // Giả sử PayOSService của bạn cho phép tùy chỉnh hoặc mặc định.
-        // TỐT NHẤT LÀ SỬA TRONG `PayOSService.java` ĐỂ NÓ NHẬN URL TỪ THAM SỐ HOẶC CONFIG.
-
-        // Tuy nhiên, để sửa nhanh theo yêu cầu "sửa giúp mình đoạn này":
-        // Mình sẽ giả định bạn CẦN TRUYỀN nó vào `payOSService`.
+        int orderCode = generateOrderCode();
 
         PayOSService.PaymentResult result = payOSService.createPayment(
                 requestDTO.getAmount(),
                 orderCode,
-                "Thanh toán đặt sân",
-                returnUrl, // 👈 Thêm tham số này (bạn cần update PayOSService tương ứng)
-                cancelUrl  // 👈 Thêm tham số này
+                "Thanh toan san",
+                frontEndUrl + "/payment-success",
+                frontEndUrl + "/payment-cancel"
         );
 
-        // Lưu payment với transactionId từ PayOS
-        Payment.PaymentMethod paymentMethod;
-        try {
-            paymentMethod = Payment.PaymentMethod.valueOf(requestDTO.getPaymentMethod());
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Invalid payment method: " + requestDTO.getPaymentMethod());
-        }
+        Payment.PaymentMethod paymentMethod = parsePaymentMethod(requestDTO.getPaymentMethod());
 
         Payment payment = Payment.builder()
                 .booking(booking)
@@ -116,82 +82,141 @@ public class PaymentServiceImpl implements PaymentService {
                 .build();
 
         paymentRepository.save(payment);
+        return convertToDTO(payment);
+    }
+
+    @Override
+    @Transactional
+    public PaymentResponseDTO createShopPayment(ShopPaymentRequestDTO requestDTO) {
+        User user = userRepository.findById(requestDTO.getUserId())
+                .orElseThrow(() -> new RuntimeException("User not found!"));
+
+        Order order = Order.builder()
+                .user(user)
+                .status(OrderStatus.PENDING)
+                .paymentMethod(PaymentMethod.valueOf(requestDTO.getPaymentMethod()))
+                .totalAmount(requestDTO.getAmount().doubleValue())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        order = orderRepository.save(order);
+
+        List<OrderItem> orderItems = new ArrayList<>();
+        for (ShopPaymentRequestDTO.CartItemDTO itemDTO : requestDTO.getItems()) {
+            Product product = productRepository.findById(itemDTO.getProductId())
+                    .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
+
+            // Giữ hàng
+            productService.holdStock(product.getProductId(), itemDTO.getQuantity());
+
+            OrderItem orderItem = OrderItem.builder()
+                    .order(order)
+                    .product(product)
+                    .quantity(itemDTO.getQuantity())
+                    .price(product.getPrice() * itemDTO.getQuantity())
+                    .build();
+
+            orderItems.add(orderItem);
+        }
+        orderItemRepository.saveAll(orderItems);
+        order.setItems(orderItems);
+
+        String checkoutUrl = null;
+        String transactionId = null;
+        String returnUrl = frontEndUrl + "/payment-success";
+        String cancelUrl = frontEndUrl + "/payment-cancel";
+
+        if ("BANK".equalsIgnoreCase(requestDTO.getPaymentMethod())) {
+            int orderCode = generateOrderCode();
+
+            PayOSService.PaymentResult result = payOSService.createPayment(
+                    requestDTO.getAmount(),
+                    orderCode,
+                    "Thanh toan don hang",
+                    returnUrl,
+                    cancelUrl
+            );
+            checkoutUrl = result.checkoutUrl();
+            transactionId = result.paymentLinkId();
+        } else {
+            checkoutUrl = returnUrl;
+            transactionId = "COD-" + System.currentTimeMillis();
+        }
+
+        Payment payment = Payment.builder()
+                .order(order)
+                .user(user)
+                .amount(requestDTO.getAmount())
+                .paymentMethod(Payment.PaymentMethod.valueOf(requestDTO.getPaymentMethod()))
+                .paymentStatus(Booking.PaymentStatus.PENDING)
+                .checkoutUrl(checkoutUrl)
+                .transactionId(transactionId)
+                .build();
+
+        paymentRepository.save(payment);
 
         return PaymentResponseDTO.builder()
-                .transactionId(result.paymentLinkId())
-                .checkoutUrl(result.checkoutUrl())
-                .amount((requestDTO.getAmount()).toString())
+                .transactionId(transactionId)
+                .checkoutUrl(checkoutUrl)
+                .amount(requestDTO.getAmount().toString())
                 .status("PENDING")
                 .build();
     }
 
-
     @Override
     public List<PaymentResponseDTO> getPaymentsByUserId(UUID userId) {
-        // Optionally check if user exists, else throw exception
-        userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found!"));
-
+        userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found!"));
         List<Payment> payments = paymentRepository.findByUser_UserId(userId);
-        return payments.stream()
-                .map(this::convertToDTO)
-                .collect(Collectors.toList());
+        return payments.stream().map(this::convertToDTO).collect(Collectors.toList());
     }
 
     @Override
     public List<PaymentResponseDTO> getAllPayments() {
         List<Payment> payments = paymentRepository.findAll();
-        return payments.stream()
-                .map(this::convertToDTO)
-                .collect(Collectors.toList());
+        return payments.stream().map(this::convertToDTO).collect(Collectors.toList());
     }
 
-
     private PaymentResponseDTO convertToDTO(Payment payment) {
-        Booking booking = payment.getBooking();
-
-        // Get the first booking detail
-        BookingDetail bookingDetail = booking.getBookingDetails().stream()
-                .findFirst()
-                .orElse(null);
-
-        if (bookingDetail == null) {
-            throw new RuntimeException("BookingDetail not found for this booking!");
-        }
-
-        Provider provider = bookingDetail.getPitch()
-                .getProviderAddress()
-                .getProvider();
-
-        if (provider == null) {
-            throw new RuntimeException("Provider not found!");
-        }
-
-        // Fetch User manually by provider's userId
-        UUID providerUserId = provider.getUserId();
-        User providerUser = userRepository.findById(providerUserId)
-                .orElseThrow(() -> new RuntimeException("User not found for provider!"));
-
-        String bankAccountName = providerUser.getName() != null ? providerUser.getName() : "SAN BONG";
-
         return PaymentResponseDTO.builder()
                 .transactionId(payment.getTransactionId())
                 .checkoutUrl(payment.getCheckoutUrl())
-                .amount(payment.getAmount().toPlainString()) // đảm bảo không có format lạ như '1E+3'
-                .status(payment.getPaymentStatus().name()) // ví dụ: PENDING, PAID, REFUNDED
+                .amount(payment.getAmount().toPlainString())
+                .status(payment.getPaymentStatus().name())
                 .build();
-
     }
 
+    private int generateOrderCode() {
+        int code = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
+        return code < 0 ? -code : code;
+    }
 
+    private Payment.PaymentMethod parsePaymentMethod(String method) {
+        try {
+            return Payment.PaymentMethod.valueOf(method);
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Invalid payment method: " + method);
+        }
+    }
 
-
+    @Override
+    @Transactional
     public void processWebhook(Map<String, Object> payload) {
-        String transactionId = (String) payload.get("transactionId");
-        String status = (String) payload.get("status");
+        System.out.println("🔔 WEBHOOK RECEIVED: " + payload);
 
-        if (transactionId == null || status == null) {
-            System.out.println("Webhook missing required fields");
+        String code = (String) payload.get("code");
+        String desc = (String) payload.get("desc");
+
+        Map<?, ?> data = (Map<?, ?>) payload.get("data");
+        String transactionId = null;
+
+        if (data != null) {
+            transactionId = (String) data.get("paymentLinkId");
+        }
+
+        // Nếu không tìm thấy ID hoặc Code, dừng lại
+        if (transactionId == null || code == null) {
+            System.out.println("Invalid Webhook Payload: Missing paymentLinkId or code");
             return;
         }
 
@@ -199,34 +224,67 @@ public class PaymentServiceImpl implements PaymentService {
 
         if (optionalPayment.isPresent()) {
             Payment payment = optionalPayment.get();
-            Booking booking = payment.getBooking();
+            boolean isAlreadyPaid = payment.getPaymentStatus() == Booking.PaymentStatus.PAID;
 
-            switch (status.toLowerCase()) {
-                case "success":
+            Booking booking = payment.getBooking();
+            Order order = payment.getOrder();
+
+            // 3. Kiểm tra trạng thái (00 là thành công)
+            boolean isSuccess = "00".equals(code) || "success".equalsIgnoreCase(desc);
+
+            if (isSuccess) {
+                if (!isAlreadyPaid) {
+                    System.out.println("✅ Payment Success for TxID: " + transactionId);
                     payment.setPaymentStatus(Booking.PaymentStatus.PAID);
 
-                    // ✅ Đặt booking status thành CONFIRMED khi đã thanh toán
+                    // A. Xử lý Đặt Sân
                     if (booking != null) {
                         booking.setPaymentStatus(Booking.PaymentStatus.PAID);
                         booking.setStatus(Booking.BookingStatus.CONFIRMED);
                     }
 
-                    break;
-                case "fail":
-                    payment.setPaymentStatus(Booking.PaymentStatus.PENDING);
+                    // B. Xử lý Đơn Hàng -> TRỪ KHO THẬT (COMMIT)
+                    if (order != null) {
+                        order.setStatus(OrderStatus.CONFIRMED);
+                        // Cần kiểm tra null cho items để tránh lỗi
+                        if (order.getItems() != null) {
+                            for (OrderItem item : order.getItems()) {
+                                System.out.println("   - Committing stock for Product: " + item.getProduct().getName());
+                                productService.commitStock(item.getProduct().getProductId(), item.getQuantity());
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Thanh toán thất bại / Hủy
+                System.out.println("Payment Failed/Cancelled for TxID: " + transactionId);
+
+                if (!isAlreadyPaid) {
+                    payment.setPaymentStatus(Booking.PaymentStatus.PENDING); // Hoặc FAILED
+
                     if (booking != null) {
                         booking.setPaymentStatus(Booking.PaymentStatus.PENDING);
                     }
-                    break;
-                default:
-                    System.out.println("Unknown status: " + status);
-                    return;
+
+                    // C. Xử lý Đơn Hàng -> TRẢ HÀNG (RELEASE)
+                    if (order != null) {
+                        order.setStatus(OrderStatus.CANCELLED);
+                        if (order.getItems() != null) {
+                            for (OrderItem item : order.getItems()) {
+                                System.out.println("   - Releasing stock for Product: " + item.getProduct().getName());
+                                productService.releaseStock(item.getProduct().getProductId(), item.getQuantity());
+                            }
+                        }
+                    }
+                }
             }
 
-            paymentRepository.save(payment); // Cascade sẽ cập nhật booking nếu liên kết đúng
-            System.out.println("Payment and Booking updated with status: " + status);
+            paymentRepository.save(payment);
+            if (order != null) orderRepository.save(order);
+            if (booking != null) bookingRepository.save(booking);
+
         } else {
-            System.out.println("Payment not found for transactionId: " + transactionId);
+            System.out.println("Payment not found in DB for transactionId: " + transactionId);
         }
     }
 }

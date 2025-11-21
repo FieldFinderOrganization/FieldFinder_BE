@@ -24,10 +24,18 @@ public class Product {
     private String name;
     private String description;
     private Double price;
-    private Integer stockQuantity;
+
+    private Integer stockQuantity; // Tổng số lượng trong kho (bao gồm cả hàng đang bị giữ)
+
+    @Column(name = "locked_quantity", nullable = false)
+    private Integer lockedQuantity = 0;
+
     private String imageUrl;
     private String brand;
     private LocalDateTime createdAt = LocalDateTime.now();
     private String sex;
 
+    public int getAvailableQuantity() {
+        return this.stockQuantity - this.lockedQuantity;
+    }
 }
