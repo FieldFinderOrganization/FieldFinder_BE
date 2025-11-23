@@ -21,6 +21,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -99,6 +101,18 @@ public class OrderServiceImpl implements OrderService {
         orderRepository.deleteById(id);
     }
 
+    @Override
+    public List<OrderResponseDTO> getOrdersByUserId(UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found!"));
+
+        List<Order> orders = orderRepository.findByUser(user);
+
+        return orders.stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
     private OrderResponseDTO mapToResponse(Order order) {
         List<OrderItemResponseDTO> items = order.getItems().stream()
                 .map(item -> OrderItemResponseDTO.builder()
@@ -106,6 +120,7 @@ public class OrderServiceImpl implements OrderService {
                         .productName(item.getProduct().getName())
                         .quantity(item.getQuantity())
                         .price(item.getPrice())
+                        .imageUrl(item.getProduct().getImageUrl())
                         .build())
                 .toList();
 

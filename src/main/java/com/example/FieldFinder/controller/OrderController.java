@@ -5,9 +5,11 @@ import com.example.FieldFinder.dto.req.OrderRequestDTO;
 import com.example.FieldFinder.dto.res.OrderResponseDTO;
 import com.example.FieldFinder.service.OrderService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -29,6 +31,11 @@ public class OrderController {
     @GetMapping("/{id}")
     public OrderResponseDTO getById(@PathVariable Long id) {
         return orderService.getOrderById(id);
+    }
+
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<List<OrderResponseDTO>> getOrdersByUser(@PathVariable UUID userId) {
+        return ResponseEntity.ok(orderService.getOrdersByUserId(userId));
     }
 
     @PutMapping("/{id}/status")

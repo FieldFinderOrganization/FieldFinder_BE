@@ -334,8 +334,6 @@ public class AIChat {
                 lowerInput.contains("có bao nhiêu sân");
     }
 
-
-
     private BookingQuery createBasicResponse(String message) {
         BookingQuery query = new BookingQuery();
         query.message = message;
