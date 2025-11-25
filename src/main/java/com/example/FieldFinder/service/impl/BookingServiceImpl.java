@@ -101,34 +101,28 @@ public class BookingServiceImpl implements BookingService {
         Pitch pitch = pitchRepository.findById(bookingRequest.getPitchId())
                 .orElseThrow(() -> new RuntimeException("Pitch not found!"));
 
-//        BigDecimal totalPrice = bookingRequest.getBookingDetails().stream()
-//                .map(BookingRequestDTO.BookingDetailDTO::getPriceDetail)
-//                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal totalPrice = bookingRequest.getTotalPrice();
         Booking booking = Booking.builder()
                 .user(user)
                 .bookingDate(bookingRequest.getBookingDate())
                 .status(Booking.BookingStatus.PENDING)
                 .paymentStatus(Booking.PaymentStatus.PENDING)
-                .totalPrice(totalPrice)
+                .totalPrice(bookingRequest.getTotalPrice())
+                .bookingDetails(new ArrayList<>())
                 .build();
-
-        bookingRepository.save(booking);
 
         List<BookingDetail> details = bookingRequest.getBookingDetails().stream().map(detailDTO -> {
             BookingDetail detail = new BookingDetail();
             detail.setBooking(booking);
             detail.setPitch(pitch);
-            detail.setSlot(detailDTO.getSlot()); // NEW: use slot number
+            detail.setSlot(detailDTO.getSlot());
             detail.setName(detailDTO.getName());
             detail.setPriceDetail(detailDTO.getPriceDetail());
             return detail;
         }).collect(Collectors.toList());
 
+        booking.setBookingDetails(details);
 
-        bookingDetailRepository.saveAll(details);
-        return booking;
+        return bookingRepository.save(booking);
     }
 
     @Transactional

@@ -1,8 +1,10 @@
 package com.example.FieldFinder.ai;
 
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
+import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.service.OpenWeatherService;
 import com.example.FieldFinder.service.PitchService;
+import com.example.FieldFinder.service.ProductService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.cdimascio.dotenv.Dotenv;
@@ -24,13 +26,13 @@ public class AIChat {
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
     private final PitchService pitchService;
+    private final ProductService productService;
 
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 1100;
     private long lastCallTime = 0;
 
     private final OpenWeatherService weatherService;
 
-    // Bản đồ lưu trữ thông tin sân cho mỗi phiên
     private final Map<String, PitchResponseDTO> sessionPitches = new HashMap<>();
 
     static {
@@ -41,8 +43,9 @@ public class AIChat {
         }
     }
 
-    public AIChat(PitchService pitchService, OpenWeatherService openWeatherService, OpenWeatherService weatherService) {
+    public AIChat(PitchService pitchService, OpenWeatherService openWeatherService, ProductService productService, OpenWeatherService weatherService) {
         this.pitchService = pitchService;
+        this.productService = productService;
         this.weatherService = weatherService;
     }
 
@@ -55,16 +58,13 @@ public class AIChat {
         lastCallTime = System.currentTimeMillis();
     }
 
-    private String buildSystemPrompt(long totalPitches, long fiveASideCount, long sevenASideCount, long elevenASideCount) {
+    private String buildSystemPrompt(long totalPitches) {
         LocalDate today = LocalDate.now();
         return SYSTEM_INSTRUCTION
                 .replace("{{today}}", today.toString())
                 .replace("{{plus1}}", today.plusDays(1).toString())
                 .replace("{{plus2}}", today.plusDays(2).toString())
-                .replace("{{totalPitches}}", String.valueOf(totalPitches))
-                .replace("{{fiveASideCount}}", String.valueOf(fiveASideCount))
-                .replace("{{sevenASideCount}}", String.valueOf(sevenASideCount))
-                .replace("{{elevenASideCount}}", String.valueOf(elevenASideCount));
+                .replace("{{totalPitches}}", String.valueOf(totalPitches));
     }
 
     private String callOpenRouterAPI(String userInput, String systemPrompt) throws IOException, InterruptedException {
@@ -75,41 +75,34 @@ public class AIChat {
                 Map.of("role", "user", "content", buildPrompt(userInput))
         ));
         body.put("temperature", 0.3);
-        body.put("max_tokens", 300);
+        body.put("max_tokens", 500);
         body.put("stop", List.of("\n\n", "```"));
 
         waitIfNeeded();
 
-        // Sửa lại cách tạo Headers
         Headers headers = new Headers.Builder()
                 .add("Authorization", "Bearer " + OPENROUTER_API_KEY)
                 .add("Content-Type", "application/json")
-                .add("HTTP-Referer", "https://yourdomain.com")
+                .add("HTTP-Referer", "[https://yourdomain.com](https://yourdomain.com)")
                 .add("User-Agent", "FieldFinderApp/1.0")
                 .build();
 
         Request request = new Request.Builder()
                 .url(OPENROUTER_API_URL)
-                .post(RequestBody.create(mapper.writeValueAsString(body),
-                        MediaType.parse("application/json")))
-                .headers(headers)  // Sử dụng headers đã tạo
+                .post(RequestBody.create(mapper.writeValueAsString(body), MediaType.parse("application/json")))
+                .headers(headers)
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException("API error: " + response.code() + " - " + response.message());
             }
-            return extractPureJson(mapper.readTree(response.body().string())
-                    .at("/choices/0/message/content").asText());
+            return extractPureJson(mapper.readTree(response.body().string()).at("/choices/0/message/content").asText());
         }
     }
 
     private BookingQuery parseAIResponse(String cleanJson) throws IOException {
         JsonNode jsonNode = mapper.readTree(cleanJson);
-        if (!jsonNode.has("slotList") || !jsonNode.has("bookingDate") ||
-                !jsonNode.has("pitchType") || !jsonNode.has("message") || !jsonNode.has("data")) {
-            throw new IOException("Invalid JSON structure from AI");
-        }
         return mapper.readValue(cleanJson, BookingQuery.class);
     }
 
@@ -160,6 +153,85 @@ public class AIChat {
         return null;
     }
 
+    private BookingQuery handleProductQuery(BookingQuery query, String userInput) {
+        List<ProductResponseDTO> products = productService.getAllProducts();
+        String action = (String) query.data.get("action");
+        String productName = (String) query.data.get("productName"); // Tên sản phẩm user hỏi
+
+        if ("cheapest_product".equals(action)) {
+            ProductResponseDTO p = products.stream().min(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
+            if (p != null) {
+                query.message = String.format("Sản phẩm rẻ nhất là %s với giá %s VNĐ.", p.getName(), formatMoney(p.getPrice()));
+                query.data.put("product", p);
+            }
+        } else if ("most_expensive_product".equals(action)) {
+            ProductResponseDTO p = products.stream().max(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
+            if (p != null) {
+                query.message = String.format("Sản phẩm đắt nhất là %s với giá %s VNĐ.", p.getName(), formatMoney(p.getPrice()));
+                query.data.put("product", p);
+            }
+        } else if ("best_selling_product".equals(action)) {
+            // Giả sử bạn đã implement hàm getTopSellingProducts
+            List<ProductResponseDTO> top = productService.getTopSellingProducts(1);
+            if (!top.isEmpty()) {
+                ProductResponseDTO p = top.get(0);
+                query.message = String.format("Sản phẩm bán chạy nhất là %s.", p.getName());
+                query.data.put("product", p);
+            } else {
+                query.message = "Chưa có dữ liệu về sản phẩm bán chạy.";
+            }
+        } else if ("product_detail".equals(action) && productName != null) {
+            // Tìm sản phẩm theo tên (fuzzy search đơn giản)
+            Optional<ProductResponseDTO> productOpt = products.stream()
+                    .filter(p -> p.getName().toLowerCase().contains(productName.toLowerCase()))
+                    .findFirst();
+
+            if (productOpt.isPresent()) {
+                ProductResponseDTO p = productOpt.get();
+                StringBuilder detail = new StringBuilder();
+                detail.append(String.format("Sản phẩm: %s\n", p.getName()));
+                detail.append(String.format("Thương hiệu: %s\n", p.getBrand()));
+                detail.append(String.format("Giá: %s VNĐ\n", formatMoney(p.getPrice())));
+
+                if (p.getVariants() != null && !p.getVariants().isEmpty()) {
+                    detail.append("Các size hiện có: ");
+                    String sizes = p.getVariants().stream()
+                            .map(v -> v.getSize() + " (Còn " + v.getQuantity() + ")")
+                            .collect(Collectors.joining(", "));
+                    detail.append(sizes);
+                } else {
+                    detail.append("Hiện hết hàng hoặc chưa cập nhật size.");
+                }
+
+                query.message = detail.toString();
+                query.data.put("product", p);
+            } else {
+                query.message = "Xin lỗi, tôi không tìm thấy sản phẩm nào có tên \"" + productName + "\".";
+            }
+        } else if ("check_stock".equals(action) && productName != null) {
+            Optional<ProductResponseDTO> productOpt = products.stream()
+                    .filter(p -> p.getName().toLowerCase().contains(productName.toLowerCase()))
+                    .findFirst();
+
+            if (productOpt.isPresent()) {
+                int total = productOpt.get().getStockQuantity();
+                if (total > 0) {
+                    query.message = String.format("Sản phẩm %s còn hàng (Tổng: %d).", productOpt.get().getName(), total);
+                } else {
+                    query.message = String.format("Sản phẩm %s hiện đã hết hàng.", productOpt.get().getName());
+                }
+            } else {
+                query.message = "Không tìm thấy sản phẩm.";
+            }
+        }
+
+        return query;
+    }
+
+    private String formatMoney(Double amount) {
+        return String.format("%,.0f", amount);
+    }
+
     private BookingQuery handleWeatherQuery(BookingQuery query) {
         String city = query.data.getOrDefault("city", "Hà Nội").toString();
 
@@ -177,54 +249,45 @@ public class AIChat {
     }
 
     public BookingQuery parseBookingInput(String userInput, String sessionId) throws IOException, InterruptedException {
-        // Xử lý câu chào
         if (isGreeting(userInput)) {
             BookingQuery query = new BookingQuery();
-            query.message = "Xin chào! Tôi là trợ lý đặt sân thể thao. Bạn muốn đặt sân vào ngày nào và khung giờ nào?";
+            query.message = "Xin chào! Tôi có thể giúp bạn đặt sân bóng hoặc tìm kiếm sản phẩm thể thao (giày, áo...).";
             query.slotList = new ArrayList<>();
             query.pitchType = "ALL";
             query.data = new HashMap<>();
             return query;
         }
 
-        // Chuẩn bị dữ liệu sân cho prompt
         List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
-        Map<String, Long> pitchCount = allPitches.stream()
-                .collect(Collectors.groupingBy(p -> p.getType().name(), Collectors.counting()));
+        // Cập nhật prompt
+        String finalPrompt = buildSystemPrompt(allPitches.size());
 
-        // Chuẩn bị prompt với thông tin cập nhật
-        String finalPrompt = buildSystemPrompt(
-                allPitches.size(),
-                pitchCount.getOrDefault("FIVE_A_SIDE", 0L),
-                pitchCount.getOrDefault("SEVEN_A_SIDE", 0L),
-                pitchCount.getOrDefault("ELEVEN_A_SIDE", 0L)
-        );
-
-        // Gọi API AI
         String cleanJson = callOpenRouterAPI(userInput, finalPrompt);
         System.out.println("Cleaned JSON: " + cleanJson);
 
-        // Parse response
         BookingQuery query = parseAIResponse(cleanJson);
 
-        if (query.data != null && query.data.containsKey("action") && "get_weather".equals(query.data.get("action"))) {
-            return handleWeatherQuery(query);
+        // Điều phối logic dựa trên action của AI
+        if (query.data != null && query.data.containsKey("action")) {
+            String action = (String) query.data.get("action");
+
+            if ("get_weather".equals(action)) {
+                return handleWeatherQuery(query);
+            }
+            // Các action liên quan đến Product
+            if (action.contains("product") || action.contains("stock")) {
+                return handleProductQuery(query, userInput);
+            }
         }
 
+        // Logic sân bóng cũ
         if (isTotalPitchesQuestion(userInput)) {
             int totalPitches = pitchService.getAllPitches().size();
             return createBasicResponse("Hệ thống hiện có " + totalPitches + " sân");
         }
+        if (isPitchTypesQuestion(userInput)) return handlePitchTypesQuestion();
+        if (isPitchCountByTypeQuestion(userInput)) return handlePitchCountByTypeQuestion();
 
-        if (isPitchTypesQuestion(userInput)) {
-            return handlePitchTypesQuestion();
-        }
-
-        if (isPitchCountByTypeQuestion(userInput)) {
-            return handlePitchCountByTypeQuestion();
-        }
-
-        // Xử lý logic đặc biệt
         processSpecialCases(userInput, sessionId, query, allPitches);
 
         return query;
@@ -344,138 +407,137 @@ public class AIChat {
     }
 
     private String extractPureJson(String content) throws IllegalArgumentException {
-        String cleanedContent = content
-                .replaceAll("(?s)```json\\s*(\\{[\\s\\S]*?})\\s*```", "$1")
-                .replaceAll("(?s)```\\s*(\\{[\\s\\S]*?})\\s*```", "$1")
-                .trim();
-
-        try {
-            mapper.readTree(cleanedContent);
-            return cleanedContent;
-        } catch (IOException e) {
-            System.err.println("Failed to parse cleaned content: " + cleanedContent);
-        }
-
-        try {
-            int start = cleanedContent.indexOf('{');
-            int end = cleanedContent.lastIndexOf('}');
-            if (start == -1 || end == -1 || start > end) {
-                throw new IllegalArgumentException("Không tìm thấy JSON hợp lệ trong: " + content);
-            }
-            String jsonCandidate = cleanedContent.substring(start, end + 1);
-            mapper.readTree(jsonCandidate);
-            return jsonCandidate;
-        } catch (IOException e) {
-            throw new IllegalArgumentException("Không tìm thấy JSON hợp lệ trong: " + content, e);
-        }
+        // Logic cũ
+        String cleanedContent = content.replaceAll("(?s)```json\\s*(\\{[\\s\\S]*?})\\s*```", "$1").replaceAll("(?s)```\\s*(\\{[\\s\\S]*?})\\s*```", "$1").trim();
+        try { mapper.readTree(cleanedContent); return cleanedContent; } catch (Exception e) {}
+        try { int start = cleanedContent.indexOf('{'); int end = cleanedContent.lastIndexOf('}'); if(start == -1 || end == -1) throw new Exception(); return cleanedContent.substring(start, end+1); } catch (Exception e) { throw new IllegalArgumentException("Invalid JSON"); }
     }
 
-    private boolean isGreeting(String input) {
-        String lowerInput = input.toLowerCase();
-        return lowerInput.contains("xin chào") || lowerInput.contains("chào") || lowerInput.contains("hello");
-    }
-
-    private String buildPrompt(String userInput) {
-        return """
-                Phân tích yêu cầu đặt sân sau và trả về thông tin ngày và các slot tương ứng:
-                "%s"
-                """.formatted(userInput);
-    }
+    private boolean isGreeting(String s) { return s.toLowerCase().matches(".*(xin chào|chào|hello).*"); }
+    private String buildPrompt(String s) { return "Phân tích yêu cầu: \"" + s + "\""; }
 
     private static final String SYSTEM_INSTRUCTION = """
-Bạn là trợ lý AI chuyên xử lý các yêu cầu liên quan đến sân thể thao. Bạn có thể sử dụng công cụ "get_weather" để tra cứu thời tiết. Hãy phân tích input của người dùng và trả về JSON **THUẦN** với định dạng sau:
+Bạn là trợ lý AI thông minh cho hệ thống FieldFinder (Đặt sân & Shop thể thao).
+Nhiệm vụ: Phân tích câu hỏi người dùng và trả về JSON cấu trúc để Backend xử lý.
 
+CẤU TRÚC JSON TRẢ VỀ:
 {
-  "bookingDate": "yyyy-MM-dd",
-  "slotList": [danh_sách_số_slot],
+  "bookingDate": "yyyy-MM-dd" (hoặc null),
+  "slotList": [1, 2...] (hoặc []),
   "pitchType": "FIVE_A_SIDE" | "SEVEN_A_SIDE" | "ELEVEN_A_SIDE" | "ALL",
-  "message": "thông_điệp_phản_hồi",
-  "data": {}
+  "message": "thông điệp mặc định" (hoặc null),
+  "data": {
+    // Chỉ điền các trường này nếu action là 'get_weather', 'check_stock', v.v.
+    // Nếu là đặt sân thông thường, hãy để object data rỗng: {}
+    "action": "get_weather" | "cheapest_product" | "check_stock" | null,
+    "productName": "...",
+    "city": "..."
+  }
 }
-
 ❗️Lưu ý quan trọng:
-- `bookingDate`: Chuỗi định dạng "yyyy-MM-dd". Nếu không phải yêu cầu đặt sân, để null.
-- `slotList`: Mảng số nguyên cho khung giờ. Nếu không xác định được khung giờ, để [] và cung cấp `message` phù hợp. Đảm bảo đúng chính tả "slotList".
-- `pitchType`: Một trong các giá trị:
-  - "FIVE_A_SIDE" nếu đề cập "sân 5", "sân 5 người", "sân nhỏ", "sân mini".
-  - "SEVEN_A_SIDE" nếu đề cập "sân 7", "sân 7 người", "sân trung".
-  - "ELEVEN_A_SIDE" nếu đề cập "sân 11", "sân 11 người", "sân lớn".
-  - "ALL" nếu không đề cập loại sân cụ thể hoặc hỏi về tất cả sân.
-- `message`: Thông điệp thân thiện cho người dùng. Nếu là yêu cầu đặt sân hợp lệ, để null. Nếu cần phản hồi hoặc thiếu thông tin, cung cấp thông điệp phù hợp.
-- `data`: Đối tượng chứa dữ liệu bổ sung cho các câu hỏi đặc biệt (giá, số lượng sân, v.v.). Nếu không cần, để {}.
-
+  - `data`: Chỉ sử dụng khi người dùng hỏi về thời tiết hoặc sản phẩm. NẾU LÀ YÊU CẦU ĐẶT SÂN BÌNH THƯỜNG, HÃY ĐỂ data LÀ: {}
+  - `bookingDate`: Chuỗi định dạng "yyyy-MM-dd". Nếu không phải yêu cầu đặt sân, để null.
+  - `slotList`: Mảng số nguyên cho khung giờ. Nếu không xác định được khung giờ, để [] và cung cấp `message` phù hợp. Đảm bảo đúng chính tả "slotList".
+  - `pitchType`: Một trong các giá trị:
+    - "FIVE_A_SIDE" nếu đề cập "sân 5", "sân 5 người", "sân nhỏ", "sân mini".
+    - "SEVEN_A_SIDE" nếu đề cập "sân 7", "sân 7 người", "sân trung".
+    - "ELEVEN_A_SIDE" nếu đề cập "sân 11", "sân 11 người", "sân lớn".
+    - "ALL" nếu không đề cập loại sân cụ thể hoặc hỏi về tất cả sân.
+    - `message`: Thông điệp thân thiện cho người dùng. Nếu là yêu cầu đặt sân hợp lệ, để null. Nếu cần phản hồi hoặc thiếu thông tin, cung cấp thông điệp phù hợp.
+  - `data`: Đối tượng chứa dữ liệu bổ sung cho các câu hỏi đặc biệt (giá, số lượng sân, v.v.). Nếu không cần, để {}.
+            
 ⚠️ Các slot được quy định như sau:
-- Slot 1: 6h-7h
-- Slot 2: 7h-8h
-- Slot 3: 8h-9h
-- Slot 4: 9h-10h
-- Slot 5: 10h-11h
-- Slot 6: 11h-12h
-- Slot 7: 12h-13h
-- Slot 8: 13h-14h
-- Slot 9: 14h-15h
-- Slot 10: 15h-16h
-- Slot 11: 16h-17h
-- Slot 12: 17h-18h
-- Slot 13: 18h-19h
-- Slot 14: 19h-20h
-- Slot 15: 20h-21h
-- Slot 16: 21h-22h
-- Slot 17: 22h-23h
-- Slot 18: 23h-24h
-
+  - Slot 1: 6h-7h
+  - Slot 2: 7h-8h
+  - Slot 3: 8h-9h
+  - Slot 4: 9h-10h
+  - Slot 5: 10h-11h
+  - Slot 6: 11h-12h
+  - Slot 7: 12h-13h
+  - Slot 8: 13h-14h
+  - Slot 9: 14h-15h
+  - Slot 10: 15h-16h
+  - Slot 11: 16h-17h
+  - Slot 12: 17h-18h
+  - Slot 13: 18h-19h
+  - Slot 14: 19h-20h
+  - Slot 15: 20h-21h
+  - Slot 16: 21h-22h
+  - Slot 17: 22h-23h
+  - Slot 18: 23h-24h
+            
 🕒 QUY TẮC XỬ LÝ GIỜ:
-1. Hiểu các cụm từ tự nhiên như "sáng", "chiều", "tối":
-   - "6h sáng" → 6:00 → slot 1
-   - "7h sáng" → 7:00 → slot 2
-   - "10h sáng" → 10:00 → slot 5
-   - "1h chiều" hoặc "13h" → 13:00 → slot 8
-   - "6h chiều" → 18:00 → slot 13
-   - "7h tối" → 19:00 → slot 14
-   - "19h" → 19:00 → slot 14
-   - "10h tối" → 22:00 → slot 17
-   - "11h tối" → 23:00 → slot 18
-2. Nếu không ghi rõ buổi (sáng/chiều/tối), áp dụng quy tắc sau:
-   - Giờ từ 1h đến 5h: **Luôn** hiểu là buổi chiều, cộng thêm 12 giờ (ví dụ: "1h" → 13:00 → slot 8, "2h" → 14:00 → slot 9).
-   - Giờ từ 6h đến 11h: **Luôn** hiểu là buổi sáng (ví dụ: "6h" → 6:00 → slot 1, "10h" → 10:00 → slot 5).
-   - Giờ 12h: Hiểu là 12:00 trưa (slot 7).
-3. Nếu yêu cầu nhiều khung giờ liên tiếp (ví dụ: "từ 6h chiều đến 8h tối"), trả về danh sách slot tương ứng ([13, 14]).
-4. Nếu không xác định được giờ hợp lệ, để `slotList` là [] và cung cấp `message` như: "Vui lòng cung cấp khung giờ cụ thể (ví dụ: 2h chiều hoặc 14h)."
-
+  1. Hiểu các cụm từ tự nhiên như "sáng", "chiều", "tối":
+     - "6h sáng" → 6:00 → slot 1
+     - "7h sáng" → 7:00 → slot 2
+     - "10h sáng" → 10:00 → slot 5
+     - "1h chiều" hoặc "13h" → 13:00 → slot 8
+     - "6h chiều" → 18:00 → slot 13
+     - "7h tối" → 19:00 → slot 14
+     - "19h" → 19:00 → slot 14
+     - "10h tối" → 22:00 → slot 17
+     - "11h tối" → 23:00 → slot 18
+  2. Nếu không ghi rõ buổi (sáng/chiều/tối), áp dụng quy tắc sau:
+     - Giờ từ 1h đến 5h: **Luôn** hiểu là buổi chiều, cộng thêm 12 giờ (ví dụ: "1h" → 13:00 → slot 8, "2h" → 14:00 → slot 9).
+     - Giờ từ 6h đến 11h: **Luôn** hiểu là buổi sáng (ví dụ: "6h" → 6:00 → slot 1, "10h" → 10:00 → slot 5).
+     - Giờ 12h: Hiểu là 12:00 trưa (slot 7).
+  3. Nếu yêu cầu nhiều khung giờ liên tiếp (ví dụ: "từ 6h chiều đến 8h tối"), trả về danh sách slot tương ứng ([13, 14]).
+  4. Nếu không xác định được giờ hợp lệ, để `slotList` là [] và cung cấp `message` như: "Vui lòng cung cấp khung giờ cụ thể (ví dụ: 2h chiều hoặc 14h)."
+            
 📅 QUY TẮC XỬ LÝ NGÀY:
-- "Hôm nay" → ngày hiện tại ("{{today}}").
-- "Ngày mai" → cộng 1 ngày ("{{plus1}}").
-- "Ngày kia" → cộng 2 ngày ("{{plus2}}").
-- Ngày cụ thể (ví dụ: "20/5", "20-5", "20 tháng 5") → chuyển về yyyy-MM-dd.
-- Nếu không xác định ngày, để `bookingDate` là null và cung cấp `message` phù hợp.
-
+  - "Hôm nay" → ngày hiện tại ("{{today}}").
+  - "Ngày mai" → cộng 1 ngày ("{{plus1}}").
+  - "Ngày kia" → cộng 2 ngày ("{{plus2}}").
+  - Ngày cụ thể (ví dụ: "20/5", "20-5", "20 tháng 5") → chuyển về yyyy-MM-dd.
+  - Nếu không xác định ngày, để `bookingDate` là null và cung cấp `message` phù hợp.
+            
 💡 XỬ LÝ CÂU HỎI ĐẶC BIỆT:
-1. Hỏi giá sân (ví dụ: "Sân 5 hiện có giá bao nhiêu?"):
-   - Xác định `pitchType` (ví dụ: "FIVE_A_SIDE").
-   - Để `data` trống.
-   - `message`: "Tôi sẽ kiểm tra giá sân 5 người. Vui lòng cung cấp ngày nếu bạn muốn giá chính xác."
-2. Hỏi số loại sân (ví dụ: "Có tổng bao nhiêu loại sân?"):
-   - `data`: {"pitchTypes": ["FIVE_A_SIDE", "SEVEN_A_SIDE", "ELEVEN_A_SIDE"]}
-   - `message`: "Hệ thống có 3 loại sân: sân 5, sân 7, và sân 11."
-3. Hỏi tổng số sân (ví dụ: "Có bao nhiêu sân trong hệ thống?"):
-   - `data`: {"totalPitches": {{totalPitches}}}
-   - `message`: "Hệ thống hiện có {{totalPitches}} sân bóng."
-4. Hỏi sân rẻ nhất (ví dụ: "Sân nào có giá rẻ nhất?"):
-   - `data`: {}
-   - `message`: "Tôi sẽ tìm sân có giá rẻ nhất."
-5. Hỏi sân mắc nhất (ví dụ: "Sân nào có giá mắc nhất?"):
-   - `data`: {}
-   - `message`: "Tôi sẽ tìm sân có giá mắc nhất."
-6. Hỏi số sân theo loại (ví dụ: "Mỗi loại sân có bao nhiêu sân?"):
-   - `data`: {"pitchCounts": {"FIVE_A_SIDE": {{fiveASideCount}}, "SEVEN_A_SIDE": {{sevenASideCount}}, "ELEVEN_A_SIDE": {{elevenASideCount}}}}
-   - `message`: "Số lượng sân theo loại: sân 5 người: {{fiveASideCount}} sân, sân 7 người: {{sevenASideCount}} sân, sân 11 người: {{elevenASideCount}} sân."
-7. Đề cập "sân này" (ví dụ: "Đặt sân này lúc 7h ngày mai"):
-   - Nếu có sân trong ngữ cảnh (rẻ nhất/mắc nhất), tự động sử dụng sân đó
-   - Nếu không có sân trong session, tìm sân rẻ/mắc nhất theo yêu cầu trước đó
-   - `message`: "Đang xử lý đặt sân [tên sân]..."
-8. Hỏi thời tiết:
-   - Nếu người dùng hỏi về thời tiết, hãy trả về JSON với trường "action": "get_weather" và "city" trong data.
-   - Ví dụ: "Thời tiết hôm nay ở Sài Gòn?" -> {"bookingDate": null, "slotList": [], "pitchType": "ALL", "message": null, "data": {"action": "get_weather", "city": "Ho Chi Minh"}}
+  1. Hỏi giá sân (ví dụ: "Sân 5 hiện có giá bao nhiêu?"):
+     - Xác định `pitchType` (ví dụ: "FIVE_A_SIDE").
+     - Để `data` trống.
+     - `message`: "Tôi sẽ kiểm tra giá sân 5 người. Vui lòng cung cấp ngày nếu bạn muốn giá chính xác."
+  2. Hỏi số loại sân (ví dụ: "Có tổng bao nhiêu loại sân?"):
+     - `data`: {"pitchTypes": ["FIVE_A_SIDE", "SEVEN_A_SIDE", "ELEVEN_A_SIDE"]}
+     - `message`: "Hệ thống có 3 loại sân: sân 5, sân 7, và sân 11."
+  3. Hỏi tổng số sân (ví dụ: "Có bao nhiêu sân trong hệ thống?"):
+     - `data`: {"totalPitches": {{totalPitches}}}
+     - `message`: "Hệ thống hiện có {{totalPitches}} sân bóng."
+  4. Hỏi sân rẻ nhất (ví dụ: "Sân nào có giá rẻ nhất?"):
+     - `data`: {}
+     - `message`: "Tôi sẽ tìm sân có giá rẻ nhất."
+  5. Hỏi sân mắc nhất (ví dụ: "Sân nào có giá mắc nhất?"):
+     - `data`: {}
+     - `message`: "Tôi sẽ tìm sân có giá mắc nhất."
+  6. Hỏi số sân theo loại (ví dụ: "Mỗi loại sân có bao nhiêu sân?"):
+     - `data`: {"pitchCounts": {"FIVE_A_SIDE": {{fiveASideCount}}, "SEVEN_A_SIDE": {{sevenASideCount}}, "ELEVEN_A_SIDE": {{elevenASideCount}}}}
+     - `message`: "Số lượng sân theo loại: sân 5 người: {{fiveASideCount}} sân, sân 7 người: {{sevenASideCount}} sân, sân 11 người: {{elevenASideCount}} sân."
+  7. Đề cập "sân này" (ví dụ: "Đặt sân này lúc 7h ngày mai"):
+     - Nếu có sân trong ngữ cảnh (rẻ nhất/mắc nhất), tự động sử dụng sân đó
+     - Nếu không có sân trong session, tìm sân rẻ/mắc nhất theo yêu cầu trước đó
+     - `message`: "Đang xử lý đặt sân [tên sân]..."
+  8. Hỏi thời tiết:
+     - Nếu người dùng hỏi về thời tiết, hãy trả về JSON với trường "action": "get_weather" và "city" trong data.
+     - Ví dụ: "Thời tiết hôm nay ở Sài Gòn?" -> {"bookingDate": null, "slotList": [], "pitchType": "ALL", "message": null, "data": {"action": "get_weather", "city": "Ho Chi Minh"}}
+            ""\";
+            
+  9. Nếu người dùng hỏi "rẻ nhất", "mắc nhất", "đắt nhất", "bán chạy nhất" MÀ KHÔNG nói rõ tên sản phẩm cụ thể -> Mặc định là tìm trong TOÀN BỘ CỬA HÀNG.
+      - "Sản phẩm nào rẻ nhất?" -> action: "cheapest_product"
+      - "Cái nào đắt nhất shop?" -> action: "most_expensive_product"
+      - "Món nào bán chạy?" -> action: "best_selling_product"
+  TUYỆT ĐỐI KHÔNG được hỏi ngược lại người dùng (ví dụ: "Bạn muốn tìm loại nào?"). Hãy trả về JSON action ngay.
+
+  10. Nếu hỏi về tình trạng/chi tiết một sản phẩm cụ thể:
+      - "Giày Nike Air còn không?" -> action: "check_stock", productName: "Nike Air"
+      - "Thông tin áo Real Madrid?" -> action: "product_detail", productName: "áo Real Madrid"
+      
+VÍ DỤ MẪU:
+- User: "Sản phẩm nào rẻ nhất?"
+  JSON: { ..., "data": { "action": "cheapest_product" } }
+  
+- User: "Shop có món nào bán chạy nhất không?"
+  JSON: { ..., "data": { "action": "best_selling_product" } }
+
+Lưu ý: Luôn ưu tiên trả về JSON action hơn là message hỏi lại.
 """;
 
     public static class BookingQuery {

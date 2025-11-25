@@ -1,12 +1,9 @@
 package com.example.FieldFinder.entity;
 
-
 import jakarta.persistence.*;
 import lombok.*;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -16,35 +13,34 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 @Entity
-@Table(name = "Bookings")
-@Data
+@Table(name = "bookings") // Tên bảng số nhiều
 @Builder
 public class Booking {
-    @Setter
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "BookingId")
+    @Column(name = "booking_id") // Sửa thành booking_id
     private UUID bookingId;
 
+    // mappedBy phải trùng tên với biến trong BookingDetail (biến "booking")
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL)
     private List<BookingDetail> bookingDetails = new ArrayList<>();
 
     @ManyToOne
-    @JoinColumn(name = "UserId", nullable = false)
+    @JoinColumn(name = "user_id", nullable = false) // user_id
     private User user;
 
-    @Column(name = "BookingDate", nullable = false)
+    @Column(name = "booking_date", nullable = false)
     private LocalDate bookingDate;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "Status", nullable = false)
+    @Column(name = "status", nullable = false)
     private BookingStatus status;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "PaymentStatus", nullable = false)
+    @Column(name = "payment_status", nullable = false)
     private PaymentStatus paymentStatus;
 
-    @Column(name = "TotalPrice", nullable = false)
+    @Column(name = "total_price", nullable = false)
     private BigDecimal totalPrice;
 
     public enum BookingStatus {
