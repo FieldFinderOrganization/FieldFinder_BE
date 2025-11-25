@@ -11,7 +11,8 @@ public interface ProductService {
     List<ProductResponseDTO> getAllProducts();
     ProductResponseDTO updateProduct(Long id, ProductRequestDTO request);
     void deleteProduct(Long id);
-    void holdStock(Long productId, int quantity);
-    void commitStock(Long productId, int quantity);
-    void releaseStock(Long productId, int quantity);
+    void holdStock(Long productId, String size, int quantity);
+    void commitStock(Long productId, String size, int quantity);
+    void releaseStock(Long productId, String size, int quantity);
+    List<ProductResponseDTO> getTopSellingProducts(int limit);
 }

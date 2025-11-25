@@ -69,7 +69,7 @@ public class PaymentServiceImpl implements PaymentService {
                 frontEndUrl + "/payment-cancel"
         );
 
-        Payment.PaymentMethod paymentMethod = parsePaymentMethod(requestDTO.getPaymentMethod());
+        PaymentMethod paymentMethod = parsePaymentMethod(requestDTO.getPaymentMethod());
 
         Payment payment = Payment.builder()
                 .booking(booking)
@@ -94,7 +94,7 @@ public class PaymentServiceImpl implements PaymentService {
         Order order = Order.builder()
                 .user(user)
                 .status(OrderStatus.PENDING)
-                .paymentMethod(PaymentMethod.valueOf(requestDTO.getPaymentMethod()))
+                .paymentMethod(parsePaymentMethod(requestDTO.getPaymentMethod()))
                 .totalAmount(requestDTO.getAmount().doubleValue())
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
@@ -107,13 +107,18 @@ public class PaymentServiceImpl implements PaymentService {
             Product product = productRepository.findById(itemDTO.getProductId())
                     .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
 
-            // Giữ hàng
-            productService.holdStock(product.getProductId(), itemDTO.getQuantity());
+            String size = itemDTO.getSize();
+            if (size == null || size.isEmpty()) {
+                throw new RuntimeException("Size is required for product: " + product.getName());
+            }
+
+            productService.holdStock(product.getProductId(), size, itemDTO.getQuantity());
 
             OrderItem orderItem = OrderItem.builder()
                     .order(order)
                     .product(product)
                     .quantity(itemDTO.getQuantity())
+                    .size(size)
                     .price(product.getPrice() * itemDTO.getQuantity())
                     .build();
 
@@ -148,7 +153,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .order(order)
                 .user(user)
                 .amount(requestDTO.getAmount())
-                .paymentMethod(Payment.PaymentMethod.valueOf(requestDTO.getPaymentMethod()))
+                .paymentMethod(parsePaymentMethod(requestDTO.getPaymentMethod()))
                 .paymentStatus(Booking.PaymentStatus.PENDING)
                 .checkoutUrl(checkoutUrl)
                 .transactionId(transactionId)
@@ -191,11 +196,12 @@ public class PaymentServiceImpl implements PaymentService {
         return code < 0 ? -code : code;
     }
 
-    private Payment.PaymentMethod parsePaymentMethod(String method) {
+    private PaymentMethod parsePaymentMethod(String method) {
         try {
-            return Payment.PaymentMethod.valueOf(method);
+            if (method == null) return PaymentMethod.CASH;
+            return PaymentMethod.valueOf(method.toUpperCase().trim());
         } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Invalid payment method: " + method);
+            throw new RuntimeException("Invalid payment method: " + method + ". Allowed: BANK, CASH");
         }
     }
 
@@ -214,9 +220,8 @@ public class PaymentServiceImpl implements PaymentService {
             transactionId = (String) data.get("paymentLinkId");
         }
 
-        // Nếu không tìm thấy ID hoặc Code, dừng lại
         if (transactionId == null || code == null) {
-            System.out.println("Invalid Webhook Payload: Missing paymentLinkId or code");
+            System.out.println("❌ Invalid Webhook Payload: Missing paymentLinkId (in data) or code");
             return;
         }
 
@@ -229,7 +234,6 @@ public class PaymentServiceImpl implements PaymentService {
             Booking booking = payment.getBooking();
             Order order = payment.getOrder();
 
-            // 3. Kiểm tra trạng thái (00 là thành công)
             boolean isSuccess = "00".equals(code) || "success".equalsIgnoreCase(desc);
 
             if (isSuccess) {
@@ -246,33 +250,40 @@ public class PaymentServiceImpl implements PaymentService {
                     // B. Xử lý Đơn Hàng -> TRỪ KHO THẬT (COMMIT)
                     if (order != null) {
                         order.setStatus(OrderStatus.CONFIRMED);
-                        // Cần kiểm tra null cho items để tránh lỗi
                         if (order.getItems() != null) {
                             for (OrderItem item : order.getItems()) {
-                                System.out.println("   - Committing stock for Product: " + item.getProduct().getName());
-                                productService.commitStock(item.getProduct().getProductId(), item.getQuantity());
+                                System.out.println("   - Committing stock for Product: " + item.getProduct().getName() + ", Size: " + item.getSize());
+
+                                productService.commitStock(
+                                        item.getProduct().getProductId(),
+                                        item.getSize(),
+                                        item.getQuantity()
+                                );
                             }
                         }
                     }
                 }
             } else {
-                // Thanh toán thất bại / Hủy
-                System.out.println("Payment Failed/Cancelled for TxID: " + transactionId);
+                System.out.println("❌ Payment Failed/Cancelled for TxID: " + transactionId);
 
                 if (!isAlreadyPaid) {
-                    payment.setPaymentStatus(Booking.PaymentStatus.PENDING); // Hoặc FAILED
+                    payment.setPaymentStatus(Booking.PaymentStatus.PENDING);
 
                     if (booking != null) {
                         booking.setPaymentStatus(Booking.PaymentStatus.PENDING);
                     }
 
-                    // C. Xử lý Đơn Hàng -> TRẢ HÀNG (RELEASE)
                     if (order != null) {
                         order.setStatus(OrderStatus.CANCELLED);
                         if (order.getItems() != null) {
                             for (OrderItem item : order.getItems()) {
-                                System.out.println("   - Releasing stock for Product: " + item.getProduct().getName());
-                                productService.releaseStock(item.getProduct().getProductId(), item.getQuantity());
+                                System.out.println("   - Releasing stock for Product: " + item.getProduct().getName() + ", Size: " + item.getSize());
+
+                                productService.releaseStock(
+                                        item.getProduct().getProductId(),
+                                        item.getSize(),
+                                        item.getQuantity()
+                                );
                             }
                         }
                     }
@@ -283,8 +294,10 @@ public class PaymentServiceImpl implements PaymentService {
             if (order != null) orderRepository.save(order);
             if (booking != null) bookingRepository.save(booking);
 
+            System.out.println("💾 Saved updated Payment/Order/Booking to DB.");
+
         } else {
-            System.out.println("Payment not found in DB for transactionId: " + transactionId);
+            System.out.println("❌ Payment not found in DB for transactionId: " + transactionId);
         }
     }
 }

@@ -1,10 +1,9 @@
 package com.example.FieldFinder.entity;
 
-
 import jakarta.persistence.*;
 import lombok.*;
-
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Entity
 @Table(name = "products")
@@ -20,22 +19,18 @@ public class Product {
     @ManyToOne
     @JoinColumn(name = "category_id")
     private Category category;
-
     private String name;
     private String description;
     private Double price;
-
-    private Integer stockQuantity; // Tổng số lượng trong kho (bao gồm cả hàng đang bị giữ)
-
-    @Column(name = "locked_quantity", nullable = false)
-    private Integer lockedQuantity = 0;
-
     private String imageUrl;
     private String brand;
-    private LocalDateTime createdAt = LocalDateTime.now();
     private String sex;
+    private LocalDateTime createdAt = LocalDateTime.now();
 
-    public int getAvailableQuantity() {
-        return this.stockQuantity - this.lockedQuantity;
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<ProductVariant> variants;
+
+    public int getTotalStock() {
+        return variants == null ? 0 : variants.stream().mapToInt(ProductVariant::getStockQuantity).sum();
     }
 }

@@ -17,5 +17,6 @@ public class ShopPaymentRequestDTO {
     public static class CartItemDTO {
         private Long productId;
         private int quantity;
+        private String size;
     }
 }

@@ -5,9 +5,11 @@ import com.example.FieldFinder.dto.res.CartItemResponseDTO;
 import com.example.FieldFinder.entity.Cart;
 import com.example.FieldFinder.entity.Cart_item;
 import com.example.FieldFinder.entity.Product;
+import com.example.FieldFinder.entity.ProductVariant; // 👈 Import Variant
 import com.example.FieldFinder.repository.CartItemRepository;
 import com.example.FieldFinder.repository.CartRepository;
 import com.example.FieldFinder.repository.ProductRepository;
+import com.example.FieldFinder.repository.ProductVariantRepository; // 👈 Import Variant Repo
 import com.example.FieldFinder.service.CartItemService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -16,8 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -26,6 +28,7 @@ public class CartItemServiceImpl implements CartItemService {
     private final CartItemRepository cartItemRepository;
     private final CartRepository cartRepository;
     private final ProductRepository productRepository;
+    private final ProductVariantRepository productVariantRepository; // 👈 Inject Repo này
 
     @Override
     @Transactional
@@ -36,7 +39,12 @@ public class CartItemServiceImpl implements CartItemService {
         Product product = productRepository.findById(request.getProductId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found!"));
 
+        // 1. Tìm Variant (Size) tương ứng
+        ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(
+                product.getProductId(), request.getSize()
+        ).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Size not available for this product!"));
 
+        // 2. Kiểm tra item trong giỏ hàng
         Optional<Cart_item> existingItemOpt = cartItemRepository.findByCartAndProductAndSize(
                 cart, product, request.getSize()
         );
@@ -46,17 +54,19 @@ public class CartItemServiceImpl implements CartItemService {
             item = existingItemOpt.get();
             int newQuantity = item.getQuantity() + request.getQuantity();
 
-            if (newQuantity > product.getStockQuantity()) {
+            // 3. Kiểm tra tồn kho trên Variant
+            if (newQuantity > variant.getAvailableQuantity()) { // 👈 SỬA: Check trên variant
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Requested quantity exceeds available stock!");
+                        "Requested quantity exceeds available stock for size " + request.getSize());
             }
             item.setQuantity(newQuantity);
             item.setPriceAtTime(product.getPrice() * newQuantity);
 
         } else {
-            if (request.getQuantity() > product.getStockQuantity()) {
+            // 4. Kiểm tra tồn kho trên Variant (cho item mới)
+            if (request.getQuantity() > variant.getAvailableQuantity()) { // 👈 SỬA: Check trên variant
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Requested quantity exceeds available stock!");
+                        "Requested quantity exceeds available stock for size " + request.getSize());
             }
             double totalPrice = product.getPrice() * request.getQuantity();
 
@@ -70,7 +80,6 @@ public class CartItemServiceImpl implements CartItemService {
         }
 
         Cart_item saved = cartItemRepository.save(item);
-
         return mapToResponse(saved);
     }
 
@@ -82,21 +91,26 @@ public class CartItemServiceImpl implements CartItemService {
 
         Product product = item.getProduct();
 
+        // 5. Tìm Variant để check kho khi update
+        ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(
+                product.getProductId(), item.getSize()
+        ).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Size not found anymore!"));
+
         if (quantity <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Quantity must be greater than 0. Use DELETE endpoint to remove.");
         }
 
-        if (quantity > product.getStockQuantity()) {
+        // 6. Kiểm tra tồn kho trên Variant
+        if (quantity > variant.getAvailableQuantity()) { // 👈 SỬA: Check trên variant
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "The quantity exceeds available stock!");
+                    "The quantity exceeds available stock for size " + item.getSize());
         }
 
         item.setQuantity(quantity);
         item.setPriceAtTime(product.getPrice() * quantity);
 
         Cart_item updated = cartItemRepository.save(item);
-
         return mapToResponse(updated);
     }
 

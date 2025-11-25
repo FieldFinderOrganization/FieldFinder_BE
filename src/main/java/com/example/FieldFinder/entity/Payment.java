@@ -1,6 +1,7 @@
 package com.example.FieldFinder.entity;
 
-import com.example.FieldFinder.entity.Booking.PaymentStatus; // Import enum
+import com.example.FieldFinder.entity.Booking.PaymentStatus;
+import com.example.FieldFinder.Enum.PaymentMethod;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
@@ -45,13 +46,10 @@ public class Payment {
     @Column(name = "CheckoutUrl")
     private String checkoutUrl;
 
-    @Column(name = "TransactionId") // paymentLinkId của PayOS
+    @Column(name = "TransactionId")
     private String transactionId;
 
     @Column(name = "CreatedAt")
     private LocalDateTime createdAt = LocalDateTime.now();
 
-    public enum PaymentMethod {
-        CASH, BANK
-    }
 }

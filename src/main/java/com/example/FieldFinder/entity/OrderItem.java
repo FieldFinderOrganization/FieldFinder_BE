@@ -24,6 +24,9 @@ public class OrderItem {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
+    @Column(name = "size", nullable = true)
+    private String size;
+
     private Integer quantity;
     private Double price;
 }

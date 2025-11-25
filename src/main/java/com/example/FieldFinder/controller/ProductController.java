@@ -40,4 +40,9 @@ public class ProductController {
     public void delete(@PathVariable Long id) {
         productService.deleteProduct(id);
     }
+
+    @GetMapping("/top-selling")
+    public List<ProductResponseDTO> getTopSelling() {
+        return productService.getTopSellingProducts(5);
+    }
 }
