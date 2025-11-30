@@ -14,6 +14,8 @@ public class ProductRequestDTO {
     private String brand;
     private String sex;
 
+    private List<String> tags;
+
     private List<VariantDTO> variants;
 
     @Data

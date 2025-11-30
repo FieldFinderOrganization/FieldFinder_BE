@@ -20,9 +20,7 @@ public class CloudinaryService {
     public Map<String, Object> uploadProductImage(MultipartFile file, List<String> categories) throws IOException {
         Map params = ObjectUtils.asMap(
                 "folder", "field_finder_products",
-                "categorization", "google_tagging",
-                "auto_tagging", 0.4,
-                "tags", categories
+                "resource_type", "image"
         );
 
         Map uploadResult = cloudinary.uploader().upload(file.getBytes(), params);
@@ -34,17 +32,6 @@ public class CloudinaryService {
         Map<String, Object> result = new HashMap<>();
         result.put("url", uploadResult.get("url"));
         result.put("public_id", uploadResult.get("public_id"));
-
-        if (uploadResult.containsKey("tags")) {
-            result.put("tags", uploadResult.get("tags"));
-        } else {
-            result.put("tags", List.of());
-        }
-
-        if (uploadResult.containsKey("info")) {
-            result.put("analysis", uploadResult.get("info"));
-        }
-
         return result;
     }
 }

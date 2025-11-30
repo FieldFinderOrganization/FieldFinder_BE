@@ -25,11 +25,11 @@ public class BookingDetail implements Serializable {
     private Booking booking;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "pitch_id", nullable = true) // Sửa thành pitch_id
+    @JoinColumn(name = "pitch_id", nullable = true)
     private Pitch pitch;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "product_id", nullable = true) // Sửa thành product_id
+    @JoinColumn(name = "product_id", nullable = true)
     private Product product;
 
     @Column(name = "quantity")

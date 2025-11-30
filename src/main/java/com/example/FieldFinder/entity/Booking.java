@@ -13,20 +13,19 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 @Entity
-@Table(name = "bookings") // Tên bảng số nhiều
+@Table(name = "bookings")
 @Builder
 public class Booking {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "booking_id") // Sửa thành booking_id
+    @Column(name = "booking_id")
     private UUID bookingId;
 
-    // mappedBy phải trùng tên với biến trong BookingDetail (biến "booking")
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL)
     private List<BookingDetail> bookingDetails = new ArrayList<>();
 
     @ManyToOne
-    @JoinColumn(name = "user_id", nullable = false) // user_id
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
     @Column(name = "booking_date", nullable = false)

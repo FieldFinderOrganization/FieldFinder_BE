@@ -5,8 +5,11 @@ import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.service.OpenWeatherService;
 import com.example.FieldFinder.service.PitchService;
 import com.example.FieldFinder.service.ProductService;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.cdimascio.dotenv.Dotenv;
 import okhttp3.*;
 import org.springframework.stereotype.Component;
@@ -19,16 +22,16 @@ import java.util.stream.Collectors;
 @Component
 public class AIChat {
 
-    private static final String OPENROUTER_API_KEY;
-    private static final String OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-    private static final String MODEL_NAME = "openai/gpt-3.5-turbo";
+    private static final String GOOGLE_API_KEY;
+
+    private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=";
 
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
     private final PitchService pitchService;
     private final ProductService productService;
 
-    private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 1100;
+    private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 4000;
     private long lastCallTime = 0;
 
     private final OpenWeatherService weatherService;
@@ -37,10 +40,75 @@ public class AIChat {
 
     static {
         Dotenv dotenv = Dotenv.load();
-        OPENROUTER_API_KEY = dotenv.get("OPENROUTER_API_KEY");
-        if (OPENROUTER_API_KEY == null || OPENROUTER_API_KEY.isEmpty()) {
-            throw new RuntimeException("OPENROUTER_API_KEY is not set in environment variables");
+        dotenv.entries().forEach(entry -> {
+            System.setProperty(entry.getKey(), entry.getValue());
+        });
+        GOOGLE_API_KEY = dotenv.get("GOOGLE_API_KEY");
+    }
+
+    private List<String> sanitizeTags(List<String> rawTags) {
+        if (rawTags == null || rawTags.isEmpty()) {
+            return new ArrayList<>();
         }
+        return rawTags.stream()
+                .filter(Objects::nonNull)
+                .map(String::valueOf)
+                .map(tag -> tag.trim().toLowerCase())
+                .filter(tag -> !tag.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private List<String> expandColorTags(List<String> tags) {
+        List<String> expandedTags = new ArrayList<>(tags);
+
+        for (String tag : tags) {
+            String t = tag.toLowerCase();
+
+            if (t.contains("kem") || t.contains("cream") || t.contains("be") || t.contains("beige") || t.contains("sữa")) {
+                expandedTags.add("trắng");
+                expandedTags.add("white");
+            }
+
+            // 2. Nhóm MÀU NÓNG (Hồng <=> Cam <=> Đỏ)
+            if (t.contains("hồng") || t.contains("pink") || t.contains("mận")) {
+                expandedTags.add("cam");
+                expandedTags.add("orange");
+                expandedTags.add("đỏ");
+                expandedTags.add("red");
+                expandedTags.add("tím");
+                expandedTags.add("purple");
+            }
+            // Nếu AI thấy Cam, tìm luôn cả Hồng và Đỏ
+            if (t.contains("cam") || t.contains("orange") || t.contains("coral")) {
+                expandedTags.add("hồng");
+                expandedTags.add("pink");
+                expandedTags.add("đỏ");
+                expandedTags.add("red");
+            }
+            // Nếu AI thấy Đỏ, tìm luôn cả Cam và Hồng
+            if (t.contains("đỏ") || t.contains("red") || t.contains("crimson")) {
+                expandedTags.add("cam");
+                expandedTags.add("orange");
+                expandedTags.add("hồng");
+                expandedTags.add("pink");
+            }
+
+            // 3. Nhóm XANH (Dương / Navy / Trời)
+            if (t.contains("navy") || t.contains("chàm") || t.contains("biển") || t.contains("sky")) {
+                expandedTags.add("xanh");
+                expandedTags.add("blue");
+                expandedTags.add("xanh dương");
+            }
+
+            // 4. Nhóm ĐEN (Đen / Xám đậm)
+            if (t.contains("than") || t.contains("ghi") || t.contains("grey") || t.contains("gray")) {
+                expandedTags.add("đen");
+                expandedTags.add("black");
+            }
+        }
+
+        return expandedTags.stream().distinct().collect(Collectors.toList());
     }
 
     public AIChat(PitchService pitchService, OpenWeatherService openWeatherService, ProductService productService, OpenWeatherService weatherService) {
@@ -67,38 +135,158 @@ public class AIChat {
                 .replace("{{totalPitches}}", String.valueOf(totalPitches));
     }
 
-    private String callOpenRouterAPI(String userInput, String systemPrompt) throws IOException, InterruptedException {
-        Map<String, Object> body = new HashMap<>();
-        body.put("model", MODEL_NAME);
-        body.put("messages", List.of(
-                Map.of("role", "system", "content", systemPrompt),
-                Map.of("role", "user", "content", buildPrompt(userInput))
-        ));
-        body.put("temperature", 0.3);
-        body.put("max_tokens", 500);
-        body.put("stop", List.of("\n\n", "```"));
-
+    private String callGeminiAPI(String userInput, String systemPrompt) throws IOException, InterruptedException {
         waitIfNeeded();
 
-        Headers headers = new Headers.Builder()
-                .add("Authorization", "Bearer " + OPENROUTER_API_KEY)
-                .add("Content-Type", "application/json")
-                .add("HTTP-Referer", "[https://yourdomain.com](https://yourdomain.com)")
-                .add("User-Agent", "FieldFinderApp/1.0")
-                .build();
+        ObjectNode rootNode = mapper.createObjectNode();
+        ObjectNode systemInstNode = rootNode.putObject("system_instruction");
+        systemInstNode.putObject("parts").put("text", systemPrompt);
+
+        ArrayNode contentsArray = rootNode.putArray("contents");
+        ObjectNode userMessage = contentsArray.addObject();
+        userMessage.put("role", "user");
+        userMessage.putObject("parts").put("text", userInput);
+
+        ObjectNode generationConfig = rootNode.putObject("generationConfig");
+        generationConfig.put("temperature", 0.1);
+        generationConfig.put("response_mime_type", "application/json");
 
         Request request = new Request.Builder()
-                .url(OPENROUTER_API_URL)
-                .post(RequestBody.create(mapper.writeValueAsString(body), MediaType.parse("application/json")))
-                .headers(headers)
+                .url(GEMINI_API_URL + GOOGLE_API_KEY)
+                .post(RequestBody.create(mapper.writeValueAsString(rootNode), MediaType.parse("application/json")))
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful()) {
-                throw new IOException("API error: " + response.code() + " - " + response.message());
+                throw new IOException("Gemini API Error: " + response.code() + " " + response.body().string());
             }
-            return extractPureJson(mapper.readTree(response.body().string()).at("/choices/0/message/content").asText());
+            return cleanJson(extractGeminiResponse(response.body().string()));
         }
+    }
+
+    public BookingQuery processImageSearchWithGemini(String base64Image) {
+        BookingQuery result = new BookingQuery();
+        result.data = new HashMap<>();
+        result.slotList = new ArrayList<>();
+        result.pitchType = "ALL";
+
+        try {
+            waitIfNeeded();
+
+            ObjectNode rootNode = mapper.createObjectNode();
+
+            // System Prompt
+            ObjectNode systemInstNode = rootNode.putObject("system_instruction");
+            systemInstNode.putObject("parts").put("text", IMAGE_ANALYSIS_SYSTEM_PROMPT);
+
+            ArrayNode contentsArray = rootNode.putArray("contents");
+            ObjectNode userMessage = contentsArray.addObject();
+            userMessage.put("role", "user");
+            ArrayNode parts = userMessage.putArray("parts");
+
+            // 1. Gửi Text yêu cầu
+            parts.addObject().put("text", "Phân tích ảnh này và trích xuất Tags.");
+
+            if (base64Image != null && !base64Image.isEmpty()) {
+                ObjectNode inlineData = parts.addObject().putObject("inline_data");
+
+                // Tự động phát hiện mime type (jpeg/png) dựa trên header của chuỗi base64
+                String mimeType = "image/jpeg"; // Mặc định
+                String cleanBase64 = base64Image;
+
+                if (base64Image.contains(",")) {
+                    String[] tokens = base64Image.split(",");
+                    // tokens[0] ví dụ: "data:image/png;base64"
+                    if (tokens[0].contains("png")) {
+                        mimeType = "image/png";
+                    }
+                    cleanBase64 = tokens[1];
+                }
+
+                inlineData.put("mime_type", mimeType);
+                inlineData.put("data", cleanBase64);
+            }
+
+            ObjectNode generationConfig = rootNode.putObject("generationConfig");
+            generationConfig.put("response_mime_type", "application/json");
+
+            Request request = new Request.Builder()
+                    .url(GEMINI_API_URL + GOOGLE_API_KEY)
+                    .post(RequestBody.create(mapper.writeValueAsString(rootNode), MediaType.parse("application/json")))
+                    .build();
+
+            try (Response response = client.newCall(request).execute()) {
+                if (!response.isSuccessful()) { /* ... xử lý lỗi ... */ }
+
+                String rawJson = extractGeminiResponse(response.body().string());
+                String cleanJson = cleanJson(rawJson);
+
+                JsonNode rootAiNode = mapper.readTree(cleanJson);
+
+                List<String> rawTags = mapper.convertValue(
+                        rootAiNode.path("tags"),
+                        new TypeReference<List<String>>(){}
+                );
+
+                List<String> cleanTags = sanitizeTags(rawTags);
+
+                List<String> expandedTags = expandColorTags(cleanTags);
+
+                String majorCategory = rootAiNode.path("majorCategory").asText("ALL");
+                String productName = rootAiNode.path("productName").asText("Sản phẩm");
+                String color = rootAiNode.path("color").asText("");
+
+                List<ProductResponseDTO> similarProducts = productService.findProductsByImage(cleanTags, majorCategory);
+
+                if (!similarProducts.isEmpty()) {
+                    result.message = String.format("Dựa trên hình ảnh %s (%s), tôi tìm thấy %d sản phẩm tương tự:",
+                            productName, color, similarProducts.size());
+                    result.data.put("action", "image_search_result");
+                    result.data.put("products", similarProducts);
+                    result.data.put("extractedTags", cleanTags);
+                } else {
+                    result.message = String.format(
+                            "Tôi nhận diện được đây là %s màu %s. Tuy nhiên, hiện tại cửa hàng không có sản phẩm nào khớp với các đặc điểm này.",
+                            productName, color
+                    );
+
+                    result.data.put("extractedTags", expandedTags);
+
+                    result.data.put("products", new ArrayList<>());
+
+                    result.data.put("action", "image_search_result");
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            result.message = "Lỗi khi xử lý ảnh: " + e.getMessage();
+        }
+        return result;
+    }
+
+    private String extractGeminiResponse(String rawJson) throws IOException {
+        JsonNode root = mapper.readTree(rawJson);
+        if (root.path("candidates").isMissingNode() || root.path("candidates").isEmpty()) {
+            return "{}";
+        }
+        return root.path("candidates").get(0)
+                .path("content").path("parts").get(0)
+                .path("text").asText();
+    }
+
+    private String cleanJson(String raw) {
+        if (raw == null) return "{}";
+        String cleaned = raw.trim();
+        if (cleaned.startsWith("```json")) {
+            cleaned = cleaned.substring(7);
+        } else if (cleaned.startsWith("```")) {
+            cleaned = cleaned.substring(3);
+        }
+        if (cleaned.endsWith("```")) {
+            cleaned = cleaned.substring(0, cleaned.length() - 3);
+        }
+        return cleaned.trim();
     }
 
     private BookingQuery parseAIResponse(String cleanJson) throws IOException {
@@ -262,7 +450,7 @@ public class AIChat {
         // Cập nhật prompt
         String finalPrompt = buildSystemPrompt(allPitches.size());
 
-        String cleanJson = callOpenRouterAPI(userInput, finalPrompt);
+        String cleanJson = callGeminiAPI(userInput, finalPrompt);
         System.out.println("Cleaned JSON: " + cleanJson);
 
         BookingQuery query = parseAIResponse(cleanJson);
@@ -406,15 +594,32 @@ public class AIChat {
         return query;
     }
 
-    private String extractPureJson(String content) throws IllegalArgumentException {
-        // Logic cũ
-        String cleanedContent = content.replaceAll("(?s)```json\\s*(\\{[\\s\\S]*?})\\s*```", "$1").replaceAll("(?s)```\\s*(\\{[\\s\\S]*?})\\s*```", "$1").trim();
-        try { mapper.readTree(cleanedContent); return cleanedContent; } catch (Exception e) {}
-        try { int start = cleanedContent.indexOf('{'); int end = cleanedContent.lastIndexOf('}'); if(start == -1 || end == -1) throw new Exception(); return cleanedContent.substring(start, end+1); } catch (Exception e) { throw new IllegalArgumentException("Invalid JSON"); }
-    }
-
     private boolean isGreeting(String s) { return s.toLowerCase().matches(".*(xin chào|chào|hello).*"); }
-    private String buildPrompt(String s) { return "Phân tích yêu cầu: \"" + s + "\""; }
+
+    private static final String IMAGE_ANALYSIS_SYSTEM_PROMPT = """
+        Bạn là chuyên gia thời trang (Sneakerhead).
+        Nhiệm vụ: Phân tích ảnh để tìm kiếm sản phẩm.
+        
+        1. XÁC ĐỊNH LOẠI SẢN PHẨM (`majorCategory`):
+        - `FOOTWEAR` (Giày, Dép), `CLOTHING` (Quần, Áo, Váy), `ACCESSORY` (Balo, Nón, Túi...).
+        
+        2. PHÂN TÍCH MÀU SẮC (RẤT QUAN TRỌNG):
+        - Đừng chỉ chọn 1 màu. Hãy liệt kê **TẤT CẢ** màu sắc nhìn thấy.
+        - Phân biệt: Màu chủ đạo (Dominant) và Màu phối (Accent).
+        - Ví dụ: Giày trắng logo đỏ -> Tags phải có cả "trắng", "white", "đỏ", "red".
+        - Các màu tương đồng: Nếu thấy "kem/cream/beige" -> Hãy thêm tag "trắng/white". Nếu thấy "xanh dương/navy" -> Thêm tag "xanh/blue".
+        
+        3. ĐỌC CHỮ (OCR):
+        - Cố gắng đọc tên dòng sản phẩm trên thân/lưỡi gà (VD: Air Max, Jordan, Ultraboost).
+        
+        YÊU CẦU OUTPUT JSON:
+        {
+          "majorCategory": "FOOTWEAR",
+          "productName": "Tên gợi ý (VD: Nike Air Max 1 White/Orange)",
+          "color": "Mô tả màu (VD: Trắng phối Cam)",
+          "tags": ["danh sách tags: nike, air max, trắng, white, cam, orange, giày, sneaker..."]
+        }
+        """;
 
     private static final String SYSTEM_INSTRUCTION = """
 Bạn là trợ lý AI thông minh cho hệ thống FieldFinder (Đặt sân & Shop thể thao).

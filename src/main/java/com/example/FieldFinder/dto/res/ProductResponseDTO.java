@@ -17,6 +17,8 @@ public class ProductResponseDTO {
     private String brand;
     private String sex;
 
+    private List<String> tags;
+
     private List<VariantDTO> variants;
 
     public Integer getStockQuantity() {
@@ -33,5 +35,6 @@ public class ProductResponseDTO {
     public static class VariantDTO {
         private String size;
         private Integer quantity;
+        private Integer stockTotal;
     }
 }
