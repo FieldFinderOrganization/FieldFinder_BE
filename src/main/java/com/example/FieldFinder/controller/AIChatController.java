@@ -34,7 +34,6 @@ public class AIChatController {
             errorQuery.message = "Xin lỗi, tôi đang gặp sự cố. Vui lòng thử lại sau.";
             return ResponseEntity.status(500).body(errorQuery);
         } catch (IllegalArgumentException e) {
-            // Xử lý lỗi nếu AI trả về JSON rác
             AIChat.BookingQuery errorQuery = new AIChat.BookingQuery();
             errorQuery.message = "Xin lỗi, tôi không hiểu yêu cầu của bạn. " + e.getMessage();
             return ResponseEntity.status(400).body(errorQuery);
@@ -43,7 +42,6 @@ public class AIChatController {
 
     @PostMapping("/image")
     public ResponseEntity<BookingQuery> chatWithImage(@RequestBody Map<String, String> payload) {
-        // 1. Lấy chuỗi base64 từ frontend gửi lên
         String base64Image = payload.get("image");
 
         if (base64Image == null || base64Image.isEmpty()) {
@@ -52,10 +50,8 @@ public class AIChatController {
             return ResponseEntity.badRequest().body(error);
         }
 
-        // 2. Gọi hàm processImageSearchWithGemini (Hàm bạn vừa sửa)
         BookingQuery result = aiChatService.processImageSearchWithGemini(base64Image);
 
-        // 3. Trả kết quả về cho Frontend
         return ResponseEntity.ok(result);
     }
 }

@@ -5,6 +5,7 @@ import com.example.FieldFinder.dto.req.ProductRequestDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.service.ProductService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -44,5 +45,13 @@ public class ProductController {
     @GetMapping("/top-selling")
     public List<ProductResponseDTO> getTopSelling() {
         return productService.getTopSellingProducts(5);
+    }
+
+    @PostMapping("/enrich-data")
+    public ResponseEntity<String> enrichData() {
+        new Thread(() -> {
+            productService.enrichAllProductsData();
+        }).start();
+        return ResponseEntity.ok("Quá trình AI hóa dữ liệu đang chạy ngầm. Vui lòng theo dõi Console log.");
     }
 }

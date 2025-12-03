@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 @Entity
@@ -33,9 +34,23 @@ public class Product {
     @Column(name = "tag")
     private List<String> tags = new ArrayList<>();
 
-    // 👇 Lưu ý: Variants nên giữ là LAZY (mặc định) để tối ưu hiệu năng
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<ProductVariant> variants;
+
+    @Column(columnDefinition = "TEXT")
+    private String embedding;
+
+    public double[] getEmbeddingArray() {
+        if (embedding == null || embedding.isEmpty()) return new double[0];
+        try {
+            String clean = embedding.replace("[", "").replace("]", "");
+            return Arrays.stream(clean.split(","))
+                    .mapToDouble(Double::parseDouble)
+                    .toArray();
+        } catch (Exception e) {
+            return new double[0];
+        }
+    }
 
     public int getTotalStock() {
         return variants == null ? 0 : variants.stream().mapToInt(ProductVariant::getStockQuantity).sum();

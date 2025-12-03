@@ -26,6 +26,8 @@ public class AIChat {
 
     private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=";
 
+    private static final String EMBEDDING_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=";
+
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
     private final PitchService pitchService;
@@ -111,6 +113,40 @@ public class AIChat {
         return expandedTags.stream().distinct().collect(Collectors.toList());
     }
 
+    public List<Double> getEmbedding(String text) {
+        try {
+            waitIfNeeded();
+            ObjectNode rootNode = mapper.createObjectNode();
+
+            ObjectNode content = rootNode.putObject("content");
+            content.putObject("parts").put("text", text);
+
+            Request request = new Request.Builder()
+                    .url(EMBEDDING_API_URL + GOOGLE_API_KEY)
+                    .post(RequestBody.create(mapper.writeValueAsString(rootNode), MediaType.parse("application/json")))
+                    .build();
+
+            try (Response response = client.newCall(request).execute()) {
+                if (!response.isSuccessful()) return new ArrayList<>();
+
+                JsonNode root = mapper.readTree(response.body().string());
+                // Cấu trúc trả về: { "embedding": { "values": [0.1, 0.2...] } }
+                JsonNode valuesNode = root.path("embedding").path("values");
+
+                List<Double> vector = new ArrayList<>();
+                if (valuesNode.isArray()) {
+                    for (JsonNode val : valuesNode) {
+                        vector.add(val.asDouble());
+                    }
+                }
+                return vector;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
+
     public AIChat(PitchService pitchService, OpenWeatherService openWeatherService, ProductService productService, OpenWeatherService weatherService) {
         this.pitchService = pitchService;
         this.productService = productService;
@@ -190,7 +226,6 @@ public class AIChat {
             if (base64Image != null && !base64Image.isEmpty()) {
                 ObjectNode inlineData = parts.addObject().putObject("inline_data");
 
-                // Tự động phát hiện mime type (jpeg/png) dựa trên header của chuỗi base64
                 String mimeType = "image/jpeg"; // Mặc định
                 String cleanBase64 = base64Image;
 
@@ -236,24 +271,23 @@ public class AIChat {
                 String productName = rootAiNode.path("productName").asText("Sản phẩm");
                 String color = rootAiNode.path("color").asText("");
 
-                List<ProductResponseDTO> similarProducts = productService.findProductsByImage(cleanTags, majorCategory);
+                String description = String.format("%s %s %s", majorCategory, productName, String.join(" ", cleanTags));
 
-                if (!similarProducts.isEmpty()) {
-                    result.message = String.format("Dựa trên hình ảnh %s (%s), tôi tìm thấy %d sản phẩm tương tự:",
-                            productName, color, similarProducts.size());
+                List<ProductResponseDTO> finalResults = productService.findProductsByVector(description);
+
+                if (finalResults.isEmpty()) {
+                    finalResults = productService.findProductsByImage(cleanTags, majorCategory);
+                }
+
+                if (!finalResults.isEmpty()) {
+                    result.message = String.format("Dựa trên hình ảnh %s (%s), tôi tìm thấy %d sản phẩm tương tự:", productName, color, finalResults.size());
                     result.data.put("action", "image_search_result");
-                    result.data.put("products", similarProducts);
+                    result.data.put("products", finalResults);
                     result.data.put("extractedTags", cleanTags);
                 } else {
-                    result.message = String.format(
-                            "Tôi nhận diện được đây là %s màu %s. Tuy nhiên, hiện tại cửa hàng không có sản phẩm nào khớp với các đặc điểm này.",
-                            productName, color
-                    );
-
+                    result.message = String.format("Tôi nhận diện được đây là %s màu %s. Tuy nhiên, hiện tại cửa hàng không có sản phẩm nào khớp.", productName, color);
                     result.data.put("extractedTags", expandedTags);
-
                     result.data.put("products", new ArrayList<>());
-
                     result.data.put("action", "image_search_result");
                 }
             }
@@ -595,6 +629,90 @@ public class AIChat {
     }
 
     private boolean isGreeting(String s) { return s.toLowerCase().matches(".*(xin chào|chào|hello).*"); }
+
+    private static final String DATA_ENRICHMENT_SYSTEM_PROMPT = """
+        Bạn là chuyên gia quản lý kho hàng thời trang (Inventory Manager).
+        Nhiệm vụ: Phân tích hình ảnh sản phẩm và sinh ra danh sách từ khóa (Tags) chi tiết để phục vụ tìm kiếm.
+        
+        HÃY QUAN SÁT KỸ VÀ TRẢ VỀ JSON CHỨA DANH SÁCH TAGS:
+        1. **Thương hiệu**: Nhìn logo/chữ trên sản phẩm (Nike, Adidas, Puma...).
+        2. **Dòng sản phẩm**: Tên cụ thể (Air Max, Jordan, Ultraboost, Stan Smith...).
+        3. **Màu sắc**: Liệt kê TẤT CẢ màu nhìn thấy (Tiếng Việt + Tiếng Anh). VD: ["trắng", "white", "cam", "orange"].
+        4. **Đặc điểm hình dáng**: 
+           - Giày: Cổ cao/thấp, đế air, đế bằng, dây buộc, không dây...
+           - Áo/Quần: Tay dài/ngắn, cổ tròn/tim, có mũ...
+        5. **Chất liệu**: Da, vải lưới, nỉ, cotton...
+        
+        YÊU CẦU OUTPUT JSON:
+        {
+          "tags": ["danh sách khoảng 15-20 từ khóa, viết thường, bao gồm cả tiếng Anh và tiếng Việt"]
+        }
+        """;
+
+    public List<String> generateTagsForProduct(String imageUrl) {
+        try {
+            waitIfNeeded();
+
+            String base64Image = downloadImageAsBase64(imageUrl);
+            if (base64Image == null) return new ArrayList<>();
+
+            ObjectNode rootNode = mapper.createObjectNode();
+
+            // Set System Prompt
+            ObjectNode systemInstNode = rootNode.putObject("system_instruction");
+            systemInstNode.putObject("parts").put("text", DATA_ENRICHMENT_SYSTEM_PROMPT);
+
+            ArrayNode contentsArray = rootNode.putArray("contents");
+            ObjectNode userMessage = contentsArray.addObject();
+            userMessage.put("role", "user");
+            ArrayNode parts = userMessage.putArray("parts");
+
+            parts.addObject().put("text", "Hãy sinh tags cho sản phẩm này.");
+
+            // Gửi ảnh Base64
+            ObjectNode inlineData = parts.addObject().putObject("inline_data");
+            inlineData.put("mime_type", "image/jpeg");
+            inlineData.put("data", base64Image);
+
+            ObjectNode generationConfig = rootNode.putObject("generationConfig");
+            generationConfig.put("temperature", 0.1); // Cần chính xác, ít sáng tạo
+            generationConfig.put("response_mime_type", "application/json");
+
+            Request request = new Request.Builder()
+                    .url(GEMINI_API_URL + GOOGLE_API_KEY)
+                    .post(RequestBody.create(mapper.writeValueAsString(rootNode), MediaType.parse("application/json")))
+                    .build();
+
+            try (Response response = client.newCall(request).execute()) {
+                if (!response.isSuccessful()) return new ArrayList<>();
+
+                String jsonRes = cleanJson(extractGeminiResponse(response.body().string()));
+                JsonNode root = mapper.readTree(jsonRes);
+
+                List<String> tags = mapper.convertValue(root.path("tags"), new TypeReference<List<String>>(){});
+                return sanitizeTags(tags); // Làm sạch trước khi trả về
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
+
+    // 3. HÀM HELPER: Tải ảnh từ URL về và convert sang Base64
+    private String downloadImageAsBase64(String imageUrl) {
+        try {
+            Request request = new Request.Builder().url(imageUrl).build();
+            try (Response response = client.newCall(request).execute()) {
+                if (!response.isSuccessful() || response.body() == null) return null;
+                byte[] imageBytes = response.body().bytes();
+                return Base64.getEncoder().encodeToString(imageBytes);
+            }
+        } catch (Exception e) {
+            System.err.println("Không tải được ảnh: " + imageUrl);
+            return null;
+        }
+    }
 
     private static final String IMAGE_ANALYSIS_SYSTEM_PROMPT = """
         Bạn là chuyên gia thời trang (Sneakerhead).

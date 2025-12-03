@@ -1,5 +1,6 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.ai.AIChat;
 import com.example.FieldFinder.dto.req.ProductRequestDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.entity.Category;
@@ -10,22 +11,36 @@ import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.ProductVariantRepository;
 import com.example.FieldFinder.service.ProductService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class ProductServiceImpl implements ProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final AIChat aiChat;
+
+    public ProductServiceImpl(
+            ProductRepository productRepository,
+            CategoryRepository categoryRepository,
+            ProductVariantRepository productVariantRepository,
+            @Lazy AIChat aiChat
+    ) {
+        this.productRepository = productRepository;
+        this.categoryRepository = categoryRepository;
+        this.productVariantRepository = productVariantRepository;
+        this.aiChat = aiChat;
+    }
 
     @Override
     public ProductResponseDTO createProduct(ProductRequestDTO request) {
@@ -40,7 +55,7 @@ public class ProductServiceImpl implements ProductService {
                 .imageUrl(request.getImageUrl())
                 .brand(request.getBrand())
                 .sex(request.getSex())
-                .tags(request.getTags())
+                .tags(request.getTags() != null ? request.getTags() : new ArrayList<>())
                 .build();
 
         productRepository.save(product);
@@ -59,6 +74,13 @@ public class ProductServiceImpl implements ProductService {
             productVariantRepository.saveAll(variants);
             product.setVariants(variants);
         }
+
+        if (product.getImageUrl() != null && !product.getImageUrl().isEmpty()) {
+            new Thread(() -> {
+                enrichSingleProduct(product.getProductId(), product.getImageUrl());
+            }).start();
+        }
+
         return mapToResponse(product);
     }
 
@@ -85,6 +107,8 @@ public class ProductServiceImpl implements ProductService {
 
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new RuntimeException("Category not found!"));
+
+        String oldImageUrl = product.getImageUrl();
 
         // 1. Update basic information
         product.setName(request.getName());
@@ -120,11 +144,9 @@ public class ProductServiceImpl implements ProductService {
                         .orElse(null);
 
                 if (existingVariant != null) {
-                    // Update số lượng tồn kho
                     existingVariant.setStockQuantity(reqVariant.getQuantity());
 
                 } else {
-                    // Tạo mới variant
                     ProductVariant newVariant = ProductVariant.builder()
                             .product(product)
                             .size(reqVariant.getSize())
@@ -137,7 +159,15 @@ public class ProductServiceImpl implements ProductService {
             }
         }
 
+        boolean imageChanged = !request.getImageUrl().equals(oldImageUrl);
+
         productRepository.saveAndFlush(product);
+
+        if (imageChanged && request.getImageUrl() != null) {
+            new Thread(() -> {
+                enrichSingleProduct(product.getProductId(), request.getImageUrl());
+            }).start();
+        }
 
         return getProductById(id);
     }
@@ -198,21 +228,16 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public List<ProductResponseDTO> findProductsByImage(List<String> keywords, String majorCategory) {
-        if (keywords == null || keywords.isEmpty()) {
-            return new ArrayList<>();
-        }
+        if (keywords == null || keywords.isEmpty()) return new ArrayList<>();
 
         List<String> lowerKeywords = keywords.stream()
                 .map(String::toLowerCase)
                 .collect(Collectors.toList());
 
-        List<Product> candidates = productRepository.findByTagsIn(lowerKeywords);
+        List<Product> candidates = productRepository.findByKeywords(lowerKeywords);
 
-        List<Product> filteredCandidates = candidates.stream()
+        return candidates.stream()
                 .filter(p -> isValidCategory(p, majorCategory))
-                .collect(Collectors.toList());
-
-        return filteredCandidates.stream()
                 .sorted((p1, p2) -> {
                     long score1 = calculateScore(p1, lowerKeywords);
                     long score2 = calculateScore(p2, lowerKeywords);
@@ -241,35 +266,149 @@ public class ProductServiceImpl implements ProductService {
 
     private long calculateScore(Product p, List<String> keywords) {
         long score = 0;
-        if (p.getTags() == null) return 0;
+        String productName = p.getName().toLowerCase();
+        String categoryName = p.getCategory().getName().toLowerCase();
 
-        for (String tag : p.getTags()) {
-            String lowerTag = tag.toLowerCase();
+        for (String keyword : keywords) {
+            if (keyword.length() > 2 && productName.contains(keyword)) {
+                score += 30;
+            }
+        }
 
-            if (keywords.contains(lowerTag)) {
+        if (p.getTags() != null) {
+            for (String tag : p.getTags()) {
+                String lowerTag = tag.toLowerCase();
 
-                if (isBrand(lowerTag)) {
-                    score += 10;
-                }
-                else if (isColor(lowerTag)) {
-                    score += 5;
-                }
-                else {
-                    score += 1;
+                for (String keyword : keywords) {
+                    if (lowerTag.equals(keyword)) {
+                        if (isBrand(keyword)) score += 15;
+                        else if (isColor(keyword)) score += 10;
+                        else score += 5;
+                    }
+                    else if (lowerTag.contains(keyword) || keyword.contains(lowerTag)) {
+                        score += 3;
+                    }
                 }
             }
         }
+
         return score;
     }
 
-    private List<String> normalizeTags(List<String> rawTags) {
-        if (rawTags == null || rawTags.isEmpty()) {
-            return new ArrayList<>();
+    private void enrichSingleProduct(Long productId, String imageUrl) {
+        try {
+            System.out.println("🤖 AI đang phân tích tags cho sản phẩm ID: " + productId);
+
+            List<String> aiTags = aiChat.generateTagsForProduct(imageUrl);
+
+            if (!aiTags.isEmpty()) {
+                updateProductTagsInBackGround(productId, aiTags);
+            }
+        } catch (Exception e) {
+            System.err.println("Lỗi AI Enrichment cho ID " + productId + ": " + e.getMessage());
         }
-        return rawTags.stream()
-                .filter(tag -> tag != null && !tag.isBlank())
-                .map(tag -> tag.trim().toLowerCase())
-                .distinct()
+    }
+
+    @Transactional
+    protected void updateProductTagsInBackGround(Long productId, List<String> newTags) {
+        Product p = productRepository.findById(productId).orElse(null);
+        if (p != null) {
+            if (p.getTags() == null) p.setTags(new ArrayList<>());
+            p.getTags().addAll(newTags);
+
+            List<String> distinctTags = p.getTags().stream()
+                    .map(String::toLowerCase)
+                    .distinct()
+                    .collect(Collectors.toList());
+
+            p.getTags().clear();
+            p.getTags().addAll(distinctTags);
+
+            productRepository.save(p);
+            System.out.println("✅ Đã cập nhật xong tags cho ID " + productId);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void enrichAllProductsData() {
+        List<Product> allProducts = productRepository.findAll();
+        System.out.println("Bắt đầu AI hóa dữ liệu cho " + allProducts.size() + " sản phẩm...");
+
+        for (Product product : allProducts) {
+            try {
+                if (product.getImageUrl() != null && !product.getImageUrl().isEmpty()) {
+                    System.out.println("Đang xử lý sản phẩm ID: " + product.getProductId() + " - " + product.getName());
+
+                    List<String> aiGeneratedTags = aiChat.generateTagsForProduct(product.getImageUrl());
+
+                    if (!aiGeneratedTags.isEmpty()) {
+                        if (product.getTags() == null) product.setTags(new ArrayList<>());
+
+                        product.getTags().addAll(aiGeneratedTags);
+
+                        List<String> distinctTags = product.getTags().stream()
+                                .map(String::toLowerCase)
+                                .distinct()
+                                .collect(Collectors.toList());
+
+                        product.getTags().clear();
+                        product.getTags().addAll(distinctTags);
+
+                        String fullDescription = product.getName() + " " + String.join(" ", distinctTags);
+
+                        List<Double> vector = aiChat.getEmbedding(fullDescription);
+
+                        product.setEmbedding(vector.toString());
+                        productRepository.save(product);
+                        System.out.println("-> Đã cập nhật " + distinctTags.size() + " tags.");
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Lỗi khi xử lý sản phẩm " + product.getProductId() + ": " + e.getMessage());
+            }
+
+
+        }
+        System.out.println("Hoàn tất quá trình làm giàu dữ liệu!");
+    }
+
+    private double cosineSimilarity(double[] vectorA, double[] vectorB) {
+        if (vectorA.length != vectorB.length || vectorA.length == 0) return 0.0;
+
+        double dotProduct = 0.0;
+        double normA = 0.0;
+        double normB = 0.0;
+
+        for (int i = 0; i < vectorA.length; i++) {
+            dotProduct += vectorA[i] * vectorB[i];
+            normA += Math.pow(vectorA[i], 2);
+            normB += Math.pow(vectorB[i], 2);
+        }
+
+        if (normA == 0 || normB == 0) return 0.0;
+        return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+
+    @Override
+    public List<ProductResponseDTO> findProductsByVector(String descriptionFromImage) {
+        List<Double> queryVectorList = aiChat.getEmbedding(descriptionFromImage);
+        if (queryVectorList.isEmpty()) return new ArrayList<>();
+
+        double[] queryVector = queryVectorList.stream().mapToDouble(d -> d).toArray();
+
+        List<Product> allProducts = productRepository.findAll();
+
+        return allProducts.stream()
+                .filter(p -> p.getEmbeddingArray().length > 0)
+                .map(p -> {
+                    double similarity = cosineSimilarity(queryVector, p.getEmbeddingArray());
+                    return new AbstractMap.SimpleEntry<>(p, similarity);
+                })
+                .filter(entry -> entry.getValue() > 0.6) // 🔥 Lọc ngưỡng: Chỉ lấy giống > 60%
+                .sorted((e1, e2) -> Double.compare(e2.getValue(), e1.getValue())) // Điểm cao xếp trước
+                .limit(10) // Lấy top 10
+                .map(entry -> mapToResponse(entry.getKey()))
                 .collect(Collectors.toList());
     }
 

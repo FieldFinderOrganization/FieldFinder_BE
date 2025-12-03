@@ -13,6 +13,9 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Query("SELECT p FROM Product p JOIN p.variants v GROUP BY p ORDER BY SUM(v.soldQuantity) DESC")
     List<Product> findTopSellingProducts(Pageable pageable);
 
-    @Query("SELECT DISTINCT p FROM Product p JOIN p.tags t WHERE t IN :keywords")
-    List<Product> findByTagsIn(@Param("keywords") List<String> keywords);
+    @Query("SELECT DISTINCT p FROM Product p LEFT JOIN p.tags t " +
+            "WHERE LOWER(t) IN :keywords " +
+            "OR LOWER(p.brand) IN :keywords " +
+            "OR LOWER(p.name) IN :keywords")
+    List<Product> findByKeywords(@Param("keywords") List<String> keywords);
 }

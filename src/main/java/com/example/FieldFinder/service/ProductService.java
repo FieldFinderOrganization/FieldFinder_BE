@@ -16,4 +16,6 @@ public interface ProductService {
     void releaseStock(Long productId, String size, int quantity);
     List<ProductResponseDTO> getTopSellingProducts(int limit);
     List<ProductResponseDTO> findProductsByImage(List<String> keywords, String majorCategory);
+    void enrichAllProductsData();
+    List<ProductResponseDTO> findProductsByVector(String descriptionFromImage);
 }
