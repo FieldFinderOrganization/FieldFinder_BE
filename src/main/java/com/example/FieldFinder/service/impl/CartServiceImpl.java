@@ -1,5 +1,6 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.Enum.CartStatus;
 import com.example.FieldFinder.dto.req.CartRequestDTO;
 import com.example.FieldFinder.dto.res.CartResponseDTO;
 import com.example.FieldFinder.entity.Cart;
@@ -31,17 +32,16 @@ public class CartServiceImpl implements CartService {
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!"));
 
-        List<Cart> existingCarts = cartRepository.findByUser(user);
+        List<Cart> activeCarts = cartRepository.findByUserAndStatusOrderByCreatedAtDesc(user, CartStatus.ACTIVE);
 
-        if (!existingCarts.isEmpty()) {
-
-            Cart existingCart = existingCarts.get(0);
-            return mapToResponse(existingCart);
+        if (!activeCarts.isEmpty()) {
+            return mapToResponse(activeCarts.get(0));
         }
 
         Cart cart = Cart.builder()
                 .user(user)
                 .createdAt(LocalDateTime.now())
+                .status(CartStatus.ACTIVE)
                 .build();
 
         Cart savedCart = cartRepository.save(cart);
@@ -66,13 +66,8 @@ public class CartServiceImpl implements CartService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find user!"));
 
-        return cartRepository.findByUser(user).stream()
-                .map(cart -> CartResponseDTO.builder()
-                        .cartId(cart.getCartId())
-                        .userId(user.getUserId())
-                        .userName(user.getName())
-                        .createdAt(cart.getCreatedAt())
-                        .build())
+        return cartRepository.findByUserAndStatusOrderByCreatedAtDesc(user, CartStatus.ACTIVE).stream()
+                .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 

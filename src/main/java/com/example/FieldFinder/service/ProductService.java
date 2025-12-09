@@ -18,4 +18,5 @@ public interface ProductService {
     List<ProductResponseDTO> findProductsByImage(List<String> keywords, String majorCategory);
     void enrichAllProductsData();
     List<ProductResponseDTO> findProductsByVector(String descriptionFromImage);
+    ProductResponseDTO getProductByName(String productName);
 }

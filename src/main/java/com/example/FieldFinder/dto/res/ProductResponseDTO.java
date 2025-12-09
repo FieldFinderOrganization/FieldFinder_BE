@@ -37,4 +37,6 @@ public class ProductResponseDTO {
         private Integer quantity;
         private Integer stockTotal;
     }
+
+    private Integer totalSold;
 }

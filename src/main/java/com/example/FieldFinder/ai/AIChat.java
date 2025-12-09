@@ -40,6 +40,10 @@ public class AIChat {
 
     private final Map<String, PitchResponseDTO> sessionPitches = new HashMap<>();
 
+    private final Map<String, ProductResponseDTO> sessionLastProducts = new HashMap<>();
+
+    private final Map<String, String> sessionLastSizes = new HashMap<>();
+
     static {
         Dotenv dotenv = Dotenv.load();
         dotenv.entries().forEach(entry -> {
@@ -200,7 +204,7 @@ public class AIChat {
         }
     }
 
-    public BookingQuery processImageSearchWithGemini(String base64Image) {
+    public BookingQuery processImageSearchWithGemini(String base64Image, String sessionId) {
         BookingQuery result = new BookingQuery();
         result.data = new HashMap<>();
         result.slotList = new ArrayList<>();
@@ -280,7 +284,13 @@ public class AIChat {
                 }
 
                 if (!finalResults.isEmpty()) {
-                    result.message = String.format("Dựa trên hình ảnh %s (%s), tôi tìm thấy %d sản phẩm tương tự:", productName, color, finalResults.size());
+                    if (sessionId != null) {
+                        sessionLastProducts.put(sessionId, finalResults.get(0));
+                        System.out.println("✅ Image Search: Saved Context for Session " + sessionId + " -> " + finalResults.get(0).getName());
+                    }
+
+                    result.message = String.format("Dựa trên hình ảnh %s (%s), tôi tìm thấy %d sản phẩm tương tự:",
+                            productName, color, finalResults.size());
                     result.data.put("action", "image_search_result");
                     result.data.put("products", finalResults);
                     result.data.put("extractedTags", cleanTags);
@@ -375,75 +385,165 @@ public class AIChat {
         return null;
     }
 
-    private BookingQuery handleProductQuery(BookingQuery query, String userInput) {
+    private BookingQuery handleProductQuery(BookingQuery query, String userInput, String sessionId) {
         List<ProductResponseDTO> products = productService.getAllProducts();
         String action = (String) query.data.get("action");
-        String productName = (String) query.data.get("productName"); // Tên sản phẩm user hỏi
+        String productName = (String) query.data.get("productName");
+
+        System.out.println("🤖 Handling Product Query: Action=" + action + ", SessionId=" + sessionId);
+
+        ProductResponseDTO foundProduct = null;
 
         if ("cheapest_product".equals(action)) {
-            ProductResponseDTO p = products.stream().min(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
-            if (p != null) {
-                query.message = String.format("Sản phẩm rẻ nhất là %s với giá %s VNĐ.", p.getName(), formatMoney(p.getPrice()));
-                query.data.put("product", p);
+            foundProduct = products.stream().min(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
+            if (foundProduct != null) {
+                query.message = String.format("Sản phẩm rẻ nhất là %s với giá %s VNĐ.", foundProduct.getName(), formatMoney(foundProduct.getPrice()));
             }
-        } else if ("most_expensive_product".equals(action)) {
-            ProductResponseDTO p = products.stream().max(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
-            if (p != null) {
-                query.message = String.format("Sản phẩm đắt nhất là %s với giá %s VNĐ.", p.getName(), formatMoney(p.getPrice()));
-                query.data.put("product", p);
+        }
+        else if ("most_expensive_product".equals(action)) {
+            foundProduct = products.stream().max(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
+            if (foundProduct != null) {
+                query.message = String.format("Sản phẩm mắc nhất là %s với giá %s VNĐ.", foundProduct.getName(), formatMoney(foundProduct.getPrice()));
             }
-        } else if ("best_selling_product".equals(action)) {
-            // Giả sử bạn đã implement hàm getTopSellingProducts
+        }
+        else if ("best_selling_product".equals(action)) {
             List<ProductResponseDTO> top = productService.getTopSellingProducts(1);
             if (!top.isEmpty()) {
-                ProductResponseDTO p = top.get(0);
-                query.message = String.format("Sản phẩm bán chạy nhất là %s.", p.getName());
-                query.data.put("product", p);
+                foundProduct = top.get(0);
+                query.message = String.format("Sản phẩm bán chạy nhất là %s.", foundProduct.getName());
             } else {
                 query.message = "Chưa có dữ liệu về sản phẩm bán chạy.";
             }
-        } else if ("product_detail".equals(action) && productName != null) {
-            // Tìm sản phẩm theo tên (fuzzy search đơn giản)
-            Optional<ProductResponseDTO> productOpt = products.stream()
+        }
+        else if ("product_detail".equals(action) && productName != null) {
+            foundProduct = products.stream()
                     .filter(p -> p.getName().toLowerCase().contains(productName.toLowerCase()))
-                    .findFirst();
+                    .findFirst().orElse(null);
+            if (foundProduct != null) {
+                query.message = "Thông tin chi tiết sản phẩm " + foundProduct.getName();
+            } else {
+                query.message = "Không tìm thấy sản phẩm " + productName;
+            }
+        }
+        else if ("check_stock".equals(action) && productName != null) {
+            foundProduct = products.stream()
+                    .filter(p -> p.getName().toLowerCase().contains(productName.toLowerCase()))
+                    .findFirst().orElse(null);
+            if (foundProduct != null) {
+                query.message = "Sản phẩm " + foundProduct.getName() + " còn hàng.";
+            }
+        }
 
-            if (productOpt.isPresent()) {
-                ProductResponseDTO p = productOpt.get();
-                StringBuilder detail = new StringBuilder();
-                detail.append(String.format("Sản phẩm: %s\n", p.getName()));
-                detail.append(String.format("Thương hiệu: %s\n", p.getBrand()));
-                detail.append(String.format("Giá: %s VNĐ\n", formatMoney(p.getPrice())));
+        if (foundProduct != null) {
+            System.out.println("✅ Found & Saved Context for Session: " + sessionId + " -> Product: " + foundProduct.getName());
+            sessionLastProducts.put(sessionId, foundProduct);
+            query.data.put("product", foundProduct);
+            return query;
+        }
 
-                if (p.getVariants() != null && !p.getVariants().isEmpty()) {
-                    detail.append("Các size hiện có: ");
-                    String sizes = p.getVariants().stream()
-                            .map(v -> v.getSize() + " (Còn " + v.getQuantity() + ")")
-                            .collect(Collectors.joining(", "));
-                    detail.append(sizes);
-                } else {
-                    detail.append("Hiện hết hàng hoặc chưa cập nhật size.");
-                }
+        if ("check_sales".equals(action) || "check_sales_context".equals(action)) {
 
-                query.message = detail.toString();
+            ProductResponseDTO p = null;
+
+            if (productName != null && !productName.isEmpty()) {
+                p = productService.getProductByName(productName);
+            }
+            else if (sessionId != null) {
+                p = sessionLastProducts.get(sessionId);
+                System.out.println("🔍 Checking Context for Session: " + sessionId + " -> Found: " + (p != null ? p.getName() : "NULL"));
+            }
+
+            if (p != null) {
+                sessionLastProducts.put(sessionId, p);
+
+                int totalSold = (p.getTotalSold() != null) ? p.getTotalSold() : 0;
+                String comment = totalSold > 0 ? "Đang được quan tâm." : "Chưa có lượt bán.";
+
+                query.message = String.format("Sản phẩm '%s' đã bán được tổng cộng %d chiếc. %s", p.getName(), totalSold, comment);
                 query.data.put("product", p);
             } else {
-                query.message = "Xin lỗi, tôi không tìm thấy sản phẩm nào có tên \"" + productName + "\".";
+                query.message = "Xin lỗi, tôi không biết bạn đang hỏi về sản phẩm nào. Vui lòng gửi ảnh hoặc nói tên sản phẩm cụ thể.";
             }
-        } else if ("check_stock".equals(action) && productName != null) {
-            Optional<ProductResponseDTO> productOpt = products.stream()
-                    .filter(p -> p.getName().toLowerCase().contains(productName.toLowerCase()))
-                    .findFirst();
+        }
 
-            if (productOpt.isPresent()) {
-                int total = productOpt.get().getStockQuantity();
-                if (total > 0) {
-                    query.message = String.format("Sản phẩm %s còn hàng (Tổng: %d).", productOpt.get().getName(), total);
+        else if ("check_size".equals(action)) {
+            String sizeToCheck = (String) query.data.get("size");
+            ProductResponseDTO p = null;
+
+            // 1. Thử tìm theo tên trước
+            if (productName != null && !productName.isEmpty()) {
+                p = productService.getProductByName(productName);
+            }
+
+            // 🔥 SỬA: Nếu p vẫn null (do tên sai hoặc là từ chung chung "sản phẩm này"),
+            // thì mới tìm trong Session. BỎ CHỮ "ELSE" ĐI.
+            if (p == null && sessionId != null) {
+                p = sessionLastProducts.get(sessionId);
+                System.out.println("🔍 Check Size (Fallback): Checking Session " + sessionId + " -> Found: " + (p != null ? p.getName() : "NULL"));
+            }
+
+            if (p != null) {
+                sessionLastProducts.put(sessionId, p); // Refresh context
+
+                if (sizeToCheck == null || sizeToCheck.isEmpty()) {
+                    query.message = "Bạn muốn kiểm tra size nào ạ?";
                 } else {
-                    query.message = String.format("Sản phẩm %s hiện đã hết hàng.", productOpt.get().getName());
+                    boolean foundSize = false;
+                    int quantity = 0;
+                    if (p.getVariants() != null) {
+                        for (ProductResponseDTO.VariantDTO variant : p.getVariants()) {
+                            if (variant.getSize().equalsIgnoreCase(sizeToCheck)) {
+                                foundSize = true;
+                                quantity = variant.getQuantity();
+                                break;
+                            }
+                        }
+                    }
+
+                    if (foundSize) {
+                        if (quantity > 0) {
+                            query.message = String.format("Sản phẩm '%s' size %s hiện đang còn hàng với số lượng là: %d.", p.getName(), sizeToCheck, quantity);
+                            if (sessionId != null) sessionLastSizes.put(sessionId, sizeToCheck);
+                        } else {
+                            query.message = String.format("Tiếc quá, sản phẩm '%s' size %s hiện đang hết hàng rồi ạ.", p.getName(), sizeToCheck);
+                        }
+                    } else {
+                        query.message = String.format("Xin lỗi, sản phẩm '%s' không có size %s.", p.getName(), sizeToCheck);
+                    }
                 }
+                query.data.put("product", p);
             } else {
-                query.message = "Không tìm thấy sản phẩm.";
+                System.out.println("❌ Check Size: Failed to find product by Name OR Session.");
+                query.message = "Xin lỗi, tôi không biết bạn đang hỏi size cho sản phẩm nào. Vui lòng gửi ảnh lại hoặc nói rõ tên sản phẩm.";
+            }
+        }
+
+        else if ("prepare_order".equals(action)) {
+            ProductResponseDTO p = null;
+
+            // 1. Lấy sản phẩm từ Session
+            if (sessionId != null && sessionLastProducts.containsKey(sessionId)) {
+                p = sessionLastProducts.get(sessionId);
+            }
+
+            if (p == null) {
+                query.message = "Bạn muốn đặt sản phẩm nào? Vui lòng gửi ảnh hoặc chọn sản phẩm trước.";
+            } else {
+                // 2. Lấy Size (Ưu tiên từ câu nói hiện tại, nếu không có thì lấy từ quá khứ)
+                String sizeToOrder = (String) query.data.get("size");
+                if (sizeToOrder == null && sessionId != null) {
+                    sizeToOrder = sessionLastSizes.get(sessionId);
+                }
+
+                if (sizeToOrder == null) {
+                    query.message = String.format("Bạn muốn đặt size nào cho sản phẩm '%s'? Vui lòng nhắn rõ size (VD: 'Size 40').", p.getName());
+                } else {
+                    // 3. Đã đủ thông tin -> Gửi tín hiệu "ready_to_order" xuống Frontend
+                    query.message = String.format("Xác nhận: Bạn muốn đặt **%s** - **Size %s**. Nhấn nút bên dưới để tiến hành thanh toán nhé! 👇", p.getName(), sizeToOrder);
+                    query.data.put("product", p);
+                    query.data.put("selectedSize", sizeToOrder); // Trả về size chốt
+                    query.data.put("action", "ready_to_order");  // Action đặc biệt cho Frontend
+                }
             }
         }
 
@@ -481,7 +581,7 @@ public class AIChat {
         }
 
         List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
-        // Cập nhật prompt
+
         String finalPrompt = buildSystemPrompt(allPitches.size());
 
         String cleanJson = callGeminiAPI(userInput, finalPrompt);
@@ -489,20 +589,18 @@ public class AIChat {
 
         BookingQuery query = parseAIResponse(cleanJson);
 
-        // Điều phối logic dựa trên action của AI
         if (query.data != null && query.data.containsKey("action")) {
             String action = (String) query.data.get("action");
 
             if ("get_weather".equals(action)) {
                 return handleWeatherQuery(query);
             }
-            // Các action liên quan đến Product
-            if (action.contains("product") || action.contains("stock")) {
-                return handleProductQuery(query, userInput);
+
+            if (action.contains("product") || action.contains("stock") || action.contains("sales") || action.contains("size") || action.contains("order")) {
+                return handleProductQuery(query, userInput, sessionId);
             }
         }
 
-        // Logic sân bóng cũ
         if (isTotalPitchesQuestion(userInput)) {
             int totalPitches = pitchService.getAllPitches().size();
             return createBasicResponse("Hệ thống hiện có " + totalPitches + " sân");
@@ -750,11 +848,11 @@ CẤU TRÚC JSON TRẢ VỀ:
   "pitchType": "FIVE_A_SIDE" | "SEVEN_A_SIDE" | "ELEVEN_A_SIDE" | "ALL",
   "message": "thông điệp mặc định" (hoặc null),
   "data": {
-    // Chỉ điền các trường này nếu action là 'get_weather', 'check_stock', v.v.
-    // Nếu là đặt sân thông thường, hãy để object data rỗng: {}
-    "action": "get_weather" | "cheapest_product" | "check_stock" | null,
+    "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | null,
     "productName": "...",
-    "city": "..."
+    "city": "...",
+    "size": "..." // (VD: "40", "41", "M", "L", "XL")
+    "quantity": 1
   }
 }
 ❗️Lưu ý quan trọng:
@@ -842,7 +940,6 @@ CẤU TRÚC JSON TRẢ VỀ:
      - Nếu người dùng hỏi về thời tiết, hãy trả về JSON với trường "action": "get_weather" và "city" trong data.
      - Ví dụ: "Thời tiết hôm nay ở Sài Gòn?" -> {"bookingDate": null, "slotList": [], "pitchType": "ALL", "message": null, "data": {"action": "get_weather", "city": "Ho Chi Minh"}}
             ""\";
-            
   9. Nếu người dùng hỏi "rẻ nhất", "mắc nhất", "đắt nhất", "bán chạy nhất" MÀ KHÔNG nói rõ tên sản phẩm cụ thể -> Mặc định là tìm trong TOÀN BỘ CỬA HÀNG.
       - "Sản phẩm nào rẻ nhất?" -> action: "cheapest_product"
       - "Cái nào đắt nhất shop?" -> action: "most_expensive_product"
@@ -853,12 +950,30 @@ CẤU TRÚC JSON TRẢ VỀ:
       - "Giày Nike Air còn không?" -> action: "check_stock", productName: "Nike Air"
       - "Thông tin áo Real Madrid?" -> action: "product_detail", productName: "áo Real Madrid"
       
+  11. Xử lý câu hỏi về hàng hóa:
+      - Hỏi tồn kho chung ("Còn hàng không?"): action -> "check_stock"
+      - Hỏi doanh số ("Bán được bao nhiêu?"): action -> "check_sales"
+      - Hỏi Size cụ thể ("Có size 40 không?", "Size M còn không?", "Đôi này còn size 42 không?"):\s
+        + action -> "check_size"
+        + size -> Trích xuất size người dùng hỏi (VD: "40", "XL").
+        + productName -> Tên sản phẩm (nếu có).
+        
+  11. Xử lý đặt hàng:
+      - Nếu người dùng muốn mua (VD: "Đặt hàng", "Mua đôi này", "Lấy cái này", "Giúp tôi đặt", "Chốt đơn"):
+        + action -> "prepare_order"
+        + size -> Trích xuất size nếu người dùng nói rõ (VD: "Lấy size 40").
+  ...
+  ""\";
+      
 VÍ DỤ MẪU:
 - User: "Sản phẩm nào rẻ nhất?"
   JSON: { ..., "data": { "action": "cheapest_product" } }
   
 - User: "Shop có món nào bán chạy nhất không?"
   JSON: { ..., "data": { "action": "best_selling_product" } }
+  
+- User: "Giúp mình đặt 2 đôi size 40"
+  JSON: { ..., "data": { "action": "prepare_order", "size": "40", "quantity": 2 } }
 
 Lưu ý: Luôn ưu tiên trả về JSON action hơn là message hỏi lại.
 """;

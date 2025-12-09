@@ -3,7 +3,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
+import com.example.FieldFinder.Enum.CartStatus;
 
 @Getter
 @Setter
@@ -25,4 +25,8 @@ public class Cart {
 
     @Column(name = "CreatedAt", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private CartStatus status;
 }

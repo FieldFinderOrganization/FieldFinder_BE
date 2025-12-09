@@ -19,7 +19,7 @@ public class ProductVariant {
     private Product product;
 
     @Column(nullable = false)
-    private String size; // Ví dụ: "39", "40", "XL"
+    private String size;
 
     @Column(nullable = false)
     private Integer stockQuantity;

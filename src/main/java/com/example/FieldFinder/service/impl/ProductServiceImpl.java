@@ -412,6 +412,16 @@ public class ProductServiceImpl implements ProductService {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public ProductResponseDTO getProductByName(String productName) {
+
+        List<Product> products = productRepository.findByKeywords(List.of(productName.toLowerCase()));
+
+        if (products.isEmpty()) return null;
+
+        return mapToResponse(products.get(0));
+    }
+
     private boolean isShoe(String text) {
         return text.contains("giày") || text.contains("shoe") || text.contains("sneaker") ||
                 text.contains("boot") || text.contains("dép") || text.contains("sandal");
@@ -472,6 +482,7 @@ public class ProductServiceImpl implements ProductService {
                 .sex(product.getSex())
                 .tags(product.getTags())
                 .variants(variantDTOs)
+                .totalSold(product.getTotalSold())
                 .build();
     }
 }

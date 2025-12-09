@@ -44,13 +44,15 @@ public class AIChatController {
     public ResponseEntity<BookingQuery> chatWithImage(@RequestBody Map<String, String> payload) {
         String base64Image = payload.get("image");
 
+        String sessionId = payload.getOrDefault("sessionId", "guest_session");
+
         if (base64Image == null || base64Image.isEmpty()) {
             BookingQuery error = new BookingQuery();
             error.message = "Vui lòng gửi ảnh (Base64 string).";
             return ResponseEntity.badRequest().body(error);
         }
 
-        BookingQuery result = aiChatService.processImageSearchWithGemini(base64Image);
+        BookingQuery result = aiChatService.processImageSearchWithGemini(base64Image, sessionId);
 
         return ResponseEntity.ok(result);
     }

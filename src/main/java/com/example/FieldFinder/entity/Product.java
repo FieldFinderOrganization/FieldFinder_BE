@@ -55,4 +55,8 @@ public class Product {
     public int getTotalStock() {
         return variants == null ? 0 : variants.stream().mapToInt(ProductVariant::getStockQuantity).sum();
     }
+
+    public int getTotalSold() {
+        return variants == null ? 0 : variants.stream().mapToInt(ProductVariant::getSoldQuantity).sum();
+    }
 }
