@@ -34,3 +34,5 @@ build/
 .vscode/
 .env
 src/main/resources/firebase/serviceAccountKey.json
+src/main/resources/firebase/serviceAccountKey.json
+src/main/resources/firebase/serviceAccountKey.json
