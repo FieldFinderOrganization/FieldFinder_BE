@@ -394,9 +394,6 @@ public class AIChat {
 
         ProductResponseDTO foundProduct = null;
 
-        // ===============================
-// 🔥 ONSALE / DISCOUNT HANDLING
-// ===============================
         if ("list_on_sale".equals(action)) {
             List<ProductResponseDTO> onSaleProducts = products.stream()
                     .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
@@ -405,10 +402,7 @@ public class AIChat {
             if (onSaleProducts.isEmpty()) {
                 query.message = "Hiện tại shop chưa có sản phẩm nào đang giảm giá.";
             } else {
-                query.message = String.format(
-                        "Hiện tại shop có %d sản phẩm đang giảm giá. Tôi đã gửi danh sách cho bạn 👇",
-                        onSaleProducts.size()
-                );
+                query.message = String.format("Hiện tại shop có %d sản phẩm đang giảm giá. Tôi đã gửi danh sách cho bạn 👇", onSaleProducts.size());
                 query.data.put("products", onSaleProducts);
             }
             return query;
@@ -418,67 +412,138 @@ public class AIChat {
             long count = products.stream()
                     .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
                     .count();
-
             query.message = "Hiện tại shop có " + count + " sản phẩm đang giảm giá.";
             return query;
         }
 
-        if ("max_discount_product".equals(action)) {
-            ProductResponseDTO maxSale = products.stream()
-                    .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
-                    .max(Comparator.comparing(ProductResponseDTO::getSalePercent))
-                    .orElse(null);
+        if ("check_on_sale".equals(action) || "check_sales".equals(action) ||
+                "check_sales_context".equals(action) || "product_detail".equals(action) ||
+                "check_size".equals(action) || "prepare_order".equals(action)) {
 
-            if (maxSale == null) {
-                query.message = "Hiện tại shop chưa có sản phẩm nào đang giảm giá.";
-            } else {
-                query.message = String.format(
-                        "Sản phẩm đang giảm nhiều nhất là %s, giảm %d%% (giá còn %s VNĐ).",
-                        maxSale.getName(),
-                        maxSale.getSalePercent(),
-                        formatMoney(maxSale.getSalePrice())
-                );
-                query.data.put("product", maxSale);
-            }
-            return query;
-        }
-
-        if ("check_on_sale".equals(action)) {
             ProductResponseDTO p = null;
 
             if (productName != null && !productName.isEmpty()) {
                 p = productService.getProductByName(productName);
-            } else if (sessionId != null) {
+            }
+
+            if (p == null && sessionId != null) {
                 p = sessionLastProducts.get(sessionId);
+                if (p != null) {
+                    System.out.println("🔍 Context Check: Session " + sessionId + " -> Found: " + p.getName());
+                }
             }
 
-            if (p == null) {
-                query.message = "Tôi chưa xác định được sản phẩm bạn đang hỏi. Vui lòng gửi ảnh hoặc nói rõ tên sản phẩm.";
-                return query;
-            }
+            if (p != null) {
+                foundProduct = p;
 
-            sessionLastProducts.put(sessionId, p);
+                if ("check_on_sale".equals(action)) {
+                    if (p.getSalePercent() != null && p.getSalePercent() > 0) {
+                        query.message = String.format("Sản phẩm '%s' đang giảm %d%%, giá chỉ còn %s VNĐ.",
+                                p.getName(), p.getSalePercent(), formatMoney(p.getSalePrice()));
+                    } else {
+                        query.message = String.format("Sản phẩm '%s' hiện KHÔNG có chương trình giảm giá.", p.getName());
+                    }
+                }
+                else if ("check_sales".equals(action) || "check_sales_context".equals(action)) {
+                    int totalSold = (p.getTotalSold() != null) ? p.getTotalSold() : 0;
+                    String comment = totalSold > 0 ? "Đang được quan tâm." : "Chưa có lượt bán.";
+                    query.message = String.format("Sản phẩm '%s' đã bán được tổng cộng %d chiếc. %s", p.getName(), totalSold, comment);
+                }
+                else if ("product_detail".equals(action)) {
+                    String lowerInput = userInput.toLowerCase();
+                    boolean isAskingForImage = lowerInput.contains("ảnh") || lowerInput.contains("hình") || lowerInput.contains("photo") || lowerInput.contains("pic");
 
-            if (p.getSalePercent() != null && p.getSalePercent() > 0) {
-                query.message = String.format(
-                        "Sản phẩm '%s' hiện đang giảm %d%%, giá chỉ còn %s VNĐ.",
-                        p.getName(),
-                        p.getSalePercent(),
-                        formatMoney(p.getSalePrice())
-                );
+                    if (isAskingForImage) {
+                        if (p.getImageUrl() != null && !p.getImageUrl().isEmpty()) {
+                            query.message = String.format("Đây là hình ảnh thực tế của **%s**. Bạn xem bên dưới nhé 👇", p.getName());
+                        } else {
+                            query.message = String.format("Sản phẩm %s hiện chưa cập nhật hình ảnh.", p.getName());
+                        }
+                    } else {
+                        StringBuilder detailMsg = new StringBuilder();
+                        detailMsg.append(String.format("- Chi tiết: %s\n", p.getName()));
+                        detailMsg.append(String.format("- Giá: %s VNĐ\n", formatMoney(p.getPrice())));
+                        if (p.getSalePercent() != null && p.getSalePercent() > 0) {
+                            detailMsg.append(String.format("- Giảm còn: %s VNĐ\n", formatMoney(p.getSalePrice())));
+                        }
+                        detailMsg.append(String.format("- Thương hiệu: %s\n", p.getBrand()));
+                        detailMsg.append("- Mô tả: " + (p.getDescription() != null ? p.getDescription() : "Đang cập nhật"));
+                        query.message = detailMsg.toString();
+                    }
+                }
+                else if ("check_size".equals(action)) {
+                    String sizeToCheck = (String) query.data.get("size");
+
+                    if (sizeToCheck == null || sizeToCheck.isEmpty()) {
+                        if (p.getVariants() == null || p.getVariants().isEmpty()) {
+                            query.message = String.format("Sản phẩm '%s' hiện chưa cập nhật thông tin size.", p.getName());
+                        } else {
+                            List<String> availableList = new ArrayList<>();
+                            for (ProductResponseDTO.VariantDTO v : p.getVariants()) {
+                                if (v.getQuantity() > 0) {
+                                    availableList.add(String.format("%s (còn %d)", v.getSize(), v.getQuantity()));
+                                }
+                            }
+
+                            if (availableList.isEmpty()) {
+                                query.message = String.format("Tiếc quá, sản phẩm '%s' hiện đã hết sạch hàng các size rồi ạ.", p.getName());
+                            } else {
+                                String sizeString = String.join(", ", availableList);
+                                query.message = String.format("Dạ mẫu '%s' hiện còn các size: %s. Bạn chốt size nào để mình lên đơn nhé?", p.getName(), sizeString);
+                            }
+                        }
+                    }
+                    else {
+                        boolean foundSize = false;
+                        int quantity = 0;
+                        if (p.getVariants() != null) {
+                            for (ProductResponseDTO.VariantDTO variant : p.getVariants()) {
+                                if (variant.getSize().equalsIgnoreCase(sizeToCheck)) {
+                                    foundSize = true;
+                                    quantity = variant.getQuantity();
+                                    break;
+                                }
+                            }
+                        }
+                        if (foundSize && quantity > 0) {
+                            query.message = String.format("Sản phẩm '%s' size %s hiện đang còn hàng (SL: %d).", p.getName(), sizeToCheck, quantity);
+                            if (sessionId != null) sessionLastSizes.put(sessionId, sizeToCheck);
+                        } else {
+                            query.message = String.format("Tiếc quá, sản phẩm '%s' size %s hiện đang hết hàng.", p.getName(), sizeToCheck);
+                        }
+                    }
+                }
+                else if ("prepare_order".equals(action)) {
+                    String sizeToOrder = (String) query.data.get("size");
+                    if (sizeToOrder == null && sessionId != null) {
+                        sizeToOrder = sessionLastSizes.get(sessionId);
+                    }
+
+                    if (sizeToOrder == null) {
+                        query.message = String.format("Bạn muốn đặt size nào cho sản phẩm '%s'? (VD: 'Lấy size 40').", p.getName());
+                    } else {
+                        query.message = String.format("Xác nhận: Bạn muốn đặt **%s** - **Size %s**. Nhấn nút bên dưới để thanh toán nhé! 👇", p.getName(), sizeToOrder);
+                        query.data.put("selectedSize", sizeToOrder);
+                        query.data.put("action", "ready_to_order");
+                    }
+                }
+
             } else {
-                query.message = String.format(
-                        "Sản phẩm '%s' hiện KHÔNG có chương trình giảm giá.",
-                        p.getName()
-                );
+                query.message = "Xin lỗi, tôi không biết bạn đang hỏi về sản phẩm nào. Vui lòng nói tên sản phẩm cụ thể.";
             }
-
-            query.data.put("product", p);
-            return query;
         }
 
-
-        if ("cheapest_product".equals(action)) {
+        else if ("check_stock".equals(action) && productName != null) {
+            foundProduct = products.stream()
+                    .filter(p -> p.getName().toLowerCase().contains(productName.toLowerCase()))
+                    .findFirst().orElse(null);
+            if (foundProduct != null) {
+                query.message = "Sản phẩm " + foundProduct.getName() + " hiện đang có hàng.";
+            } else {
+                query.message = "Sản phẩm " + productName + " hiện không tìm thấy.";
+            }
+        }
+        else if ("cheapest_product".equals(action)) {
             foundProduct = products.stream().min(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
             if (foundProduct != null) {
                 query.message = String.format("Sản phẩm rẻ nhất là %s với giá %s VNĐ.", foundProduct.getName(), formatMoney(foundProduct.getPrice()));
@@ -487,7 +552,7 @@ public class AIChat {
         else if ("most_expensive_product".equals(action)) {
             foundProduct = products.stream().max(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
             if (foundProduct != null) {
-                query.message = String.format("Sản phẩm mắc nhất là %s với giá %s VNĐ.", foundProduct.getName(), formatMoney(foundProduct.getPrice()));
+                query.message = String.format("Sản phẩm đắt nhất là %s với giá %s VNĐ.", foundProduct.getName(), formatMoney(foundProduct.getPrice()));
             }
         }
         else if ("best_selling_product".equals(action)) {
@@ -499,136 +564,34 @@ public class AIChat {
                 query.message = "Chưa có dữ liệu về sản phẩm bán chạy.";
             }
         }
-        else if ("product_detail".equals(action) && productName != null) {
+        else if ("max_discount_product".equals(action)) {
             foundProduct = products.stream()
-                    .filter(p -> p.getName().toLowerCase().contains(productName.toLowerCase()))
-                    .findFirst().orElse(null);
+                    .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
+                    .max(Comparator.comparing(ProductResponseDTO::getSalePercent))
+                    .orElse(null);
             if (foundProduct != null) {
-                query.message = "Thông tin chi tiết sản phẩm " + foundProduct.getName();
+                query.message = String.format("Sản phẩm giảm sâu nhất là %s (-%d%%).", foundProduct.getName(), foundProduct.getSalePercent());
             } else {
-                query.message = "Không tìm thấy sản phẩm " + productName;
-            }
-        }
-        else if ("check_stock".equals(action) && productName != null) {
-            foundProduct = products.stream()
-                    .filter(p -> p.getName().toLowerCase().contains(productName.toLowerCase()))
-                    .findFirst().orElse(null);
-            if (foundProduct != null) {
-                query.message = "Sản phẩm " + foundProduct.getName() + " còn hàng.";
+                query.message = "Hiện không có sản phẩm nào giảm giá.";
             }
         }
 
         if (foundProduct != null) {
-            System.out.println("✅ Found & Saved Context for Session: " + sessionId + " -> Product: " + foundProduct.getName());
             sessionLastProducts.put(sessionId, foundProduct);
+
             query.data.put("product", foundProduct);
-            return query;
-        }
 
-        if ("check_sales".equals(action) || "check_sales_context".equals(action)) {
+            boolean shouldShowImage = false;
 
-            ProductResponseDTO p = null;
+            if ("product_detail".equals(action) ||
+                    "image_search_result".equals(action) ||
+                    "prepare_order".equals(action)) {
 
-            if (productName != null && !productName.isEmpty()) {
-                p = productService.getProductByName(productName);
-            }
-            else if (sessionId != null) {
-                p = sessionLastProducts.get(sessionId);
-                System.out.println("🔍 Checking Context for Session: " + sessionId + " -> Found: " + (p != null ? p.getName() : "NULL"));
+                shouldShowImage = true;
             }
 
-            if (p != null) {
-                sessionLastProducts.put(sessionId, p);
-
-                int totalSold = (p.getTotalSold() != null) ? p.getTotalSold() : 0;
-                String comment = totalSold > 0 ? "Đang được quan tâm." : "Chưa có lượt bán.";
-
-                query.message = String.format("Sản phẩm '%s' đã bán được tổng cộng %d chiếc. %s", p.getName(), totalSold, comment);
-                query.data.put("product", p);
-            } else {
-                query.message = "Xin lỗi, tôi không biết bạn đang hỏi về sản phẩm nào. Vui lòng gửi ảnh hoặc nói tên sản phẩm cụ thể.";
-            }
-        }
-
-        else if ("check_size".equals(action)) {
-            String sizeToCheck = (String) query.data.get("size");
-            ProductResponseDTO p = null;
-
-            // 1. Thử tìm theo tên trước
-            if (productName != null && !productName.isEmpty()) {
-                p = productService.getProductByName(productName);
-            }
-
-            // 🔥 SỬA: Nếu p vẫn null (do tên sai hoặc là từ chung chung "sản phẩm này"),
-            // thì mới tìm trong Session. BỎ CHỮ "ELSE" ĐI.
-            if (p == null && sessionId != null) {
-                p = sessionLastProducts.get(sessionId);
-                System.out.println("🔍 Check Size (Fallback): Checking Session " + sessionId + " -> Found: " + (p != null ? p.getName() : "NULL"));
-            }
-
-            if (p != null) {
-                sessionLastProducts.put(sessionId, p); // Refresh context
-
-                if (sizeToCheck == null || sizeToCheck.isEmpty()) {
-                    query.message = "Bạn muốn kiểm tra size nào ạ?";
-                } else {
-                    boolean foundSize = false;
-                    int quantity = 0;
-                    if (p.getVariants() != null) {
-                        for (ProductResponseDTO.VariantDTO variant : p.getVariants()) {
-                            if (variant.getSize().equalsIgnoreCase(sizeToCheck)) {
-                                foundSize = true;
-                                quantity = variant.getQuantity();
-                                break;
-                            }
-                        }
-                    }
-
-                    if (foundSize) {
-                        if (quantity > 0) {
-                            query.message = String.format("Sản phẩm '%s' size %s hiện đang còn hàng với số lượng là: %d.", p.getName(), sizeToCheck, quantity);
-                            if (sessionId != null) sessionLastSizes.put(sessionId, sizeToCheck);
-                        } else {
-                            query.message = String.format("Tiếc quá, sản phẩm '%s' size %s hiện đang hết hàng rồi ạ.", p.getName(), sizeToCheck);
-                        }
-                    } else {
-                        query.message = String.format("Xin lỗi, sản phẩm '%s' không có size %s.", p.getName(), sizeToCheck);
-                    }
-                }
-                query.data.put("product", p);
-            } else {
-                System.out.println("❌ Check Size: Failed to find product by Name OR Session.");
-                query.message = "Xin lỗi, tôi không biết bạn đang hỏi size cho sản phẩm nào. Vui lòng gửi ảnh lại hoặc nói rõ tên sản phẩm.";
-            }
-        }
-
-        else if ("prepare_order".equals(action)) {
-            ProductResponseDTO p = null;
-
-            // 1. Lấy sản phẩm từ Session
-            if (sessionId != null && sessionLastProducts.containsKey(sessionId)) {
-                p = sessionLastProducts.get(sessionId);
-            }
-
-            if (p == null) {
-                query.message = "Bạn muốn đặt sản phẩm nào? Vui lòng gửi ảnh hoặc chọn sản phẩm trước.";
-            } else {
-                // 2. Lấy Size (Ưu tiên từ câu nói hiện tại, nếu không có thì lấy từ quá khứ)
-                String sizeToOrder = (String) query.data.get("size");
-                if (sizeToOrder == null && sessionId != null) {
-                    sizeToOrder = sessionLastSizes.get(sessionId);
-                }
-
-                if (sizeToOrder == null) {
-                    query.message = String.format("Bạn muốn đặt size nào cho sản phẩm '%s'? Vui lòng nhắn rõ size (VD: 'Size 40').", p.getName());
-                } else {
-                    // 3. Đã đủ thông tin -> Gửi tín hiệu "ready_to_order" xuống Frontend
-                    query.message = String.format("Xác nhận: Bạn muốn đặt **%s** - **Size %s**. Nhấn nút bên dưới để tiến hành thanh toán nhé! 👇", p.getName(), sizeToOrder);
-                    query.data.put("product", p);
-                    query.data.put("selectedSize", sizeToOrder); // Trả về size chốt
-                    query.data.put("action", "ready_to_order");  // Action đặc biệt cho Frontend
-                }
-            }
+            query.data.put("showImage", shouldShowImage);
+            System.out.println("🖼️ ShowImage Flag: " + shouldShowImage + " (Action: " + action + ")");
         }
 
         return query;
@@ -675,6 +638,17 @@ public class AIChat {
 
         if (query.data != null && query.data.containsKey("action")) {
             String action = (String) query.data.get("action");
+            String productName = (String) query.data.get("productName");
+
+            if (action == null) {
+                if (productName != null && !productName.isEmpty()) {
+                    System.out.println("⚠️ Action is null but Product Name found. Defaulting to 'check_stock'");
+                    action = "check_stock";
+                    query.data.put("action", "check_stock");
+                } else {
+                    return query;
+                }
+            }
 
             if ("get_weather".equals(action)) {
                 return handleWeatherQuery(query);
@@ -1030,24 +1004,37 @@ CẤU TRÚC JSON TRẢ VỀ:
       - "Món nào bán chạy?" -> action: "best_selling_product"
   TUYỆT ĐỐI KHÔNG được hỏi ngược lại người dùng (ví dụ: "Bạn muốn tìm loại nào?"). Hãy trả về JSON action ngay.
 
-  10. Nếu hỏi về tình trạng/chi tiết một sản phẩm cụ thể:
-      - "Giày Nike Air còn không?" -> action: "check_stock", productName: "Nike Air"
-      - "Thông tin áo Real Madrid?" -> action: "product_detail", productName: "áo Real Madrid"
+  10. Xử lý câu hỏi về CHI TIẾT / HÌNH ẢNH / THÔNG TIN THÊM:
+      QUY TẮC BẮT BUỘC: Nếu người dùng yêu cầu xem chi tiết, xem ảnh, hoặc hỏi thêm thông tin (dù câu hỏi ngắn gọn hay cụ thể), LUÔN trả về action "product_detail".
+            
+      - Các mẫu câu cần bắt:
+        + "Cho tôi thông tin chi tiết"
+        + "Chi tiết hơn đi"
+        + "Có hình ảnh không?", "Cho xem ảnh", "Ảnh thực tế"
+        + "Cụ thể là như nào?"
+        + "Thông tin sản phẩm"
+        + "Nó trông ra sao?"
+            
+      - Output JSON:
+        -> action: "product_detail"
+        -> productName: null (QUAN TRỌNG: Nếu người dùng KHÔNG nói tên sản phẩm trong câu này, hãy để null. Backend sẽ tự lấy sản phẩm từ câu hỏi trước đó).
       
   11. Xử lý câu hỏi về hàng hóa:
-      - Hỏi tồn kho chung ("Còn hàng không?"): action -> "check_stock"
+      - Hỏi tồn kho chung ("Còn hàng không?", "Shop có sp X không?", "Có bán X không?"):\s
+        -> action: "check_stock"
+        -> productName: "X"
       - Hỏi doanh số ("Bán được bao nhiêu?"): action -> "check_sales"
       - Hỏi Size cụ thể ("Có size 40 không?", "Size M còn không?", "Đôi này còn size 42 không?"):\s
         + action -> "check_size"
         + size -> Trích xuất size người dùng hỏi (VD: "40", "XL").
         + productName -> Tên sản phẩm (nếu có).
         
-  11. Xử lý đặt hàng:
+  12. Xử lý đặt hàng:
       - Nếu người dùng muốn mua (VD: "Đặt hàng", "Mua đôi này", "Lấy cái này", "Giúp tôi đặt", "Chốt đơn"):
         + action -> "prepare_order"
         + size -> Trích xuất size nếu người dùng nói rõ (VD: "Lấy size 40").
   
-  12. Xử lý câu hỏi về KHUYẾN MÃI / GIẢM GIÁ:
+  13. Xử lý câu hỏi về KHUYẾN MÃI / GIẢM GIÁ:
                 - "Có sản phẩm nào đang giảm giá không?"
                   → action: "list_on_sale"
                  \s

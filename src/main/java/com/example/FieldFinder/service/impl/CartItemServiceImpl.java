@@ -75,7 +75,7 @@ public class CartItemServiceImpl implements CartItemService {
                         "Requested quantity exceeds available stock for size " + request.getSize());
             }
             item.setQuantity(newQuantity);
-            item.setPriceAtTime(product.getPrice());
+            item.setPriceAtTime(product.getEffectivePrice());
 
         } else {
             if (request.getQuantity() > variant.getAvailableQuantity()) {
@@ -83,7 +83,7 @@ public class CartItemServiceImpl implements CartItemService {
                         "Requested quantity exceeds available stock for size " + request.getSize());
             }
 
-            double unitPrice = product.getPrice();
+            double unitPrice = product.getEffectivePrice();
 
             item = Cart_item.builder()
                     .cart(cart)
@@ -122,7 +122,7 @@ public class CartItemServiceImpl implements CartItemService {
         }
 
         item.setQuantity(quantity);
-        item.setPriceAtTime(product.getPrice());
+        item.setPriceAtTime(product.getEffectivePrice());
 
         Cart_item updated = cartItemRepository.save(item);
         return mapToResponse(updated);

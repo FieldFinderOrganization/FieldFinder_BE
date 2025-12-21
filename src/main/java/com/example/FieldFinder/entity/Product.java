@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "products")
@@ -64,7 +65,39 @@ public class Product {
 
     @Transient
     private Double salePrice;
+
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<ProductDiscount> discounts = new ArrayList<>();
 
+    public Double getEffectivePrice() {
+        if (this.discounts == null || this.discounts.isEmpty()) {
+            return this.price;
+        }
+
+        int maxPercent = 0;
+        LocalDate now = LocalDate.now();
+
+        for (ProductDiscount pd : this.discounts) {
+            Discount d = pd.getDiscount();
+
+            if (d == null) continue;
+
+            boolean isActive = d.getStatus() == Discount.DiscountStatus.ACTIVE;
+            boolean isStarted = !now.isBefore(d.getStartDate());
+            boolean isNotExpired = !now.isAfter(d.getEndDate());
+
+            if (isActive && isStarted && isNotExpired) {
+                if (d.getPercentage() > maxPercent) {
+                    maxPercent = d.getPercentage();
+                }
+            }
+        }
+
+        if (maxPercent > 0) {
+            double discountAmount = this.price * (maxPercent / 100.0);
+            return this.price - discountAmount;
+        }
+
+        return this.price;
+    }
 }
