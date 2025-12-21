@@ -3,10 +3,14 @@ package com.example.FieldFinder.service.impl;
 import com.example.FieldFinder.dto.req.DiscountRequestDTO;
 import com.example.FieldFinder.dto.res.DiscountResponseDTO;
 import com.example.FieldFinder.entity.Discount;
+import com.example.FieldFinder.entity.Product;
+import com.example.FieldFinder.entity.ProductDiscount;
 import com.example.FieldFinder.repository.DiscountRepository;
+import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.service.DiscountService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +21,7 @@ import java.util.stream.Collectors;
 public class DiscountServiceImpl implements DiscountService {
 
     private final DiscountRepository discountRepository;
+    private final ProductRepository productRepository;
 
     @Override
     public DiscountResponseDTO createDiscount(DiscountRequestDTO dto) {

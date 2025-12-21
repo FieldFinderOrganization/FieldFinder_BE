@@ -54,4 +54,13 @@ public class ProductController {
         }).start();
         return ResponseEntity.ok("Quá trình AI hóa dữ liệu đang chạy ngầm. Vui lòng theo dõi Console log.");
     }
+    @PostMapping("/{productId}/discounts/{discountId}")
+    public ResponseEntity<Void> applyDiscountToProduct(
+            @PathVariable Long productId,
+            @PathVariable String discountId
+    ) {
+        productService.applyDiscount(productId, discountId);
+        return ResponseEntity.ok().build();
+    }
+
 }

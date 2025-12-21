@@ -394,6 +394,90 @@ public class AIChat {
 
         ProductResponseDTO foundProduct = null;
 
+        // ===============================
+// 🔥 ONSALE / DISCOUNT HANDLING
+// ===============================
+        if ("list_on_sale".equals(action)) {
+            List<ProductResponseDTO> onSaleProducts = products.stream()
+                    .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
+                    .collect(Collectors.toList());
+
+            if (onSaleProducts.isEmpty()) {
+                query.message = "Hiện tại shop chưa có sản phẩm nào đang giảm giá.";
+            } else {
+                query.message = String.format(
+                        "Hiện tại shop có %d sản phẩm đang giảm giá. Tôi đã gửi danh sách cho bạn 👇",
+                        onSaleProducts.size()
+                );
+                query.data.put("products", onSaleProducts);
+            }
+            return query;
+        }
+
+        if ("count_on_sale".equals(action)) {
+            long count = products.stream()
+                    .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
+                    .count();
+
+            query.message = "Hiện tại shop có " + count + " sản phẩm đang giảm giá.";
+            return query;
+        }
+
+        if ("max_discount_product".equals(action)) {
+            ProductResponseDTO maxSale = products.stream()
+                    .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
+                    .max(Comparator.comparing(ProductResponseDTO::getSalePercent))
+                    .orElse(null);
+
+            if (maxSale == null) {
+                query.message = "Hiện tại shop chưa có sản phẩm nào đang giảm giá.";
+            } else {
+                query.message = String.format(
+                        "Sản phẩm đang giảm nhiều nhất là %s, giảm %d%% (giá còn %s VNĐ).",
+                        maxSale.getName(),
+                        maxSale.getSalePercent(),
+                        formatMoney(maxSale.getSalePrice())
+                );
+                query.data.put("product", maxSale);
+            }
+            return query;
+        }
+
+        if ("check_on_sale".equals(action)) {
+            ProductResponseDTO p = null;
+
+            if (productName != null && !productName.isEmpty()) {
+                p = productService.getProductByName(productName);
+            } else if (sessionId != null) {
+                p = sessionLastProducts.get(sessionId);
+            }
+
+            if (p == null) {
+                query.message = "Tôi chưa xác định được sản phẩm bạn đang hỏi. Vui lòng gửi ảnh hoặc nói rõ tên sản phẩm.";
+                return query;
+            }
+
+            sessionLastProducts.put(sessionId, p);
+
+            if (p.getSalePercent() != null && p.getSalePercent() > 0) {
+                query.message = String.format(
+                        "Sản phẩm '%s' hiện đang giảm %d%%, giá chỉ còn %s VNĐ.",
+                        p.getName(),
+                        p.getSalePercent(),
+                        formatMoney(p.getSalePrice())
+                );
+            } else {
+                query.message = String.format(
+                        "Sản phẩm '%s' hiện KHÔNG có chương trình giảm giá.",
+                        p.getName()
+                );
+            }
+
+            query.data.put("product", p);
+            return query;
+        }
+
+
         if ("cheapest_product".equals(action)) {
             foundProduct = products.stream().min(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
             if (foundProduct != null) {
@@ -596,7 +680,7 @@ public class AIChat {
                 return handleWeatherQuery(query);
             }
 
-            if (action.contains("product") || action.contains("stock") || action.contains("sales") || action.contains("size") || action.contains("order")) {
+            if (action.contains("product") || action.contains("stock") || action.contains("sales") || action.contains("sale") || action.contains("size") || action.contains("order")) {
                 return handleProductQuery(query, userInput, sessionId);
             }
         }
@@ -962,6 +1046,21 @@ CẤU TRÚC JSON TRẢ VỀ:
       - Nếu người dùng muốn mua (VD: "Đặt hàng", "Mua đôi này", "Lấy cái này", "Giúp tôi đặt", "Chốt đơn"):
         + action -> "prepare_order"
         + size -> Trích xuất size nếu người dùng nói rõ (VD: "Lấy size 40").
+  
+  12. Xử lý câu hỏi về KHUYẾN MÃI / GIẢM GIÁ:
+                - "Có sản phẩm nào đang giảm giá không?"
+                  → action: "list_on_sale"
+                 \s
+                - "Có bao nhiêu sản phẩm đang giảm giá?"
+                  → action: "count_on_sale"
+                 \s
+                - "Sản phẩm nào giảm giá nhiều nhất?"
+                  → action: "max_discount_product"
+                 \s
+                - "Sản phẩm này có đang giảm không?"
+                  → action: "check_on_sale"
+                  → productName (nếu có)
+              
   ...
   ""\";
       

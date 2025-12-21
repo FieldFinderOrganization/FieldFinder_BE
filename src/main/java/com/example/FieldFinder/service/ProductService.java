@@ -19,4 +19,6 @@ public interface ProductService {
     void enrichAllProductsData();
     List<ProductResponseDTO> findProductsByVector(String descriptionFromImage);
     ProductResponseDTO getProductByName(String productName);
+    void applyDiscount(Long productId, String discountId);
+
 }

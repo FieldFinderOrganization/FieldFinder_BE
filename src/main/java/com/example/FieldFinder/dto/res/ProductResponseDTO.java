@@ -11,7 +11,10 @@ public class ProductResponseDTO {
     private String name;
     private String description;
     private String categoryName;
-    private Double price;
+    private Double price;          // giá gốc
+
+    private Integer salePercent;   // VD: 20
+    private Double salePrice;      // VD: 800_000
 
     private String imageUrl;
     private String brand;

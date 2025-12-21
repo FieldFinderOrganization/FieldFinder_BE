@@ -59,4 +59,12 @@ public class Product {
     public int getTotalSold() {
         return variants == null ? 0 : variants.stream().mapToInt(ProductVariant::getSoldQuantity).sum();
     }
+    @Transient
+    private Integer onSalePercent;
+
+    @Transient
+    private Double salePrice;
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<ProductDiscount> discounts = new ArrayList<>();
+
 }

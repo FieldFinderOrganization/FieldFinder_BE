@@ -4,9 +4,11 @@ import com.example.FieldFinder.ai.AIChat;
 import com.example.FieldFinder.dto.req.ProductRequestDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.entity.Category;
+import com.example.FieldFinder.entity.Discount;
 import com.example.FieldFinder.entity.Product;
 import com.example.FieldFinder.entity.ProductVariant;
 import com.example.FieldFinder.repository.CategoryRepository;
+import com.example.FieldFinder.repository.DiscountRepository;
 import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.ProductVariantRepository;
 import com.example.FieldFinder.service.ProductService;
@@ -16,10 +18,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.example.FieldFinder.entity.ProductDiscount;
 
-import java.util.AbstractMap;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+
+import java.time.LocalDate;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,17 +31,20 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final DiscountRepository discountRepository;
     private final AIChat aiChat;
 
     public ProductServiceImpl(
             ProductRepository productRepository,
             CategoryRepository categoryRepository,
             ProductVariantRepository productVariantRepository,
+            DiscountRepository discountRepository,
             @Lazy AIChat aiChat
     ) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.productVariantRepository = productVariantRepository;
+        this.discountRepository = discountRepository;
         this.aiChat = aiChat;
     }
 
@@ -470,13 +476,17 @@ public class ProductServiceImpl implements ProductService {
                             .build())
                     .collect(Collectors.toList());
         }
+        Integer salePercent = resolveActiveDiscountPercent(product);
+        Double finalPrice = calculateSalePrice(product.getPrice(), salePercent);
 
         return ProductResponseDTO.builder()
                 .id(product.getProductId())
                 .name(product.getName())
                 .description(product.getDescription())
                 .categoryName(product.getCategory().getName())
-                .price(product.getPrice())
+                .price(product.getPrice())          // giá gốc
+                .salePercent(salePercent)           // % sale
+                .salePrice(finalPrice)              // giá sau sale
                 .imageUrl(product.getImageUrl())
                 .brand(product.getBrand())
                 .sex(product.getSex())
@@ -485,4 +495,54 @@ public class ProductServiceImpl implements ProductService {
                 .totalSold(product.getTotalSold())
                 .build();
     }
+    private Integer resolveActiveDiscountPercent(Product product) {
+        if (product.getDiscounts() == null || product.getDiscounts().isEmpty()) {
+            return null;
+        }
+
+        LocalDate today = LocalDate.now();
+
+        return product.getDiscounts().stream()
+                .map(ProductDiscount::getDiscount)
+                .filter(d ->
+                        d.getStatus() == Discount.DiscountStatus.ACTIVE &&
+                                !today.isBefore(d.getStartDate()) &&
+                                !today.isAfter(d.getEndDate())
+                )
+                .map(Discount::getPercentage)
+                .max(Comparator.naturalOrder()) // ✅ FIX lỗi compareTo ambiguous
+                .orElse(null);
+    }
+
+
+    private Double calculateSalePrice(Double originalPrice, Integer percent) {
+        if (percent == null || percent <= 0) return originalPrice;
+        return originalPrice * (100 - percent) / 100;
+    }
+    @Transactional
+    @Override
+    public void applyDiscount(Long productId, String discountId) {
+
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new RuntimeException("Product not found"));
+
+        Discount discount = discountRepository.findById(UUID.fromString(discountId))
+                .orElseThrow(() -> new RuntimeException("Discount not found"));
+
+        boolean exists = product.getDiscounts().stream()
+                .anyMatch(pd -> pd.getDiscount().getDiscountId().equals(discount.getDiscountId()));
+
+        if (exists) {
+            throw new RuntimeException("Discount already applied to this product");
+        }
+
+        ProductDiscount pd = ProductDiscount.builder()
+                .product(product)
+                .discount(discount)
+                .build();
+
+        product.getDiscounts().add(pd);
+        productRepository.save(product);
+    }
+
 }
