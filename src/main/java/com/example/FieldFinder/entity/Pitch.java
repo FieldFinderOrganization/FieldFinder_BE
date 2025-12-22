@@ -1,6 +1,7 @@
 package com.example.FieldFinder.entity;
 
 
+import com.example.FieldFinder.Enum.PitchEnvironment;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -32,6 +33,10 @@ public class Pitch {
     @Enumerated(EnumType.STRING)
     @Column(name = "Type", nullable = false)
     private PitchType type;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "Environment", nullable = false)
+    private PitchEnvironment environment; // ⭐ NEW
 
     @Column(name = "Price", nullable = false)
     private BigDecimal price;

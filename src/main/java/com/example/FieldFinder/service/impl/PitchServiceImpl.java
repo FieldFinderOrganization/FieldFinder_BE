@@ -33,6 +33,7 @@ public class PitchServiceImpl implements PitchService {
                 .name(dto.getName())
                 .type(dto.getType())
                 .price(dto.getPrice())
+                .environment(dto.getEnvironment())
                 .description(dto.getDescription())
                 .build();
 
@@ -46,6 +47,7 @@ public class PitchServiceImpl implements PitchService {
                 .orElseThrow(() -> new RuntimeException("Pitch not found!"));
         pitch.setName(dto.getName());
         pitch.setType(dto.getType());
+        pitch.setEnvironment(dto.getEnvironment());
         pitch.setPrice(dto.getPrice());
         pitch.setDescription(dto.getDescription());
         pitch = pitchRepository.save(pitch);

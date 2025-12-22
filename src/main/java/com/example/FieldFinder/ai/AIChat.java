@@ -1,5 +1,6 @@
 package com.example.FieldFinder.ai;
 
+import com.example.FieldFinder.Enum.PitchEnvironment;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.service.OpenWeatherService;
@@ -605,17 +606,44 @@ public class AIChat {
         String city = query.data.getOrDefault("city", "Hà Nội").toString();
 
         try {
-            String weatherDescription = weatherService.getCurrentWeather(city);
+            // 1. Lấy thời tiết
+            String weather = weatherService.getCurrentWeather(city);
 
-            query.message = String.format("Thời tiết ở %s hiện là: %s", city, weatherDescription);
-            query.data.clear(); // Xóa data tool
+            // 2. Quyết định Indoor / Outdoor
+            PitchEnvironment env = suggestEnvironmentByWeather(weather);
+
+            // 3. Lọc sân phù hợp
+            List<PitchResponseDTO> suggestedPitches =
+                    pitchService.getAllPitches().stream()
+                            .filter(p -> p.getEnvironment() == env)
+                            .limit(5)
+                            .toList();
+
+            // 4. Message cho user
+            query.message = String.format(
+                    "Thời tiết ở %s hiện là **%s** 🌤️. Tôi gợi ý bạn chọn **sân %s**.",
+                    city,
+                    weather,
+                    env == PitchEnvironment.INDOOR
+                            ? "trong nhà (Indoor)"
+                            : "ngoài trời (Outdoor)"
+            );
+
+            // 5. Data trả về cho FE
+            query.data.clear();
+            query.data.put("action", "weather_pitch_suggestion");
+            query.data.put("environment", env.name());
+            query.data.put("pitches", suggestedPitches);
+
             return query;
-        } catch (IOException e) {
-            query.message = String.format("Xin lỗi, tôi không thể lấy dữ liệu thời tiết cho %s lúc này.", city);
+
+        } catch (Exception e) {
+            query.message = "Không thể lấy dữ liệu thời tiết lúc này.";
             query.data.clear();
             return query;
         }
     }
+
 
     public BookingQuery parseBookingInput(String userInput, String sessionId) throws IOException, InterruptedException {
         if (isGreeting(userInput)) {
@@ -855,6 +883,18 @@ public class AIChat {
         }
     }
 
+    private PitchEnvironment suggestEnvironmentByWeather(String weather) {
+        String w = weather.toLowerCase();
+
+        if (w.contains("mưa") || w.contains("rain")
+                || w.contains("storm") || w.contains("bão")
+                || w.contains("ẩm")) {
+            return PitchEnvironment.INDOOR;
+        }
+        return PitchEnvironment.OUTDOOR;
+    }
+
+
     // 3. HÀM HELPER: Tải ảnh từ URL về và convert sang Base64
     private String downloadImageAsBase64(String imageUrl) {
         try {
@@ -1047,6 +1087,12 @@ CẤU TRÚC JSON TRẢ VỀ:
                 - "Sản phẩm này có đang giảm không?"
                   → action: "check_on_sale"
                   → productName (nếu có)
+              
+  14. Khi xử lý thời tiết:
+              - AI chỉ trả về action = "get_weather" và city
+              - KHÔNG tự quyết Indoor / Outdoor
+              - Backend sẽ quyết định sân phù hợp
+              - KHÔNG hỏi lại người dùng
               
   ...
   ""\";
