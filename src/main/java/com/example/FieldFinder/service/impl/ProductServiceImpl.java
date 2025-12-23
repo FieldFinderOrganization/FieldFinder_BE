@@ -544,5 +544,12 @@ public class ProductServiceImpl implements ProductService {
         product.getDiscounts().add(pd);
         productRepository.save(product);
     }
+    public List<ProductResponseDTO> findByCategories(List<String> categories) {
+        return getAllProducts().stream()
+                .filter(p -> p.getCategoryName() != null &&
+                        categories.contains(p.getCategoryName()))
+                .limit(12)
+                .toList();
+    }
 
 }

@@ -3,6 +3,7 @@ package com.example.FieldFinder.ai;
 import com.example.FieldFinder.Enum.PitchEnvironment;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
+import com.example.FieldFinder.mapper.CategoryMapper;
 import com.example.FieldFinder.service.OpenWeatherService;
 import com.example.FieldFinder.service.PitchService;
 import com.example.FieldFinder.service.ProductService;
@@ -44,6 +45,8 @@ public class AIChat {
     private final Map<String, ProductResponseDTO> sessionLastProducts = new HashMap<>();
 
     private final Map<String, String> sessionLastSizes = new HashMap<>();
+    private final Map<String, String> sessionLastActivity = new HashMap<>();
+
 
     static {
         Dotenv dotenv = Dotenv.load();
@@ -644,6 +647,117 @@ public class AIChat {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private BookingQuery handleRecommendByActivity(BookingQuery query, String sessionId) {
+
+        // ===== 1️⃣ DATA TỪ AI =====
+        String activity = (String) query.data.get("activity");
+        List<String> tags = (List<String>) query.data.get("tags");
+        List<String> aiCategories = (List<String>) query.data.get("suggestedCategories");
+
+        // ===== 2️⃣ SAVE CONTEXT =====
+        if (activity != null && sessionId != null) {
+            sessionLastActivity.put(sessionId, activity);
+        }
+
+        // ===== 3️⃣ FALLBACK TAGS =====
+        if (tags == null || tags.isEmpty()) {
+            tags = (activity != null) ? List.of(activity) : List.of("sport");
+        }
+
+        // ===== 4️⃣ VECTOR DESCRIPTION =====
+        String description = String.join(" ",
+                activity != null ? activity : "",
+                String.join(" ", tags)
+        );
+
+        // ===== 5️⃣ VECTOR SEARCH =====
+        List<ProductResponseDTO> results =
+                productService.findProductsByVector(description);
+
+        // ===== 6️⃣ RESOLVE DB CATEGORIES (QUAN TRỌNG NHẤT) =====
+        List<String> resolvedCategories =
+                CategoryMapper.resolveCategories(activity, aiCategories);
+
+        // ===== 7️⃣ FALLBACK CATEGORY SEARCH =====
+        if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
+
+            System.out.println("⚠️ Vector empty. Fallback DB categories: " + resolvedCategories);
+
+            results = productService.getAllProducts().stream()
+                    .filter(p -> p.getCategoryName() != null &&
+                            resolvedCategories.contains(p.getCategoryName()))
+                    .limit(12)
+                    .toList();
+        }
+
+        // ===== 8️⃣ NO RESULT =====
+        if (results == null || results.isEmpty()) {
+            query.message = "Hiện tại shop chưa có sản phẩm phù hợp hoạt động này 😢";
+            query.data.put("products", List.of());
+            query.data.put("groupedProducts", Map.of());
+            query.data.put("action", "recommend_by_activity");
+            query.data.put("showImage", false);
+            return query;
+        }
+
+        // ===== 9️⃣ MESSAGE =====
+        query.message = String.format(
+                "Với hoạt động **%s**, bạn có thể tham khảo các sản phẩm sau 👇",
+                activity
+        );
+
+        // ===== 🔟 GROUP PRODUCTS =====
+        Map<String, List<Map<String, Object>>> groupedProducts = new LinkedHashMap<>();
+
+        for (ProductResponseDTO p : results) {
+
+            // ✅ PHẢI CÓ DÒNG NÀY
+            Map<String, Object> item = new HashMap<>();
+
+            // product gốc
+            item.put("product", p);
+
+            // facts (KHÔNG DÙNG Map.of)
+            Map<String, Object> facts = new HashMap<>();
+            facts.put("activity", activity);
+            facts.put("category", p.getCategoryName());
+            facts.put("description", p.getDescription());
+            facts.put("tags", p.getTags());
+            facts.put("brand", p.getBrand());
+            facts.put("price", p.getPrice());
+            facts.put("salePercent", p.getSalePercent());
+            facts.put("totalSold", p.getTotalSold());
+            facts.put("stock", p.getStockQuantity());
+
+            item.put("facts", facts);
+
+            // group theo category
+            String categoryKey = p.getCategoryName() != null
+                    ? p.getCategoryName()
+                    : "OTHER";
+
+            groupedProducts
+                    .computeIfAbsent(categoryKey, k -> new ArrayList<>())
+                    .add(item);
+    }
+
+        // ===== 1️⃣1️⃣ RESPONSE DATA =====
+        query.data.put("groupedProducts", groupedProducts);
+        query.data.put("products", results);
+        query.data.put("explainContext", Map.of(
+                "style", "sales_consultant",
+                "maxReasonLength", 25
+        ));
+
+        query.data.put("action", "recommend_by_activity");
+        query.data.put("showImage", true);
+
+        return query;
+    }
+
+
+
 
     public BookingQuery parseBookingInput(String userInput, String sessionId) throws IOException, InterruptedException {
         if (isGreeting(userInput)) {
@@ -681,7 +795,9 @@ public class AIChat {
             if ("get_weather".equals(action)) {
                 return handleWeatherQuery(query);
             }
-
+            if ("recommend_by_activity".equals(action)) {
+                return handleRecommendByActivity(query, sessionId);
+            }
             if (action.contains("product") || action.contains("stock") || action.contains("sales") || action.contains("sale") || action.contains("size") || action.contains("order")) {
                 return handleProductQuery(query, userInput, sessionId);
             }
@@ -1093,7 +1209,41 @@ CẤU TRÚC JSON TRẢ VỀ:
               - KHÔNG tự quyết Indoor / Outdoor
               - Backend sẽ quyết định sân phù hợp
               - KHÔNG hỏi lại người dùng
+  
+  15. XỬ LÝ CÂU HỎI GỢI Ý THEO HOẠT ĐỘNG THỂ THAO (KHÔNG CỤ THỂ SẢN PHẨM):
               
+              Nếu người dùng hỏi theo NGỮ CẢNH / HOẠT ĐỘNG như:
+              - "Đá bóng thì cần mua gì?"
+              - "Tập gym nên dùng đồ nào?"
+              - "Chạy bộ thì mặc gì?"
+              - "Đi tập thể thao cần mang theo gì?"
+              
+              → action: "recommend_by_activity"
+              
+              → data phải bao gồm:
+              - activity: football | running | gym | casual | outdoor | indoor
+              - suggestedCategories: danh sách loại sản phẩm phù hợp
+              - tags: từ khóa dùng cho tìm kiếm (không giới hạn giày)
+  
+  16. Khi action = "recommend_by_activity":
+                  
+                  AI PHẢI sinh thêm trường "reasons" là map theo category hoặc productType.
+                  
+                  Ví dụ output:
+                  
+                  {
+                    "data": {
+                      "action": "recommend_by_activity",
+                      "activity": "football",
+                      "suggestedCategories": ["Áo đá bóng", "Quần đá bóng", "Găng tay"],
+                      "tags": ["đá bóng", "thoáng khí", "thấm hút"],
+                      "reasons": {
+                        "Áo đá bóng": "Chất liệu nhẹ, thấm hút mồ hôi, giúp vận động thoải mái khi đá bóng.",
+                        "Quần đá bóng": "Thiết kế co giãn, không cản trở chuyển động chân.",
+                        "Găng tay": "Giúp bảo vệ tay và tăng độ bám khi chơi."
+                      }
+                    }
+                  }
   ...
   ""\";
       

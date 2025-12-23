@@ -21,4 +21,5 @@ public interface ProductService {
     ProductResponseDTO getProductByName(String productName);
     void applyDiscount(Long productId, String discountId);
 
+    List<ProductResponseDTO> findByCategories(List<String> categories);
 }
