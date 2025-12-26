@@ -756,9 +756,6 @@ public class AIChat {
         return query;
     }
 
-
-
-
     public BookingQuery parseBookingInput(String userInput, String sessionId) throws IOException, InterruptedException {
         if (isGreeting(userInput)) {
             BookingQuery query = new BookingQuery();

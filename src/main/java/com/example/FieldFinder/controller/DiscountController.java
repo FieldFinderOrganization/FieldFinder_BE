@@ -1,7 +1,10 @@
 package com.example.FieldFinder.controller;
 
 import com.example.FieldFinder.dto.req.DiscountRequestDTO;
+import com.example.FieldFinder.dto.req.UserDiscountRequestDTO;
 import com.example.FieldFinder.dto.res.DiscountResponseDTO;
+import com.example.FieldFinder.dto.res.UserDiscountResponseDTO;
+import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.service.DiscountService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -41,5 +44,19 @@ public class DiscountController {
     @GetMapping("/{id}")
     public ResponseEntity<DiscountResponseDTO> getById(@PathVariable String id) {
         return ResponseEntity.ok(discountService.getDiscountById(id));
+    }
+
+    @PostMapping("/{userId}/save")
+    public ResponseEntity<String> saveDiscountToWallet(
+            @PathVariable String userId,
+            @RequestBody UserDiscountRequestDTO dto) {
+
+        discountService.saveDiscountToWallet(userId, dto);
+        return ResponseEntity.ok("Voucher saved successfully to wallet!");
+    }
+
+    @GetMapping("/{userId}/wallet")
+    public ResponseEntity<List<UserDiscountResponseDTO>> getMyWallet(@PathVariable String userId) {
+        return ResponseEntity.ok(discountService.getMyWallet(userId));
     }
 }

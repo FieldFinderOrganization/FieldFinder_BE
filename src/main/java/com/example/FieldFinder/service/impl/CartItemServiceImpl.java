@@ -13,8 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,6 +25,89 @@ public class CartItemServiceImpl implements CartItemService {
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
     private final UserRepository userRepository;
+    private final DiscountRepository discountRepository;
+
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    private static class PriceCalculationResult {
+        private Double finalPrice;
+        private List<Discount> appliedDiscounts;
+    }
+
+    // --- Helper Method: Tính giá và lấy danh sách mã giảm giá đã áp dụng ---
+    private PriceCalculationResult calculatePriceAndDiscounts(Product product) {
+        if (product == null) return new PriceCalculationResult(0.0, new ArrayList<>());
+
+        // 1. Force Initialize Explicit Discounts
+        if (product.getDiscounts() != null) {
+            product.getDiscounts().size();
+            for (ProductDiscount pd : product.getDiscounts()) {
+                if (pd.getDiscount() != null) {
+                    pd.getDiscount().getDiscountId();
+                    pd.getDiscount().getValue();
+                    pd.getDiscount().getMaxDiscountAmount();
+                }
+            }
+        } else {
+            product.setDiscounts(new ArrayList<>());
+        }
+
+        // 2. Tìm Implicit Discounts (Theo danh mục)
+        List<Long> categoryIds = new ArrayList<>();
+        Category current = product.getCategory();
+        while (current != null) {
+            categoryIds.add(current.getCategoryId());
+            current = current.getParent();
+        }
+
+        List<Discount> implicitDiscounts = discountRepository.findApplicableDiscountsForProduct(
+                product.getProductId(),
+                categoryIds
+        );
+
+        // 3. Tạo Product tạm để tính toán (Tránh sửa đổi Entity chính)
+        Product tempCalcProduct = Product.builder()
+                .price(product.getPrice())
+                .discounts(new ArrayList<>(product.getDiscounts()))
+                .build();
+
+        Set<UUID> existingDiscountIds = product.getDiscounts().stream()
+                .map(pd -> pd.getDiscount().getDiscountId())
+                .collect(Collectors.toSet());
+
+        // Gộp mã giảm giá danh mục vào
+        for (Discount d : implicitDiscounts) {
+            if (!existingDiscountIds.contains(d.getDiscountId())) {
+                ProductDiscount dummyPD = ProductDiscount.builder()
+                        .product(tempCalcProduct)
+                        .discount(d)
+                        .build();
+                tempCalcProduct.getDiscounts().add(dummyPD);
+            }
+        }
+
+        // 4. Lấy giá cuối cùng
+        Double finalPrice = tempCalcProduct.getSalePrice();
+
+        // 5. Xác định các mã giảm giá THỰC SỰ có hiệu lực (Active, Date, v.v.)
+        List<Discount> validDiscounts = new ArrayList<>();
+        java.time.LocalDate now = java.time.LocalDate.now();
+
+        for (ProductDiscount pd : tempCalcProduct.getDiscounts()) {
+            Discount d = pd.getDiscount();
+            if (d == null) continue;
+
+            boolean isActive = d.getStatus() == Discount.DiscountStatus.ACTIVE;
+            boolean isStarted = d.getStartDate() == null || !now.isBefore(d.getStartDate());
+            boolean isNotExpired = d.getEndDate() == null || !now.isAfter(d.getEndDate());
+
+            if (isActive && isStarted && isNotExpired) {
+                validDiscounts.add(d);
+            }
+        }
+
+        return new PriceCalculationResult(finalPrice, validDiscounts);
+    }
 
     @Override
     @Transactional
@@ -37,33 +119,13 @@ public class CartItemServiceImpl implements CartItemService {
                 product.getProductId(), request.getSize()
         ).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Size not available for this product!"));
 
-        Cart cart = null;
-
-        if (request.getCartId() != null) {
-            cart = cartRepository.findById(request.getCartId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cart not found!"));
-
-            if (!CartStatus.ACTIVE.equals(cart.getStatus())) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cart is already completed or abandoned!");
-            }
-
-        } else {
-            if (request.getUserId() == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "UserId is required for new cart!");
-            }
-            User user = userRepository.findByUserId(request.getUserId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!"));
-
-            cart = new Cart();
-            cart.setStatus(CartStatus.ACTIVE);
-            cart.setUser(user);
-            cart.setCreatedAt(LocalDateTime.now());
-            cart = cartRepository.save(cart);
-        }
+        Cart cart = getOrCreateCart(request);
 
         Optional<Cart_item> existingItemOpt = cartItemRepository.findByCartAndProductAndSize(
                 cart, product, request.getSize()
         );
+
+        PriceCalculationResult calcResult = calculatePriceAndDiscounts(product);
 
         Cart_item item;
         if (existingItemOpt.isPresent()) {
@@ -75,27 +137,24 @@ public class CartItemServiceImpl implements CartItemService {
                         "Requested quantity exceeds available stock for size " + request.getSize());
             }
             item.setQuantity(newQuantity);
-            item.setPriceAtTime(product.getEffectivePrice());
-
+            item.setPriceAtTime(calcResult.getFinalPrice());
         } else {
             if (request.getQuantity() > variant.getAvailableQuantity()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Requested quantity exceeds available stock for size " + request.getSize());
             }
 
-            double unitPrice = product.getEffectivePrice();
-
             item = Cart_item.builder()
                     .cart(cart)
                     .product(product)
                     .quantity(request.getQuantity())
-                    .priceAtTime(unitPrice)
+                    .priceAtTime(calcResult.getFinalPrice())
                     .size(request.getSize())
                     .build();
         }
 
         Cart_item saved = cartItemRepository.save(item);
-        return mapToResponse(saved);
+        return mapToResponse(saved, calcResult);
     }
 
     @Override
@@ -105,8 +164,6 @@ public class CartItemServiceImpl implements CartItemService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find cart item!"));
 
         Product product = item.getProduct();
-
-
         ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(
                 product.getProductId(), item.getSize()
         ).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Size not found anymore!"));
@@ -121,18 +178,20 @@ public class CartItemServiceImpl implements CartItemService {
                     "The quantity exceeds available stock for size " + item.getSize());
         }
 
+        PriceCalculationResult calcResult = calculatePriceAndDiscounts(product);
+
         item.setQuantity(quantity);
-        item.setPriceAtTime(product.getEffectivePrice());
+        item.setPriceAtTime(calcResult.getFinalPrice());
 
         Cart_item updated = cartItemRepository.save(item);
-        return mapToResponse(updated);
+        return mapToResponse(updated, calcResult);
     }
 
     @Override
     @Transactional
     public void removeCartItem(Long cartItemId) {
         Cart_item item = cartItemRepository.findById(cartItemId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find  cart item!"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find cart item!"));
         cartItemRepository.delete(item);
     }
 
@@ -142,11 +201,48 @@ public class CartItemServiceImpl implements CartItemService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find cart!"));
 
         return cartItemRepository.findByCart(cart).stream()
-                .map(this::mapToResponse)
+                .map(item -> {
+                    PriceCalculationResult calc = calculatePriceAndDiscounts(item.getProduct());
+                    return mapToResponse(item, calc);
+                })
                 .collect(Collectors.toList());
     }
 
-    private CartItemResponseDTO mapToResponse(Cart_item item) {
+    private Cart getOrCreateCart(CartItemRequestDTO request) {
+        if (request.getCartId() != null) {
+            Cart cart = cartRepository.findById(request.getCartId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cart not found!"));
+            if (!CartStatus.ACTIVE.equals(cart.getStatus())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cart is already completed or abandoned!");
+            }
+            return cart;
+        } else {
+            if (request.getUserId() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "UserId is required for new cart!");
+            }
+            User user = userRepository.findByUserId(request.getUserId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!"));
+            Cart cart = new Cart();
+            cart.setStatus(CartStatus.ACTIVE);
+            cart.setUser(user);
+            cart.setCreatedAt(LocalDateTime.now());
+            return cartRepository.save(cart);
+        }
+    }
+
+    private CartItemResponseDTO mapToResponse(Cart_item item, PriceCalculationResult calcResult) {
+        List<CartItemResponseDTO.DiscountDTO> discountDTOs = new ArrayList<>();
+        if (calcResult.getAppliedDiscounts() != null) {
+            discountDTOs = calcResult.getAppliedDiscounts().stream()
+                    .map(d -> CartItemResponseDTO.DiscountDTO.builder()
+                            .code(d.getCode())
+                            .value(d.getValue().doubleValue())
+                            .discountType(d.getDiscountType() != null ? d.getDiscountType().toString() : null)
+                            .maxDiscountAmount(d.getMaxDiscountAmount() != null ? d.getMaxDiscountAmount().doubleValue() : null)
+                            .build())
+                    .collect(Collectors.toList());
+        }
+
         return CartItemResponseDTO.builder()
                 .id(item.getId())
                 .cartId(item.getCart().getCartId())
@@ -156,6 +252,8 @@ public class CartItemServiceImpl implements CartItemService {
                 .quantity(item.getQuantity())
                 .size(item.getSize())
                 .priceAtTime(item.getPriceAtTime())
+                .originalPrice(item.getProduct().getPrice())
+                .appliedDiscounts(discountDTOs)
                 .build();
     }
 }

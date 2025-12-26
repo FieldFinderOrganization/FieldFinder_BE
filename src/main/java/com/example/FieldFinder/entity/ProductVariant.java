@@ -33,4 +33,8 @@ public class ProductVariant {
     public int getAvailableQuantity() {
         return this.stockQuantity - this.lockedQuantity;
     }
+
+    public Integer getQuantity() {
+        return this.stockQuantity;
+    }
 }
