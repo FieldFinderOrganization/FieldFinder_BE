@@ -1,9 +1,8 @@
 package com.example.FieldFinder.dto.res;
 
 import lombok.*;
-
 import java.util.List;
-import java.util.UUID;
+import java.util.UUID; // Import UUID
 
 @Getter
 @Setter
@@ -31,6 +30,7 @@ public class CartItemResponseDTO {
         private Double value;
         private String discountType;
         private Double maxDiscountAmount;
-        private Long id;
+
+        private UUID id;
     }
 }

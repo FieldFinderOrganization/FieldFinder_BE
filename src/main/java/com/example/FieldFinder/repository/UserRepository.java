@@ -15,4 +15,5 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByFirebaseUid(String uid);
 
     Optional<User> findByUserId(UUID userId);
+
 }

@@ -38,10 +38,8 @@ public class UserController {
         String idToken = body.get("idToken");
 
         try {
-            // Verify Firebase token
             FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
 
-            // *** GỌI SERVICE "FIND-OR-THROW" ***
             UserResponseDTO loggedInUser = userService.loginUser(decodedToken);
 
             return ResponseEntity.ok(Map.of(
@@ -53,7 +51,6 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid Firebase ID token", "details", e.getMessage()));
         }
-        // Lưu ý: Lỗi ResponseStatusException (401, 403) từ service sẽ tự động được xử lý
     }
 
     @PostMapping("/login-social")
@@ -61,7 +58,6 @@ public class UserController {
         String idToken = body.get("idToken");
 
         try {
-            // Verify Firebase token
             FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
 
             UserResponseDTO loggedInUser = userService.loginWithFirebase(decodedToken);
@@ -120,5 +116,23 @@ public class UserController {
 
         userService.resetPassword(token, newPassword);
         return ResponseEntity.ok("Password updated successfully.");
+    }
+
+    @PostMapping("/{userId}/register-session")
+    public ResponseEntity<String> registerSession(@PathVariable UUID userId, @RequestParam String sessionId) {
+        userService.registerUserSession(sessionId, userId);
+        return ResponseEntity.ok("Session registered successfully.");
+    }
+
+    @GetMapping("/{sessionId}/get-user-by-session")
+    public ResponseEntity<UUID> getUserBySessionId(@PathVariable String sessionId) {
+        UUID userId = userService.getUserIdBySession(sessionId);
+        return ResponseEntity.ok(userId);
+    }
+
+    @DeleteMapping("/{sessionId}/remove-session")
+    public ResponseEntity<String> removeSession(@PathVariable String sessionId) {
+        userService.removeUserSession(sessionId);
+        return ResponseEntity.ok("Session removed successfully.");
     }
 }

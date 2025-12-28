@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.time.LocalDate;
-import java.math.BigDecimal; // Import quan trọng
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "products")
@@ -23,17 +23,21 @@ public class Product {
     @ManyToOne
     @JoinColumn(name = "category_id")
     private Category category;
+
     private String name;
     private String description;
     private Double price;
     private String imageUrl;
     private String brand;
     private String sex;
+
+    @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "product_tags", joinColumns = @JoinColumn(name = "product_id"))
     @Column(name = "tag")
+    @Builder.Default
     private List<String> tags = new ArrayList<>();
 
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
@@ -41,6 +45,18 @@ public class Product {
 
     @Column(columnDefinition = "TEXT")
     private String embedding;
+
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
+    private List<ProductDiscount> discounts = new ArrayList<>();
+
+
+    @Transient
+    private Integer onSalePercent;
+
+    @Transient
+    private Double salePrice;
+
 
     public double[] getEmbeddingArray() {
         if (embedding == null || embedding.isEmpty()) return new double[0];
@@ -57,91 +73,73 @@ public class Product {
     public int getTotalSold() {
         return variants == null ? 0 : variants.stream().mapToInt(ProductVariant::getSoldQuantity).sum();
     }
-
-    // --- CÁC TRƯỜNG TRANSIENT ĐỂ TÍNH GIÁ ---
-    @Transient
-    private Integer onSalePercent;
-
-    @Transient
-    private Double salePrice;
-
-    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<ProductDiscount> discounts = new ArrayList<>();
-
-    /**
-     * Tính toán giá bán cuối cùng (Sale Price) bằng cách áp dụng tuần tự tất cả các mã giảm giá khả dụng.
-     */
     public Double getSalePrice() {
-        if (this.price == null) return 0.0;
+        if (this.salePrice != null) {
+            return this.salePrice;
+        }
+        return calculateDefaultSalePrice();
+    }
 
-        // Khởi tạo giá hiện tại bằng giá gốc
+    public Integer getOnSalePercent() {
+        if (this.onSalePercent != null) {
+            return this.onSalePercent;
+        }
+
+        if (this.price == null || this.price == 0) return 0;
+
+        Double finalPrice = getSalePrice();
+        if (finalPrice == null) return 0;
+
+        double totalReduction = this.price - finalPrice;
+        if (totalReduction <= 0) return 0;
+
+        return (int) Math.round((totalReduction / this.price) * 100);
+    }
+
+    private Double calculateDefaultSalePrice() {
+        if (this.price == null) return 0.0;
         double currentPrice = this.price;
         LocalDate now = LocalDate.now();
 
-        // Nếu danh sách null hoặc rỗng, trả về giá gốc ngay
         if (this.discounts == null || this.discounts.isEmpty()) {
             return currentPrice;
         }
 
         for (ProductDiscount pd : this.discounts) {
             Discount d = pd.getDiscount();
-            if (d == null) continue;
-
-            // Kiểm tra trạng thái Active
-            boolean isActive = d.getStatus() == Discount.DiscountStatus.ACTIVE;
-
-            // Kiểm tra ngày bắt đầu (Nếu null coi như đã bắt đầu)
-            boolean isStarted = d.getStartDate() == null || !now.isBefore(d.getStartDate());
-
-            // Kiểm tra ngày kết thúc (Nếu null coi như không bao giờ hết hạn)
-            boolean isNotExpired = d.getEndDate() == null || !now.isAfter(d.getEndDate());
-
-            if (isActive && isStarted && isNotExpired) {
-                double reduction = 0.0;
-                double value = d.getValue() != null ? d.getValue().doubleValue() : 0.0;
-
-                // Xử lý logic tính tiền giảm
-                if (value > 100) {
-                    // Trường hợp value > 100: Coi là giảm tiền trực tiếp (VNĐ)
-                    reduction = value;
-                } else {
-                    // Trường hợp value <= 100: Coi là giảm phần trăm (%)
-                    // Tính phần trăm dựa trên giá HIỆN TẠI (giá sau khi đã trừ các mã trước đó)
-                    reduction = currentPrice * (value / 100.0);
-                }
-
-                // Kiểm tra và áp dụng giới hạn giảm tối đa (Max Discount Amount)
-                if (d.getMaxDiscountAmount() != null) {
-                    double maxLimit = d.getMaxDiscountAmount().doubleValue();
-                    if (maxLimit > 0) {
-                        reduction = Math.min(reduction, maxLimit);
-                    }
-                }
-
-                // Trừ số tiền giảm vào giá hiện tại
-                currentPrice -= reduction;
+            if (d != null && isValidDiscount(d, now)) {
+                currentPrice = applyDiscountLogic(currentPrice, d);
             }
         }
-
-        // Đảm bảo giá không âm
         return Math.max(0, currentPrice);
     }
 
-    /**
-     * Tính toán % tổng thực tế dựa trên giá gốc và giá cuối cùng.
-     * Để hiển thị badge (ví dụ: "-25%")
-     */
-    public Integer getOnSalePercent() {
-        if (this.price == null || this.price == 0) return 0;
+    private boolean isValidDiscount(Discount d, LocalDate now) {
+        boolean isActive = d.getStatus() == Discount.DiscountStatus.ACTIVE;
+        boolean isStarted = d.getStartDate() == null || !now.isBefore(d.getStartDate());
+        boolean isNotExpired = d.getEndDate() == null || !now.isAfter(d.getEndDate());
+        return isActive && isStarted && isNotExpired;
+    }
 
-        Double finalPrice = getSalePrice(); // Lấy giá đã tính toán ở trên
-        if (finalPrice == null) return 0;
+    private double applyDiscountLogic(double currentPrice, Discount d) {
+        double reduction = 0.0;
+        BigDecimal valBd = d.getValue();
+        double value = valBd != null ? valBd.doubleValue() : 0.0;
 
-        double totalReduction = this.price - finalPrice;
-        if (totalReduction <= 0) return 0;
+        if (d.getDiscountType() == Discount.DiscountType.FIXED_AMOUNT) {
+            reduction = value;
+        } else {
+            // PERCENTAGE
+            reduction = currentPrice * (value / 100.0);
+        }
 
-        // Công thức: (Tổng tiền giảm / Giá gốc) * 100
-        return (int) Math.round((totalReduction / this.price) * 100);
+        if (d.getMaxDiscountAmount() != null) {
+            double maxLimit = d.getMaxDiscountAmount().doubleValue();
+            if (maxLimit > 0) {
+                reduction = Math.min(reduction, maxLimit);
+            }
+        }
+        return currentPrice - reduction;
     }
 
     public Double getEffectivePrice() {

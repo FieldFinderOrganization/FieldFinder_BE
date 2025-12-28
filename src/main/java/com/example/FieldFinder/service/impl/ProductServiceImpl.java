@@ -3,22 +3,17 @@ package com.example.FieldFinder.service.impl;
 import com.example.FieldFinder.ai.AIChat;
 import com.example.FieldFinder.dto.req.ProductRequestDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
-import com.example.FieldFinder.entity.Category;
-import com.example.FieldFinder.entity.Discount;
-import com.example.FieldFinder.entity.Product;
-import com.example.FieldFinder.entity.ProductVariant;
-import com.example.FieldFinder.repository.CategoryRepository;
-import com.example.FieldFinder.repository.DiscountRepository;
-import com.example.FieldFinder.repository.ProductRepository;
-import com.example.FieldFinder.repository.ProductVariantRepository;
+import com.example.FieldFinder.entity.*;
+import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.ProductService;
-import com.example.FieldFinder.entity.ProductDiscount;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -29,6 +24,7 @@ public class ProductServiceImpl implements ProductService {
     private final CategoryRepository categoryRepository;
     private final ProductVariantRepository productVariantRepository;
     private final DiscountRepository discountRepository;
+    private final UserDiscountRepository userDiscountRepository; // Inject thêm
     private final AIChat aiChat;
 
     public ProductServiceImpl(
@@ -36,36 +32,58 @@ public class ProductServiceImpl implements ProductService {
             CategoryRepository categoryRepository,
             ProductVariantRepository productVariantRepository,
             DiscountRepository discountRepository,
+            UserDiscountRepository userDiscountRepository,
             @Lazy AIChat aiChat
     ) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.productVariantRepository = productVariantRepository;
         this.discountRepository = discountRepository;
+        this.userDiscountRepository = userDiscountRepository;
         this.aiChat = aiChat;
     }
 
-    // --- Helper Method Quan Trọng ---
-    // Hàm này giúp kích hoạt dữ liệu Lazy và tính toán giá bao gồm cả giảm giá Danh mục
-    private ProductResponseDTO mapToResponse(Product product) {
+    // --- LOGIC TÍNH GIÁ TRUNG TÂM ---
+
+    private ProductResponseDTO mapToResponse(Product product, UUID userId) {
         if (product == null) return null;
 
-        // 1. FORCE INITIALIZE: Kích hoạt tải danh sách Discount đã gán cứng từ DB
+        // 1. Tính toán giá (Implicit Discount + User Discount check)
+        calculateAndSetUserPrice(product, userId);
+
+        // 2. Map sang DTO (Lúc này Product đã có SalePrice đúng trong @Transient field)
+        ProductResponseDTO dto = ProductResponseDTO.fromEntity(product);
+
+        // Đảm bảo lấy giá từ field transient mà chúng ta vừa tính
+        dto.setSalePrice(product.getSalePrice());
+        dto.setSalePercent(product.getOnSalePercent());
+
+        return dto;
+    }
+
+    /**
+     * Hàm này thực hiện 2 việc:
+     * 1. Tìm các mã giảm giá ngầm (Implicit) dựa trên Category.
+     * 2. Tính giá cuối cùng dựa trên User (loại bỏ mã user đã dùng).
+     * 3. Set kết quả vào field @Transient của Product.
+     */
+    private void calculateAndSetUserPrice(Product product, UUID userId) {
+        // A. Lấy danh sách ID mã giảm giá user đã dùng (Nếu có user)
+        List<UUID> usedDiscountIds = (userId != null)
+                ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
+                : new ArrayList<>();
+
+        // B. Tổng hợp tất cả Discount khả dụng (Explicit + Implicit)
+        List<Discount> allApplicableDiscounts = new ArrayList<>();
+
+        // B1. Lấy mã gắn trực tiếp (Explicit)
         if (product.getDiscounts() != null) {
-            product.getDiscounts().size();
-            for (ProductDiscount pd : product.getDiscounts()) {
-                if (pd.getDiscount() != null) {
-                    pd.getDiscount().getDiscountId();
-                    pd.getDiscount().getValue();
-                    pd.getDiscount().getMaxDiscountAmount();
-                }
-            }
-        } else {
-            product.setDiscounts(new ArrayList<>());
+            allApplicableDiscounts.addAll(product.getDiscounts().stream()
+                    .map(ProductDiscount::getDiscount)
+                    .toList());
         }
 
-        // 2. TÌM MÃ GIẢM GIÁ THEO DANH MỤC (Implicit Discounts)
-        // Lấy danh sách ID category cha để tìm khuyến mãi áp dụng cho cả nhánh
+        // B2. Lấy mã theo danh mục (Implicit)
         List<Long> categoryIds = new ArrayList<>();
         Category current = product.getCategory();
         while (current != null) {
@@ -73,44 +91,74 @@ public class ProductServiceImpl implements ProductService {
             current = current.getParent();
         }
 
-        // Gọi Repository để tìm các mã giảm giá áp dụng cho danh mục này
         List<Discount> implicitDiscounts = discountRepository.findApplicableDiscountsForProduct(
                 product.getProductId(),
                 categoryIds
         );
 
-        // 3. TÍNH TOÁN GIÁ AN TOÀN (Safe Calculation)
-        // Tạo một đối tượng Product tạm để tính giá, tránh sửa đổi trực tiếp vào Entity đang Managed (tránh lỗi Dirty Check lưu nhầm vào DB)
-        Product tempCalcProduct = Product.builder()
-                .price(product.getPrice())
-                .discounts(new ArrayList<>(product.getDiscounts())) // Copy danh sách hiện có
-                .build();
-
-        // Lấy danh sách ID các mã đã có để tránh trùng lặp
-        Set<UUID> existingDiscountIds = product.getDiscounts().stream()
-                .map(pd -> pd.getDiscount().getDiscountId())
+        // Merge Implicit vào (tránh trùng lặp)
+        Set<UUID> existingIds = allApplicableDiscounts.stream()
+                .map(Discount::getDiscountId)
                 .collect(Collectors.toSet());
 
-        // Thêm các mã giảm giá danh mục vào đối tượng tạm
         for (Discount d : implicitDiscounts) {
-            if (!existingDiscountIds.contains(d.getDiscountId())) {
-                ProductDiscount dummyPD = ProductDiscount.builder()
-                        .product(tempCalcProduct)
-                        .discount(d)
-                        .build();
-                tempCalcProduct.getDiscounts().add(dummyPD);
+            if (!existingIds.contains(d.getDiscountId())) {
+                allApplicableDiscounts.add(d);
             }
         }
 
-        // 4. Map dữ liệu ra DTO
-        ProductResponseDTO dto = ProductResponseDTO.fromEntity(product);
+        // C. Tính giá
+        double currentPrice = product.getPrice();
+        LocalDate now = LocalDate.now();
 
-        // Ghi đè giá và % giảm bằng kết quả tính toán từ đối tượng tạm (đã bao gồm khuyến mãi danh mục)
-        dto.setSalePrice(tempCalcProduct.getSalePrice());
-        dto.setSalePercent(tempCalcProduct.getOnSalePercent());
+        for (Discount d : allApplicableDiscounts) {
+            if (d == null) continue;
 
-        return dto;
+            // 1. Check logic cơ bản
+            boolean isActive = d.getStatus() == Discount.DiscountStatus.ACTIVE;
+            boolean isStarted = d.getStartDate() == null || !now.isBefore(d.getStartDate());
+            boolean isNotExpired = d.getEndDate() == null || !now.isAfter(d.getEndDate());
+
+            // 2. CHECK QUAN TRỌNG: User đã dùng chưa?
+            boolean isNotUsedByUser = !usedDiscountIds.contains(d.getDiscountId());
+
+            if (isActive && isStarted && isNotExpired && isNotUsedByUser) {
+                double reduction = 0.0;
+                double value = d.getValue() != null ? d.getValue().doubleValue() : 0.0;
+
+                if (d.getDiscountType() == Discount.DiscountType.FIXED_AMOUNT) {
+                    reduction = value;
+                } else {
+                    // Percentage
+                    reduction = currentPrice * (value / 100.0);
+                }
+
+                if (d.getMaxDiscountAmount() != null) {
+                    double maxLimit = d.getMaxDiscountAmount().doubleValue();
+                    if (maxLimit > 0) reduction = Math.min(reduction, maxLimit);
+                }
+
+                currentPrice -= reduction;
+            }
+        }
+
+        currentPrice = Math.max(0, currentPrice);
+
+        // D. Set ngược lại vào Entity để DTO Mapper sử dụng
+        product.setSalePrice(currentPrice);
+
+        // Tính % giảm giá để hiển thị tag
+        if (product.getPrice() > 0) {
+            double totalReduction = product.getPrice() - currentPrice;
+            int percent = (totalReduction > 0)
+                    ? (int) Math.round((totalReduction / product.getPrice()) * 100)
+                    : 0;
+            product.setOnSalePercent(percent);
+        } else {
+            product.setOnSalePercent(0);
+        }
     }
+
 
     @Override
     @Transactional
@@ -150,24 +198,23 @@ public class ProductServiceImpl implements ProductService {
             new Thread(() -> enrichSingleProduct(product.getProductId(), product.getImageUrl())).start();
         }
 
-        return mapToResponse(product);
+        return mapToResponse(product, null); // Create xong chưa cần tính giá user cụ thể
     }
 
     @Override
     @Transactional(readOnly = true)
-    public ProductResponseDTO getProductById(Long id) {
+    public ProductResponseDTO getProductById(Long id, UUID userId) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found!"));
-        return mapToResponse(product);
+        return mapToResponse(product, userId);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<ProductResponseDTO> getAllProducts() {
-        // mapToResponse sẽ được gọi cho từng sản phẩm
+    public List<ProductResponseDTO> getAllProducts(UUID userId) {
         return productRepository.findAll()
                 .stream()
-                .map(this::mapToResponse)
+                .map(p -> mapToResponse(p, userId))
                 .collect(Collectors.toList());
     }
 
@@ -198,7 +245,7 @@ public class ProductServiceImpl implements ProductService {
 
         if (request.getVariants() != null) {
             if (product.getVariants() == null) product.setVariants(new ArrayList<>());
-
+            // Logic update variants giữ nguyên như cũ
             for (ProductRequestDTO.VariantDTO reqVariant : request.getVariants()) {
                 ProductVariant existingVariant = product.getVariants().stream()
                         .filter(v -> v.getSize().equals(reqVariant.getSize()))
@@ -227,7 +274,7 @@ public class ProductServiceImpl implements ProductService {
             new Thread(() -> enrichSingleProduct(product.getProductId(), request.getImageUrl())).start();
         }
 
-        return getProductById(id);
+        return getProductById(id, null);
     }
 
     @Override
@@ -275,11 +322,22 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ProductResponseDTO> getTopSellingProducts(int limit) {
+    public List<ProductResponseDTO> getTopSellingProducts(int limit, UUID userId) {
         Pageable pageable = PageRequest.of(0, limit);
         return productRepository.findTopSellingProducts(pageable)
                 .stream()
-                .map(this::mapToResponse)
+                .map(p -> mapToResponse(p, userId))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProductResponseDTO> findProductsByCategories(List<String> categories, UUID userId) {
+        // Tối ưu: Nên query DB thay vì getAll rồi filter, nhưng tạm thời giữ logic cũ
+        return productRepository.findAll().stream() // Có thể thay bằng findByCategoryNameIn...
+                .filter(p -> p.getCategory() != null && categories.contains(p.getCategory().getName()))
+                .limit(12)
+                .map(p -> mapToResponse(p, userId))
                 .collect(Collectors.toList());
     }
 
@@ -291,17 +349,15 @@ public class ProductServiceImpl implements ProductService {
         List<String> lowerKeywords = keywords.stream().map(String::toLowerCase).collect(Collectors.toList());
         List<Product> candidates = productRepository.findByKeywords(lowerKeywords);
 
+        // Với chức năng search ảnh, tạm thời chưa áp dụng user specific price (userId = null)
         return candidates.stream()
                 .filter(p -> isValidCategory(p, majorCategory))
                 .sorted((p1, p2) -> Long.compare(calculateScore(p2, lowerKeywords), calculateScore(p1, lowerKeywords)))
-                .map(this::mapToResponse)
+                .map(p -> mapToResponse(p, null))
                 .collect(Collectors.toList());
     }
 
-    // ... (Giữ nguyên các hàm helper AI, check category, check brand, etc. để code gọn) ...
-    // Bạn có thể copy lại phần logic AI và check category từ file cũ nếu cần,
-    // nhưng quan trọng nhất là mapToResponse đã được sửa ở trên.
-
+    // ... Các hàm private helper (isValidCategory, calculateScore, enrichSingleProduct, etc.) GIỮ NGUYÊN ...
     private boolean isValidCategory(Product p, String aiCategory) {
         if (aiCategory == null || aiCategory.equals("ALL")) return true;
         String content = (p.getCategory().getName() + " " + p.getName()).toLowerCase();
@@ -354,7 +410,6 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public void enrichAllProductsData() {
-        // Logic AI enrich all (giữ nguyên từ file cũ)
         List<Product> allProducts = productRepository.findAll();
         for (Product product : allProducts) {
             if (product.getImageUrl() != null && !product.getImageUrl().isEmpty()) {
@@ -387,7 +442,7 @@ public class ProductServiceImpl implements ProductService {
                 .filter(entry -> entry.getValue() > 0.6)
                 .sorted((e1, e2) -> Double.compare(e2.getValue(), e1.getValue()))
                 .limit(10)
-                .map(entry -> mapToResponse(entry.getKey()))
+                .map(entry -> mapToResponse(entry.getKey(), null))
                 .collect(Collectors.toList());
     }
 
@@ -395,10 +450,9 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     public ProductResponseDTO getProductByName(String productName) {
         List<Product> products = productRepository.findByKeywords(List.of(productName.toLowerCase()));
-        return products.isEmpty() ? null : mapToResponse(products.get(0));
+        return products.isEmpty() ? null : mapToResponse(products.get(0), null);
     }
 
-    // Các hàm check category & brand phụ trợ
     private boolean isShoe(String text) { return text.contains("giày") || text.contains("shoe") || text.contains("sneaker"); }
     private boolean isClothing(String text) { return text.contains("áo") || text.contains("shirt") || text.contains("quần"); }
     private boolean isAccessory(String text) { return text.contains("nón") || text.contains("mũ") || text.contains("túi"); }
@@ -414,12 +468,5 @@ public class ProductServiceImpl implements ProductService {
         ProductDiscount pd = ProductDiscount.builder().product(product).discount(discount).build();
         product.getDiscounts().add(pd);
         productRepository.save(product);
-    }
-
-    public List<ProductResponseDTO> findByCategories(List<String> categories) {
-        return getAllProducts().stream()
-                .filter(p -> p.getCategoryName() != null && categories.contains(p.getCategoryName()))
-                .limit(12)
-                .toList();
     }
 }

@@ -15,7 +15,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal; // Import BigDecimal
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -91,18 +93,14 @@ public class PaymentServiceImpl implements PaymentService {
         User user = userRepository.findById(requestDTO.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found!"));
 
-        Order order = Order.builder()
-                .user(user)
-                .status(OrderStatus.PENDING)
-                .paymentMethod(parsePaymentMethod(requestDTO.getPaymentMethod()))
-                .totalAmount(requestDTO.getAmount().doubleValue())
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
-                .build();
+        Long orderId = requestDTO.getOrderCode();
+        if (orderId == null) {
+            throw new RuntimeException("Order ID is required for payment creation");
+        }
 
-        order = orderRepository.save(order);
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
 
-        List<OrderItem> orderItems = new ArrayList<>();
         for (ShopPaymentRequestDTO.CartItemDTO itemDTO : requestDTO.getItems()) {
             Product product = productRepository.findById(itemDTO.getProductId())
                     .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
@@ -113,32 +111,21 @@ public class PaymentServiceImpl implements PaymentService {
             }
 
             productService.holdStock(product.getProductId(), size, itemDTO.getQuantity());
-
-            OrderItem orderItem = OrderItem.builder()
-                    .order(order)
-                    .product(product)
-                    .quantity(itemDTO.getQuantity())
-                    .size(size)
-                    .price(product.getPrice() * itemDTO.getQuantity())
-                    .build();
-
-            orderItems.add(orderItem);
         }
-        orderItemRepository.saveAll(orderItems);
-        order.setItems(orderItems);
 
         String checkoutUrl = null;
         String transactionId = null;
-        String returnUrl = frontEndUrl + "/payment-success";
-        String cancelUrl = frontEndUrl + "/payment-cancel";
+
+        String returnUrl = frontEndUrl + "/payment-success?myOrderId=" + order.getOrderId();
+        String cancelUrl = frontEndUrl + "/payment-cancel?myOrderId=" + order.getOrderId();
 
         if ("BANK".equalsIgnoreCase(requestDTO.getPaymentMethod())) {
-            int orderCode = generateOrderCode();
+            int payOsOrderCode = generateOrderCode();
 
             PayOSService.PaymentResult result = payOSService.createPayment(
                     requestDTO.getAmount(),
-                    orderCode,
-                    "Thanh toan don hang",
+                    payOsOrderCode,
+                    "Thanh toan don #" + order.getOrderId(),
                     returnUrl,
                     cancelUrl
             );
@@ -217,7 +204,8 @@ public class PaymentServiceImpl implements PaymentService {
         String transactionId = null;
 
         if (data != null) {
-            transactionId = (String) data.get("paymentLinkId");
+            Object linkIdObj = data.get("paymentLinkId");
+            if (linkIdObj != null) transactionId = String.valueOf(linkIdObj);
         }
 
         if (transactionId == null || code == null) {
@@ -241,24 +229,39 @@ public class PaymentServiceImpl implements PaymentService {
                     System.out.println("✅ Payment Success for TxID: " + transactionId);
                     payment.setPaymentStatus(Booking.PaymentStatus.PAID);
 
-                    // A. Xử lý Đặt Sân
+                    if (data != null && data.containsKey("transactionDateTime")) {
+                        String transTimeStr = (String) data.get("transactionDateTime");
+                        try {
+                            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                            LocalDateTime paidAt = LocalDateTime.parse(transTimeStr, formatter);
+
+                            if (order != null) {
+                                order.setPaymentTime(paidAt);
+                            }
+                        } catch (Exception e) {
+                            System.err.println("Lỗi parse ngày tháng từ webhook: " + e.getMessage());
+                            if (order != null) order.setPaymentTime(LocalDateTime.now());
+                        }
+                    }
+
+                    // A. Update Booking
                     if (booking != null) {
                         booking.setPaymentStatus(Booking.PaymentStatus.PAID);
                         booking.setStatus(Booking.BookingStatus.CONFIRMED);
                     }
 
-                    // B. Xử lý Đơn Hàng -> TRỪ KHO THẬT (COMMIT)
                     if (order != null) {
-                        order.setStatus(OrderStatus.CONFIRMED);
-                        if (order.getItems() != null) {
-                            for (OrderItem item : order.getItems()) {
-                                System.out.println("   - Committing stock for Product: " + item.getProduct().getName() + ", Size: " + item.getSize());
-
-                                productService.commitStock(
-                                        item.getProduct().getProductId(),
-                                        item.getSize(),
-                                        item.getQuantity()
-                                );
+                        if (order.getStatus() == OrderStatus.PENDING) {
+                            order.setStatus(OrderStatus.CONFIRMED); // Or PAID
+                            if (order.getItems() != null) {
+                                for (OrderItem item : order.getItems()) {
+                                    System.out.println("   - Committing stock for Product: " + item.getProduct().getName() + ", Size: " + item.getSize());
+                                    productService.commitStock(
+                                            item.getProduct().getProductId(),
+                                            item.getSize(),
+                                            item.getQuantity()
+                                    );
+                                }
                             }
                         }
                     }
@@ -267,18 +270,17 @@ public class PaymentServiceImpl implements PaymentService {
                 System.out.println("❌ Payment Failed/Cancelled for TxID: " + transactionId);
 
                 if (!isAlreadyPaid) {
-                    payment.setPaymentStatus(Booking.PaymentStatus.PENDING);
+                    payment.setPaymentStatus(Booking.PaymentStatus.PENDING); // Or FAILED
 
                     if (booking != null) {
                         booking.setPaymentStatus(Booking.PaymentStatus.PENDING);
                     }
 
-                    if (order != null) {
+                    if (order != null && order.getStatus() == OrderStatus.PENDING) {
                         order.setStatus(OrderStatus.CANCELLED);
                         if (order.getItems() != null) {
                             for (OrderItem item : order.getItems()) {
                                 System.out.println("   - Releasing stock for Product: " + item.getProduct().getName() + ", Size: " + item.getSize());
-
                                 productService.releaseStock(
                                         item.getProduct().getProductId(),
                                         item.getSize(),

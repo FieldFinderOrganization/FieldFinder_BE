@@ -1,25 +1,22 @@
 package com.example.FieldFinder.service.impl;
 
-
 import com.example.FieldFinder.Enum.OrderStatus;
 import com.example.FieldFinder.Enum.PaymentMethod;
 import com.example.FieldFinder.dto.req.OrderItemRequestDTO;
 import com.example.FieldFinder.dto.req.OrderRequestDTO;
 import com.example.FieldFinder.dto.res.OrderItemResponseDTO;
 import com.example.FieldFinder.dto.res.OrderResponseDTO;
-import com.example.FieldFinder.entity.Order;
-import com.example.FieldFinder.entity.OrderItem;
-import com.example.FieldFinder.entity.Product;
-import com.example.FieldFinder.entity.User;
-import com.example.FieldFinder.repository.OrderItemRepository;
-import com.example.FieldFinder.repository.OrderRepository;
-import com.example.FieldFinder.repository.ProductRepository;
-import com.example.FieldFinder.repository.UserRepository;
+import com.example.FieldFinder.entity.*;
+import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -32,6 +29,8 @@ public class OrderServiceImpl implements OrderService {
     private final OrderItemRepository orderItemRepository;
     private final UserRepository userRepository;
     private final ProductRepository productRepository;
+    private final DiscountRepository discountRepository;
+    private final UserDiscountRepository userDiscountRepository;
 
     @Override
     @Transactional
@@ -39,21 +38,24 @@ public class OrderServiceImpl implements OrderService {
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found!"));
 
-        double total = 0.0;
         Order order = Order.builder()
                 .user(user)
                 .status(OrderStatus.PENDING)
                 .paymentMethod(PaymentMethod.valueOf(request.getPaymentMethod()))
+                .createdAt(LocalDateTime.now())
                 .build();
 
-        orderRepository.save(order);
+        order = orderRepository.save(order);
+
+        double subTotal = 0.0;
+        List<OrderItem> orderItemsToSave = new ArrayList<>();
 
         for (OrderItemRequestDTO itemDTO : request.getItems()) {
             Product product = productRepository.findById(itemDTO.getProductId())
-                    .orElseThrow(() -> new RuntimeException("Product not found!"));
+                    .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
 
-            double price = product.getPrice() * itemDTO.getQuantity();
-            total += price;
+            double price = product.getEffectivePrice() * itemDTO.getQuantity();
+            subTotal += price;
 
             OrderItem orderItem = OrderItem.builder()
                     .order(order)
@@ -62,13 +64,108 @@ public class OrderServiceImpl implements OrderService {
                     .price(price)
                     .build();
 
-            orderItemRepository.save(orderItem);
+            orderItemsToSave.add(orderItem);
+        }
+        orderItemRepository.saveAll(orderItemsToSave);
+
+        double totalDiscountAmount = 0.0;
+
+        if (request.getDiscountCodes() != null && !request.getDiscountCodes().isEmpty()) {
+            for (String code : request.getDiscountCodes()) {
+                Discount discount = discountRepository.findByCode(code)
+                        .orElseThrow(() -> new RuntimeException("Discount code not found: " + code));
+
+                UserDiscount userDiscount = userDiscountRepository.findByUserAndDiscount(user, discount)
+                        .orElseThrow(() -> new RuntimeException("You don't own this voucher: " + code));
+
+                if (userDiscount.isUsed()) {
+                    throw new RuntimeException("Voucher has already been used: " + code);
+                }
+                if (discount.getStatus() != Discount.DiscountStatus.ACTIVE ||
+                        LocalDate.now().isAfter(discount.getEndDate()) ||
+                        LocalDate.now().isBefore(discount.getStartDate())) {
+                    throw new RuntimeException("Voucher is not active or expired: " + code);
+                }
+                if (discount.getMinOrderValue() != null &&
+                        BigDecimal.valueOf(subTotal).compareTo(discount.getMinOrderValue()) < 0) {
+                    throw new RuntimeException("Order value is not enough for voucher: " + code);
+                }
+
+                double discountValueForCode = calculateDiscountAmount(discount, orderItemsToSave, subTotal);
+                totalDiscountAmount += discountValueForCode;
+
+                userDiscount.setUsed(true);
+                userDiscount.setUsedAt(LocalDateTime.now());
+                userDiscountRepository.save(userDiscount);
+            }
         }
 
-        order.setTotalAmount(total);
+        double finalAmount = Math.max(0, subTotal - totalDiscountAmount);
+
+        order.setTotalAmount(finalAmount);
+
+        order.setItems(orderItemsToSave);
+
         orderRepository.save(order);
 
         return mapToResponse(order);
+    }
+
+    private double calculateDiscountAmount(Discount discount, List<OrderItem> items, double orderSubTotal) {
+        double applicableAmount = 0.0;
+
+        if (discount.getScope() == Discount.DiscountScope.GLOBAL) {
+            applicableAmount = orderSubTotal;
+        }
+        else if (discount.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
+            List<Long> applicableProductIds = discount.getApplicableProducts().stream()
+                    .map(Product::getProductId).toList(); // Assumes ProductId is Long based on usage context
+
+            for (OrderItem item : items) {
+                if (applicableProductIds.contains(item.getProduct().getProductId())) {
+                    applicableAmount += item.getPrice(); // item.getPrice() đã là (đơn giá * số lượng)
+                }
+            }
+        }
+        else if (discount.getScope() == Discount.DiscountScope.CATEGORY) {
+            List<Long> applicableCategoryIds = discount.getApplicableCategories().stream()
+                    .map(Category::getCategoryId).toList();
+
+            for (OrderItem item : items) {
+                // Giả sử Product có getCategory()
+                Category prodCat = item.getProduct().getCategory();
+                if (prodCat != null && applicableCategoryIds.contains(prodCat.getCategoryId())) {
+                    applicableAmount += item.getPrice();
+                }
+            }
+        }
+
+        if (applicableAmount == 0) return 0.0;
+
+        // Tính toán dựa trên Type (FIXED hay PERCENTAGE)
+        double calculatedDiscount = 0.0;
+        BigDecimal val = discount.getValue();
+
+        if (discount.getDiscountType() == Discount.DiscountType.FIXED_AMOUNT) {
+            calculatedDiscount = val.doubleValue();
+            // Không giảm quá số tiền của các sản phẩm áp dụng
+            if (calculatedDiscount > applicableAmount) {
+                calculatedDiscount = applicableAmount;
+            }
+        } else {
+            // PERCENTAGE
+            calculatedDiscount = (applicableAmount * val.doubleValue()) / 100.0;
+
+            // Check Max Discount Amount
+            if (discount.getMaxDiscountAmount() != null) {
+                double max = discount.getMaxDiscountAmount().doubleValue();
+                if (calculatedDiscount > max) {
+                    calculatedDiscount = max;
+                }
+            }
+        }
+
+        return calculatedDiscount;
     }
 
     @Override

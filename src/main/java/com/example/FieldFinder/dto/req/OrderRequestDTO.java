@@ -10,4 +10,6 @@ public class OrderRequestDTO {
     private UUID userId;
     private List<OrderItemRequestDTO> items;
     private String paymentMethod;
+
+    private List<String> discountCodes;
 }

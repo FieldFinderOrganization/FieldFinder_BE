@@ -7,6 +7,7 @@ import com.example.FieldFinder.mapper.CategoryMapper;
 import com.example.FieldFinder.service.OpenWeatherService;
 import com.example.FieldFinder.service.PitchService;
 import com.example.FieldFinder.service.ProductService;
+import com.example.FieldFinder.service.UserService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.LocalDate;
+import java.time.ZoneId; // Import thêm ZoneId
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -34,6 +36,7 @@ public class AIChat {
     private final ObjectMapper mapper = new ObjectMapper();
     private final PitchService pitchService;
     private final ProductService productService;
+    private final UserService userService;
 
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 4000;
     private long lastCallTime = 0;
@@ -155,9 +158,10 @@ public class AIChat {
         }
     }
 
-    public AIChat(PitchService pitchService, OpenWeatherService openWeatherService, ProductService productService, OpenWeatherService weatherService) {
+    public AIChat(PitchService pitchService, OpenWeatherService openWeatherService, ProductService productService, UserService userService, OpenWeatherService weatherService) {
         this.pitchService = pitchService;
         this.productService = productService;
+        this.userService = userService;
         this.weatherService = weatherService;
     }
 
@@ -171,11 +175,19 @@ public class AIChat {
     }
 
     private String buildSystemPrompt(long totalPitches) {
-        LocalDate today = LocalDate.now();
+        // CẬP NHẬT QUAN TRỌNG: Sử dụng ZoneId Việt Nam để đảm bảo ngày giờ chính xác
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+
+        // Log ra console để debug xem Server đang hiểu là ngày nào
+        System.out.println("🤖 AI Prompt Date Context (VN Time): Today=" + today +
+                ", Tomorrow=" + today.plusDays(1) +
+                ", NextDay=" + today.plusDays(2));
+
         return SYSTEM_INSTRUCTION
                 .replace("{{today}}", today.toString())
                 .replace("{{plus1}}", today.plusDays(1).toString())
                 .replace("{{plus2}}", today.plusDays(2).toString())
+                .replace("{{year}}", String.valueOf(today.getYear()))
                 .replace("{{totalPitches}}", String.valueOf(totalPitches));
     }
 
@@ -390,7 +402,8 @@ public class AIChat {
     }
 
     private BookingQuery handleProductQuery(BookingQuery query, String userInput, String sessionId) {
-        List<ProductResponseDTO> products = productService.getAllProducts();
+        UUID userId = userService.getUserIdBySession(sessionId);
+        List<ProductResponseDTO> products = productService.getAllProducts(userId);
         String action = (String) query.data.get("action");
         String productName = (String) query.data.get("productName");
 
@@ -560,7 +573,7 @@ public class AIChat {
             }
         }
         else if ("best_selling_product".equals(action)) {
-            List<ProductResponseDTO> top = productService.getTopSellingProducts(1);
+            List<ProductResponseDTO> top = productService.getTopSellingProducts(1, userId);
             if (!top.isEmpty()) {
                 foundProduct = top.get(0);
                 query.message = String.format("Sản phẩm bán chạy nhất là %s.", foundProduct.getName());
@@ -650,6 +663,8 @@ public class AIChat {
     @SuppressWarnings("unchecked")
     private BookingQuery handleRecommendByActivity(BookingQuery query, String sessionId) {
 
+        UUID userId = userService.getUserIdBySession(sessionId);
+
         // ===== 1️⃣ DATA TỪ AI =====
         String activity = (String) query.data.get("activity");
         List<String> tags = (List<String>) query.data.get("tags");
@@ -684,7 +699,7 @@ public class AIChat {
 
             System.out.println("⚠️ Vector empty. Fallback DB categories: " + resolvedCategories);
 
-            results = productService.getAllProducts().stream()
+            results = productService.getAllProducts(userId).stream()
                     .filter(p -> p.getCategoryName() != null &&
                             resolvedCategories.contains(p.getCategoryName()))
                     .limit(12)
@@ -740,7 +755,7 @@ public class AIChat {
             groupedProducts
                     .computeIfAbsent(categoryKey, k -> new ArrayList<>())
                     .add(item);
-    }
+        }
 
         // ===== 1️⃣1️⃣ RESPONSE DATA =====
         query.data.put("groupedProducts", groupedProducts);
@@ -771,7 +786,6 @@ public class AIChat {
         String finalPrompt = buildSystemPrompt(allPitches.size());
 
         String cleanJson = callGeminiAPI(userInput, finalPrompt);
-        System.out.println("Cleaned JSON: " + cleanJson);
 
         BookingQuery query = parseAIResponse(cleanJson);
 
@@ -800,12 +814,38 @@ public class AIChat {
             }
         }
 
-        if (isTotalPitchesQuestion(userInput)) {
-            int totalPitches = pitchService.getAllPitches().size();
-            return createBasicResponse("Hệ thống hiện có " + totalPitches + " sân");
+        boolean isBookingRequest = query.bookingDate != null || !query.slotList.isEmpty() || !"ALL".equals(query.pitchType);
+
+        if (isBookingRequest && query.data.get("action") == null) {
+            // Lọc danh sách sân từ allPitches dựa trên pitchType mà AI đã nhận diện
+            List<PitchResponseDTO> matchedPitches = allPitches.stream()
+                    .filter(p -> {
+                        // Nếu AI trả về "ALL" thì lấy hết, ngược lại phải khớp loại sân
+                        if ("ALL".equals(query.pitchType)) return true;
+                        return p.getType().name().equalsIgnoreCase(query.pitchType);
+                    })
+                    .collect(Collectors.toList());
+
+            // Đưa danh sách sân tìm được vào data để trả về Frontend
+            query.data.put("matchedPitches", matchedPitches);
+
+            // Cập nhật message nếu AI chưa có message hoặc để làm rõ nghĩa hơn
+            if (matchedPitches.isEmpty()) {
+                query.message = "Rất tiếc, tôi không tìm thấy sân " + formatPitchType(query.pitchType) + " nào phù hợp trong hệ thống.";
+            } else {
+                // Nếu AI không tự sinh message (null), ta tự tạo message phản hồi
+                if (query.message == null || query.message.isEmpty()) {
+                    String dateStr = query.bookingDate != null ? " ngày " + query.bookingDate : "";
+                    String timeStr = !query.slotList.isEmpty() ? " khung giờ " + query.slotList : "";
+
+                    query.message = String.format("Đã tìm thấy %d sân %s phù hợp%s%s. Bạn xem danh sách bên dưới nhé 👇",
+                            matchedPitches.size(),
+                            formatPitchType(query.pitchType),
+                            dateStr,
+                            timeStr);
+                }
+            }
         }
-        if (isPitchTypesQuestion(userInput)) return handlePitchTypesQuestion();
-        if (isPitchCountByTypeQuestion(userInput)) return handlePitchCountByTypeQuestion();
 
         processSpecialCases(userInput, sessionId, query, allPitches);
 
@@ -1117,11 +1157,14 @@ CẤU TRÚC JSON TRẢ VỀ:
   4. Nếu không xác định được giờ hợp lệ, để `slotList` là [] và cung cấp `message` như: "Vui lòng cung cấp khung giờ cụ thể (ví dụ: 2h chiều hoặc 14h)."
             
 📅 QUY TẮC XỬ LÝ NGÀY:
-  - "Hôm nay" → ngày hiện tại ("{{today}}").
-  - "Ngày mai" → cộng 1 ngày ("{{plus1}}").
-  - "Ngày kia" → cộng 2 ngày ("{{plus2}}").
-  - Ngày cụ thể (ví dụ: "20/5", "20-5", "20 tháng 5") → chuyển về yyyy-MM-dd.
-  - Nếu không xác định ngày, để `bookingDate` là null và cung cấp `message` phù hợp.
+  - THỜI GIAN HỆ THỐNG:
+    + Hôm nay (Today): {{today}}
+    + Ngày mai (Tomorrow): {{plus1}}
+    + Ngày kia (Next Day): {{plus2}}
+    + Năm hiện tại (Current Year): {{year}}
+  - Khi user nói "ngày mai", HÃY DÙNG GIÁ TRỊ "{{plus1}}".
+  - Khi user nói ngày cụ thể (vd "27/12"), hãy dùng năm {{year}}.
+  - TUYỆT ĐỐI KHÔNG dùng năm 2024.
             
 💡 XỬ LÝ CÂU HỎI ĐẶC BIỆT:
   1. Hỏi giá sân (ví dụ: "Sân 5 hiện có giá bao nhiêu?"):
@@ -1242,20 +1285,7 @@ CẤU TRÚC JSON TRẢ VỀ:
                     }
                   }
   ...
-  ""\";
-      
-VÍ DỤ MẪU:
-- User: "Sản phẩm nào rẻ nhất?"
-  JSON: { ..., "data": { "action": "cheapest_product" } }
-  
-- User: "Shop có món nào bán chạy nhất không?"
-  JSON: { ..., "data": { "action": "best_selling_product" } }
-  
-- User: "Giúp mình đặt 2 đôi size 40"
-  JSON: { ..., "data": { "action": "prepare_order", "size": "40", "quantity": 2 } }
-
-Lưu ý: Luôn ưu tiên trả về JSON action hơn là message hỏi lại.
-""";
+  """;
 
     public static class BookingQuery {
         public String bookingDate;

@@ -19,4 +19,10 @@ public interface UserService {
     void resetPassword(String token, String newPassword);
 
     UserResponseDTO loginWithFirebase(FirebaseToken decodedToken);
+
+    UUID getUserIdBySession(String sessionId);
+
+    void registerUserSession(String sessionId, UUID userId);
+
+    void removeUserSession(String sessionId);
 }

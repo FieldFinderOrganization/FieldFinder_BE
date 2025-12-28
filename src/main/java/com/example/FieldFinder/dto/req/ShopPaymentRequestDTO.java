@@ -11,7 +11,12 @@ public class ShopPaymentRequestDTO {
     private BigDecimal amount;
     private String description;
     private String paymentMethod;
+
+    private Long orderCode;
+
     private List<CartItemDTO> items;
+    private List<String> discountCodes;
+
 
     @Data
     public static class CartItemDTO {

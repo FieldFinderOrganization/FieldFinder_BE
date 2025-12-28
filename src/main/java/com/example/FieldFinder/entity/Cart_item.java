@@ -33,7 +33,12 @@ public class Cart_item {
     private int quantity;
 
     @Column(name = "PriceAtTime", nullable = false)
-    private Double priceAtTime;
+    private Double priceAtTime; // Giá sau khi giảm (Final Price)
+
+    // --- THÊM TRƯỜNG NÀY ---
+    @Column(name = "OriginalPrice")
+    private Double originalPrice; // Giá gốc niêm yết tại thời điểm thêm vào giỏ
+    // -----------------------
 
     @Column(name = "Size", nullable = false)
     private String size;

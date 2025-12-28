@@ -25,7 +25,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,6 +36,8 @@ public class UserServiceImpl implements UserService {
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
+
+    private final Map<String, UUID> sessionUserMap = new ConcurrentHashMap<>();
 
     public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, EmailService emailService, PasswordResetTokenRepository passwordResetTokenRepository) {
         this.userRepository = userRepository;
@@ -206,10 +210,8 @@ public class UserServiceImpl implements UserService {
         String email = decodedToken.getEmail();
         String name = decodedToken.getName();
 
-        // Tìm theo firebaseUid thay vì email để tránh trùng
         User user = userRepository.findByFirebaseUid(uid)
                 .orElseGet(() -> {
-                    // Nếu chưa có thì tạo mới
                     User newUser = User.builder()
                             .firebaseUid(uid)
                             .email(email)
@@ -229,6 +231,26 @@ public class UserServiceImpl implements UserService {
         }
 
         return UserResponseDTO.toDto(user);
+    }
+
+    @Override
+    public void registerUserSession(String sessionId, UUID userId) {
+        if (userId != null && sessionId != null) {
+            sessionUserMap.put(sessionId, userId);
+            System.out.println("✅ Registered Session: " + sessionId + " -> User: " + userId);
+        }
+    }
+
+    @Override
+    public UUID getUserIdBySession(String sessionId) {
+        return sessionUserMap.get(sessionId);
+    }
+
+    @Override
+    public void removeUserSession(String sessionId) {
+        if (sessionId != null) {
+            sessionUserMap.remove(sessionId);
+        }
     }
 }
 
