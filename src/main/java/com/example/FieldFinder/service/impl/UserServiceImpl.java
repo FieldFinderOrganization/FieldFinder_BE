@@ -1,6 +1,5 @@
 package com.example.FieldFinder.service.impl;
 
-import com.example.FieldFinder.dto.req.LoginRequestDTO;
 import com.example.FieldFinder.dto.req.UserRequestDTO;
 import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
 import com.example.FieldFinder.dto.res.UserResponseDTO;
@@ -15,10 +14,7 @@ import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
 import com.google.firebase.auth.UserRecord;
 import jakarta.transaction.Transactional;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,6 +28,7 @@ import java.util.stream.Collectors;
 
 @Service
 public class UserServiceImpl implements UserService {
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
@@ -108,6 +105,7 @@ public class UserServiceImpl implements UserService {
         // 3. Trả về DTO
         return UserResponseDTO.toDto(user);
     }
+
 
     @Override
     @Transactional
@@ -252,5 +250,14 @@ public class UserServiceImpl implements UserService {
             sessionUserMap.remove(sessionId);
         }
     }
+
+//    @Override
+//    public UserResponseDTO loginByEmailForTest(String email) {
+//        User user = userRepository.findByEmail(email)
+//                .orElseThrow(() -> new RuntimeException("Test User not found"));
+//
+//        // 2. Convert sang DTO và trả về
+//        return UserResponseDTO.toDto(user);
+//    }
 }
 

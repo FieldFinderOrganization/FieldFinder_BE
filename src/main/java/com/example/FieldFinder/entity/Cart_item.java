@@ -1,5 +1,6 @@
 package com.example.FieldFinder.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -23,6 +24,7 @@ public class Cart_item {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "CartId", nullable = false)
+    @JsonIgnore
     private Cart cart;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -33,14 +35,11 @@ public class Cart_item {
     private int quantity;
 
     @Column(name = "PriceAtTime", nullable = false)
-    private Double priceAtTime; // Giá sau khi giảm (Final Price)
+    private Double priceAtTime;
 
-    // --- THÊM TRƯỜNG NÀY ---
     @Column(name = "OriginalPrice")
-    private Double originalPrice; // Giá gốc niêm yết tại thời điểm thêm vào giỏ
-    // -----------------------
+    private Double originalPrice;
 
     @Column(name = "Size", nullable = false)
     private String size;
-
 }

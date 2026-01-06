@@ -10,7 +10,7 @@ import java.util.Collections;
 import java.util.UUID;
 @Getter
 @Setter
-@NoArgsConstructor // ✅ Add this to fix the issue
+@NoArgsConstructor
 @AllArgsConstructor
 @Entity
 @Table(name = "Users")

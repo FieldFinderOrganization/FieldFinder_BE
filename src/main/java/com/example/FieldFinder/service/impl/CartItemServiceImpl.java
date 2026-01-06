@@ -240,7 +240,7 @@ public class CartItemServiceImpl implements CartItemService {
 
         UUID userId = cart.getUser() != null ? cart.getUser().getUserId() : null;
 
-        return cartItemRepository.findByCart(cart).stream()
+        return cartItemRepository.findByCartIdWithDetails(cartId).stream()
                 .map(item -> {
                     PriceCalculationResult calc = calculatePriceAndDiscounts(item.getProduct(), userId);
                     return mapToResponse(item, calc);
@@ -292,6 +292,8 @@ public class CartItemServiceImpl implements CartItemService {
                 .imageUrl(item.getProduct().getImageUrl())
                 .quantity(item.getQuantity())
                 .size(item.getSize())
+                .categoryId(item.getProduct().getCategory().getCategoryId())
+                .categoryName(item.getProduct().getCategory().getName())
 
                 .priceAtTime(calcResult != null ? calcResult.getFinalPrice() : item.getPriceAtTime())
 

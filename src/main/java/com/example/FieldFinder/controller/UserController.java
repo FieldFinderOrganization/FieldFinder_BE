@@ -1,10 +1,12 @@
 package com.example.FieldFinder.controller;
 
+import com.example.FieldFinder.dto.req.AuthRequestDTO;
 import com.example.FieldFinder.dto.req.LoginRequestDTO;
 import com.example.FieldFinder.dto.req.UserRequestDTO;
 import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
 import com.example.FieldFinder.dto.res.UserResponseDTO;
 import com.example.FieldFinder.service.UserService;
+import com.google.api.client.util.Value;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;

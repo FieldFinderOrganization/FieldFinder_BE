@@ -1,5 +1,6 @@
 package com.example.FieldFinder.service;
 
+import com.example.FieldFinder.dto.req.AuthRequestDTO;
 import com.example.FieldFinder.dto.req.LoginRequestDTO;
 import com.example.FieldFinder.dto.req.UserRequestDTO;
 import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
@@ -25,4 +26,6 @@ public interface UserService {
     void registerUserSession(String sessionId, UUID userId);
 
     void removeUserSession(String sessionId);
+
+//    UserResponseDTO loginByEmailForTest(String email);
 }

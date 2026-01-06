@@ -129,7 +129,6 @@ public class Product {
         if (d.getDiscountType() == Discount.DiscountType.FIXED_AMOUNT) {
             reduction = value;
         } else {
-            // PERCENTAGE
             reduction = currentPrice * (value / 100.0);
         }
 
