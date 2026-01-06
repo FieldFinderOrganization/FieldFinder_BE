@@ -45,7 +45,6 @@ public class ProductController {
                 }
             }
         } catch (Exception e) {
-            // Log error
             return null;
         }
         return null;
@@ -59,7 +58,7 @@ public class ProductController {
     @GetMapping("/{id}")
     public ProductResponseDTO getById(@PathVariable Long id, Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
-        return productService.getProductById(id, userId);
+        return productService.getProductDetail(id, userId);
     }
 
     @GetMapping
@@ -84,7 +83,6 @@ public class ProductController {
         return productService.getTopSellingProducts(5, userId);
     }
 
-    // API lọc theo category (bạn có hỏi trong service cũ)
     @GetMapping("/by-categories")
     public List<ProductResponseDTO> getByCategories(@RequestParam List<String> categories, Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);

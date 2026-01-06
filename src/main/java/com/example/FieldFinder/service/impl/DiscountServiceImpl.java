@@ -60,7 +60,6 @@ public class DiscountServiceImpl implements DiscountService {
         discount.setStartDate(dto.getStartDate());
         discount.setEndDate(dto.getEndDate());
 
-        // Cập nhật status từ String request
         try {
             discount.setStatus(Discount.DiscountStatus.valueOf(dto.getStatus()));
         } catch (Exception e) {
@@ -83,7 +82,6 @@ public class DiscountServiceImpl implements DiscountService {
         }
 
         if (discount.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
-            // Sửa tên getter theo DTO mới
             if (dto.getApplicableProductIds() != null && !dto.getApplicableProductIds().isEmpty()) {
                 List<Product> products = productRepository.findAllById(dto.getApplicableProductIds());
                 discount.setApplicableProducts(new HashSet<>(products));
@@ -93,7 +91,6 @@ public class DiscountServiceImpl implements DiscountService {
             discount.getApplicableCategories().clear();
         }
         else if (discount.getScope() == Discount.DiscountScope.CATEGORY) {
-            // Sửa tên getter theo DTO mới
             if (dto.getApplicableCategoryIds() != null && !dto.getApplicableCategoryIds().isEmpty()) {
                 List<Category> categories = categoryRepository.findAllById(dto.getApplicableCategoryIds());
                 discount.setApplicableCategories(new HashSet<>(categories));
@@ -129,8 +126,8 @@ public class DiscountServiceImpl implements DiscountService {
 
     @Override
     @Transactional
-    public void saveDiscountToWallet(String userId, UserDiscountRequestDTO dto) {
-        User user = userRepository.findById(UUID.fromString(userId))
+    public void saveDiscountToWallet(UUID userId, UserDiscountRequestDTO dto) {
+        User user = userRepository.findById(UUID.fromString(String.valueOf(userId)))
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         Discount discount = discountRepository.findByCode(dto.getDiscountCode())
@@ -164,11 +161,11 @@ public class DiscountServiceImpl implements DiscountService {
     }
 
     @Override
-    public List<UserDiscountResponseDTO> getMyWallet(String userId) {
-        User user = userRepository.findById(UUID.fromString(userId))
+    public List<UserDiscountResponseDTO> getMyWallet(UUID userId) {
+        User user = userRepository.findById(UUID.fromString(String.valueOf(userId)))
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        return userDiscountRepository.findByUser(user).stream()
+        return userDiscountRepository.findByUser_UserId(userId).stream()
                 .map(UserDiscountResponseDTO::fromEntity)
                 .collect(Collectors.toList());
     }

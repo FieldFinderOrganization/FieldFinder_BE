@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @CrossOrigin("*")
 @RestController
@@ -48,7 +49,7 @@ public class DiscountController {
 
     @PostMapping("/{userId}/save")
     public ResponseEntity<String> saveDiscountToWallet(
-            @PathVariable String userId,
+            @PathVariable UUID userId,
             @RequestBody UserDiscountRequestDTO dto) {
 
         discountService.saveDiscountToWallet(userId, dto);
@@ -56,7 +57,7 @@ public class DiscountController {
     }
 
     @GetMapping("/{userId}/wallet")
-    public ResponseEntity<List<UserDiscountResponseDTO>> getMyWallet(@PathVariable String userId) {
+    public ResponseEntity<List<UserDiscountResponseDTO>> getMyWallet(@PathVariable UUID userId) {
         return ResponseEntity.ok(discountService.getMyWallet(userId));
     }
 }

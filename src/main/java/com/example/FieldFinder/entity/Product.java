@@ -73,11 +73,12 @@ public class Product {
     public int getTotalSold() {
         return variants == null ? 0 : variants.stream().mapToInt(ProductVariant::getSoldQuantity).sum();
     }
+
     public Double getSalePrice() {
         if (this.salePrice != null) {
             return this.salePrice;
         }
-        return calculateDefaultSalePrice();
+        return this.price;
     }
 
     public Integer getOnSalePercent() {
@@ -88,7 +89,7 @@ public class Product {
         if (this.price == null || this.price == 0) return 0;
 
         Double finalPrice = getSalePrice();
-        if (finalPrice == null) return 0;
+        if (finalPrice == null || finalPrice.equals(this.price)) return 0;
 
         double totalReduction = this.price - finalPrice;
         if (totalReduction <= 0) return 0;
@@ -96,29 +97,39 @@ public class Product {
         return (int) Math.round((totalReduction / this.price) * 100);
     }
 
-    private Double calculateDefaultSalePrice() {
-        if (this.price == null) return 0.0;
+    public void calculateSalePriceForUser(List<Discount> availableDiscounts) {
+        if (this.price == null) {
+            this.salePrice = 0.0;
+            return;
+        }
+
         double currentPrice = this.price;
         LocalDate now = LocalDate.now();
 
-        if (this.discounts == null || this.discounts.isEmpty()) {
-            return currentPrice;
-        }
-
-        for (ProductDiscount pd : this.discounts) {
-            Discount d = pd.getDiscount();
-            if (d != null && isValidDiscount(d, now)) {
-                currentPrice = applyDiscountLogic(currentPrice, d);
+        if (availableDiscounts != null && !availableDiscounts.isEmpty()) {
+            for (Discount d : availableDiscounts) {
+                if (d != null && isValidDiscount(d, now)) {
+                    currentPrice = applyDiscountLogic(currentPrice, d);
+                }
             }
         }
-        return Math.max(0, currentPrice);
+
+        this.salePrice = Math.max(0, currentPrice);
+
+        if (this.price > 0) {
+            double totalReduction = this.price - this.salePrice;
+            this.onSalePercent = totalReduction <= 0 ? 0 : (int) Math.round((totalReduction / this.price) * 100);
+        } else {
+            this.onSalePercent = 0;
+        }
     }
 
     private boolean isValidDiscount(Discount d, LocalDate now) {
         boolean isActive = d.getStatus() == Discount.DiscountStatus.ACTIVE;
         boolean isStarted = d.getStartDate() == null || !now.isBefore(d.getStartDate());
         boolean isNotExpired = d.getEndDate() == null || !now.isAfter(d.getEndDate());
-        return isActive && isStarted && isNotExpired;
+        boolean isStockAvailable = d.getQuantity() > 0;
+        return isActive && isStarted && isNotExpired && isStockAvailable;
     }
 
     private double applyDiscountLogic(double currentPrice, Discount d) {

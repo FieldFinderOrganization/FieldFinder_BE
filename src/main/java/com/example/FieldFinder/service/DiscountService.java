@@ -6,6 +6,7 @@ import com.example.FieldFinder.dto.res.DiscountResponseDTO;
 import com.example.FieldFinder.dto.res.UserDiscountResponseDTO;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface DiscountService {
     DiscountResponseDTO createDiscount(DiscountRequestDTO dto);
@@ -13,6 +14,6 @@ public interface DiscountService {
     void deleteDiscount(String id);
     List<DiscountResponseDTO> getAllDiscounts();
     DiscountResponseDTO getDiscountById(String id);
-    void saveDiscountToWallet(String userId, UserDiscountRequestDTO dto);
-    List<UserDiscountResponseDTO> getMyWallet(String userId);
+    void saveDiscountToWallet(UUID userId, UserDiscountRequestDTO dto);
+    List<UserDiscountResponseDTO> getMyWallet(UUID userId);
 }

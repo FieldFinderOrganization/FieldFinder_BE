@@ -17,11 +17,13 @@ public interface UserDiscountRepository extends JpaRepository<UserDiscount, UUID
 
     Optional<UserDiscount> findByUserAndDiscount(User user, Discount discount);
 
-    List<UserDiscount> findByUser(User user);
+    List<UserDiscount> findByUser_UserId(UUID userID);
 
     @Query("SELECT ud.discount.discountId FROM UserDiscount ud WHERE ud.user.userId = :userId AND ud.isUsed = true")
     List<UUID> findUsedDiscountIdsByUserId(@Param("userId") UUID userId);
 
-    List<UserDiscount> findByUserAndIsUsedFalse(User user);
+//    List<UserDiscount> findByUserAndIsUsedFalse(User user);
+
+    List<UserDiscount> findByUser_UserIdAndIsUsedFalse(UUID userId);
 
 }

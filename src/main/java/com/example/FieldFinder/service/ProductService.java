@@ -19,11 +19,12 @@ public interface ProductService {
     void commitStock(Long productId, String size, int quantity);
     void releaseStock(Long productId, String size, int quantity);
 
-    // AI & Search
     List<ProductResponseDTO> findProductsByImage(List<String> keywords, String majorCategory);
     void enrichAllProductsData();
     List<ProductResponseDTO> findProductsByVector(String descriptionFromImage);
     ProductResponseDTO getProductByName(String productName);
 
     void applyDiscount(Long productId, String discountId);
+
+    ProductResponseDTO getProductDetail(Long productId, UUID userId);
 }

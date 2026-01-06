@@ -26,6 +26,7 @@ public class DiscountResponseDTO {
     private BigDecimal minOrderValue;
     private BigDecimal maxDiscountAmount;
     private String scope;
+    private int quantity;
 
     private List<Long> applicableProductIds;
     private List<Long> applicableCategoryIds;
@@ -52,6 +53,7 @@ public class DiscountResponseDTO {
 
                 .startDate(discount.getStartDate())
                 .endDate(discount.getEndDate())
+                .quantity(discount.getQuantity())
                 .status(discount.getStatus().name())
                 .build();
     }
