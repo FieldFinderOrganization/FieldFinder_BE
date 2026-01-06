@@ -9,6 +9,7 @@ import java.util.List;
 
 @Data
 public class DiscountRequestDTO {
+
     private String code;
     private String description;
 
@@ -17,34 +18,57 @@ public class DiscountRequestDTO {
     private BigDecimal minOrderValue;
     private BigDecimal maxDiscountAmount;
 
-    private String scope;
+    private String scope; // "ALL" | "USER" | "PRODUCT"
 
     private List<Long> applicableProductIds;
-
     private List<Long> applicableCategoryIds;
 
     private int quantity;
     private LocalDate startDate;
     private LocalDate endDate;
 
-    private String status;
+    private String status; // "ACTIVE" | "INACTIVE" | "EXPIRED"
 
     public Discount toEntity() {
+
+        /* ===== STATUS ===== */
         Discount.DiscountStatus statusEnum;
         try {
-            statusEnum = Discount.DiscountStatus.valueOf(this.status);
+            statusEnum = Discount.DiscountStatus.valueOf(
+                    this.status != null ? this.status : "INACTIVE"
+            );
         } catch (Exception e) {
             statusEnum = Discount.DiscountStatus.INACTIVE;
+        }
+
+        /* ===== SCOPE (FIX LỖI CHÍNH) ===== */
+        Discount.DiscountScope scopeEnum;
+        try {
+            scopeEnum = Discount.DiscountScope.valueOf(
+                    this.scope != null && !this.scope.isBlank()
+                            ? this.scope
+                            : "ALL"
+            );
+        } catch (Exception e) {
+            scopeEnum = Discount.DiscountScope.GLOBAL;
+        }
+
+        /* ===== DISCOUNT TYPE ===== */
+        Discount.DiscountType discountTypeEnum;
+        try {
+            discountTypeEnum = Discount.DiscountType.valueOf(this.discountType);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("DiscountType không hợp lệ");
         }
 
         return Discount.builder()
                 .code(this.code)
                 .description(this.description)
-                .discountType(Discount.DiscountType.valueOf(this.discountType))
+                .discountType(discountTypeEnum)
                 .value(this.value)
                 .minOrderValue(this.minOrderValue)
                 .maxDiscountAmount(this.maxDiscountAmount)
-                .scope(Discount.DiscountScope.valueOf(this.scope))
+                .scope(scopeEnum)
                 .quantity(this.quantity)
                 .startDate(this.startDate)
                 .endDate(this.endDate)
