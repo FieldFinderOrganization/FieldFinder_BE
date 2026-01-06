@@ -141,7 +141,6 @@ public class AIChat {
                 if (!response.isSuccessful()) return new ArrayList<>();
 
                 JsonNode root = mapper.readTree(response.body().string());
-                // Cấu trúc trả về: { "embedding": { "values": [0.1, 0.2...] } }
                 JsonNode valuesNode = root.path("embedding").path("values");
 
                 List<Double> vector = new ArrayList<>();
@@ -561,15 +560,57 @@ public class AIChat {
             }
         }
         else if ("cheapest_product".equals(action)) {
-            foundProduct = products.stream().min(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
+            // Lấy từ khóa category từ AI (nếu có)
+            String categoryKeyword = (String) query.data.get("categoryKeyword");
+
+            // Lọc danh sách nếu có từ khóa
+            List<ProductResponseDTO> targetProducts = filterProductsByCategoryOrName(products, categoryKeyword);
+
+            foundProduct = targetProducts.stream()
+                    .min(Comparator.comparing(ProductResponseDTO::getPrice))
+                    .orElse(null);
+
             if (foundProduct != null) {
-                query.message = String.format("Sản phẩm rẻ nhất là %s với giá %s VNĐ.", foundProduct.getName(), formatMoney(foundProduct.getPrice()));
+                // Nếu keyword là "Shoes" -> hiển thị "giày dép (Shoes)" cho thân thiện
+                String displayCat = categoryKeyword;
+                if ("Shoes".equalsIgnoreCase(categoryKeyword)) displayCat = "giày";
+                else if ("Clothing".equalsIgnoreCase(categoryKeyword)) displayCat = "quần áo";
+
+                String contextMsg = (categoryKeyword != null) ? "thuộc nhóm " + displayCat : "trong cửa hàng";
+
+                query.message = String.format("Sản phẩm %s rẻ nhất là %s với giá %s VNĐ.",
+                        contextMsg, foundProduct.getName(), formatMoney(foundProduct.getPrice()));
+            } else {
+                query.message = (categoryKeyword != null)
+                        ? "Không tìm thấy sản phẩm nào thuộc nhóm '" + categoryKeyword + "'."
+                        : "Hiện cửa hàng chưa có sản phẩm nào.";
             }
         }
         else if ("most_expensive_product".equals(action)) {
-            foundProduct = products.stream().max(Comparator.comparing(ProductResponseDTO::getPrice)).orElse(null);
+            // Lấy từ khóa category từ AI
+            String categoryKeyword = (String) query.data.get("categoryKeyword");
+
+            // Lọc danh sách
+            List<ProductResponseDTO> targetProducts = filterProductsByCategoryOrName(products, categoryKeyword);
+
+            foundProduct = targetProducts.stream()
+                    .max(Comparator.comparing(ProductResponseDTO::getPrice))
+                    .orElse(null);
+
             if (foundProduct != null) {
-                query.message = String.format("Sản phẩm đắt nhất là %s với giá %s VNĐ.", foundProduct.getName(), formatMoney(foundProduct.getPrice()));
+                // Nếu keyword là "Shoes" -> hiển thị "giày dép (Shoes)" cho thân thiện
+                String displayCat = categoryKeyword;
+                if ("Shoes".equalsIgnoreCase(categoryKeyword)) displayCat = "giày";
+                else if ("Clothing".equalsIgnoreCase(categoryKeyword)) displayCat = "quần áo";
+
+                String contextMsg = (categoryKeyword != null) ? "thuộc nhóm " + displayCat : "trong cửa hàng";
+
+                query.message = String.format("Sản phẩm %s đắt nhất là %s với giá %s VNĐ.",
+                        contextMsg, foundProduct.getName(), formatMoney(foundProduct.getPrice()));
+            } else {
+                query.message = (categoryKeyword != null)
+                        ? "Không tìm thấy sản phẩm nào thuộc nhóm '" + categoryKeyword + "'."
+                        : "Hiện cửa hàng chưa có sản phẩm nào.";
             }
         }
         else if ("best_selling_product".equals(action)) {
@@ -612,6 +653,27 @@ public class AIChat {
         }
 
         return query;
+    }
+
+    private List<ProductResponseDTO> filterProductsByCategoryOrName(List<ProductResponseDTO> products, String keyword) {
+        if (keyword == null || keyword.isEmpty()) {
+            return products;
+        }
+
+        String searchKey = keyword.toLowerCase().trim();
+
+        return products.stream()
+                .filter(p -> {
+                    String catName = (p.getCategoryName() != null) ? p.getCategoryName().toLowerCase() : "";
+
+                    boolean matchCategory = catName.contains(searchKey);
+                    
+                    String prodName = (p.getName() != null) ? p.getName().toLowerCase() : "";
+                    boolean matchName = prodName.contains(searchKey);
+
+                    return matchCategory || matchName;
+                })
+                .collect(Collectors.toList());
     }
 
     private String formatMoney(Double amount) {
@@ -817,19 +879,15 @@ public class AIChat {
         boolean isBookingRequest = query.bookingDate != null || !query.slotList.isEmpty() || !"ALL".equals(query.pitchType);
 
         if (isBookingRequest && query.data.get("action") == null) {
-            // Lọc danh sách sân từ allPitches dựa trên pitchType mà AI đã nhận diện
             List<PitchResponseDTO> matchedPitches = allPitches.stream()
                     .filter(p -> {
-                        // Nếu AI trả về "ALL" thì lấy hết, ngược lại phải khớp loại sân
                         if ("ALL".equals(query.pitchType)) return true;
                         return p.getType().name().equalsIgnoreCase(query.pitchType);
                     })
                     .collect(Collectors.toList());
 
-            // Đưa danh sách sân tìm được vào data để trả về Frontend
             query.data.put("matchedPitches", matchedPitches);
 
-            // Cập nhật message nếu AI chưa có message hoặc để làm rõ nghĩa hơn
             if (matchedPitches.isEmpty()) {
                 query.message = "Rất tiếc, tôi không tìm thấy sân " + formatPitchType(query.pitchType) + " nào phù hợp trong hệ thống.";
             } else {
@@ -1194,11 +1252,37 @@ CẤU TRÚC JSON TRẢ VỀ:
      - Nếu người dùng hỏi về thời tiết, hãy trả về JSON với trường "action": "get_weather" và "city" trong data.
      - Ví dụ: "Thời tiết hôm nay ở Sài Gòn?" -> {"bookingDate": null, "slotList": [], "pitchType": "ALL", "message": null, "data": {"action": "get_weather", "city": "Ho Chi Minh"}}
             ""\";
-  9. Nếu người dùng hỏi "rẻ nhất", "mắc nhất", "đắt nhất", "bán chạy nhất" MÀ KHÔNG nói rõ tên sản phẩm cụ thể -> Mặc định là tìm trong TOÀN BỘ CỬA HÀNG.
-      - "Sản phẩm nào rẻ nhất?" -> action: "cheapest_product"
-      - "Cái nào đắt nhất shop?" -> action: "most_expensive_product"
-      - "Món nào bán chạy?" -> action: "best_selling_product"
-  TUYỆT ĐỐI KHÔNG được hỏi ngược lại người dùng (ví dụ: "Bạn muốn tìm loại nào?"). Hãy trả về JSON action ngay.
+  9. Xử lý câu hỏi về giá (Rẻ nhất / Mắc nhất):\\n" +
+     - Action: \\"cheapest_product\\" hoặc \\"most_expensive_product\\"\\n" +
+     - Data: { \\"categoryKeyword\\": \\"EXACT_CATEGORY_NAME_IN_DB\\" }\\n" +
+            
+       ⚠️ BẢNG MAPPING TỪ KHÓA (Dựa trên Database):\\n" +
+            
+       --- NHÓM ACCESSORIES CON ---
+           + 'nón', 'mũ', 'lưỡi trai', 'snapback', 'bucket' -> \\"Hats And Headwears\\"\\n" +
+           + 'tất', 'vớ' -> \\"Socks\\"\\n" +
+           + 'găng', 'găng tay', 'thủ môn' -> \\"Gloves\\"\\n" +
+           + 'balo', 'túi', 'cặp', 'bag' -> \\"Bags And Backpacks\\"\\n" +
+           + 'phụ kiện' (chung chung) -> \\"Accessories\\"\\n" +
+            
+       --- NHÓM CLOTHING CON ---
+          + 'áo khoác', 'khoác', 'gile', 'jacket' -> \\"Jackets And Gilets\\"\\n" +
+          + 'hoodie', 'áo nỉ', 'sweatshirt' -> \\"Hoodies And Sweatshirts\\"\\n" +
+          + 'quần dài', 'legging', 'quần bó' -> \\"Pants And Leggings\\"\\n" +
+          + 'quần đùi', 'quần short', 'short' -> \\"Shorts\\"\\n" +
+          + 'áo thun', 'áo phông', 'top', 't-shirt' -> \\"Tops And T-Shirts\\"\\n" +
+          + 'quần áo', 'đồ' (chung chung) -> \\"Clothing\\"\\n" +
+            
+       --- NHÓM SHOES CON ---
+         + 'dép', 'sandal', 'slide' -> \\"Sandals And Slides\\"\\n" +
+         + 'giày chạy', 'running' -> \\"Running Shoes\\"\\n" +
+         + 'giày đá banh', 'đá bóng', 'football' -> \\"Football Shoes\\"\\n" +
+         + 'giày bóng rổ', 'basketball' -> \\"Basketball Shoes\\"\\n" +
+         + 'giày tennis' -> \\"Tennis Shoes\\"\\n" +
+         + 'giày tập', 'gym' -> \\"Gym And Training\\"\\n" +
+         + 'giày' (chung chung) -> \\"Shoes\\"\\n" +
+            
+     - Nếu không tìm thấy loại phù hợp -> trả về null.\\n" +
 
   10. Xử lý câu hỏi về CHI TIẾT / HÌNH ẢNH / THÔNG TIN THÊM:
       QUY TẮC BẮT BUỘC: Nếu người dùng yêu cầu xem chi tiết, xem ảnh, hoặc hỏi thêm thông tin (dù câu hỏi ngắn gọn hay cụ thể), LUÔN trả về action "product_detail".
