@@ -634,6 +634,93 @@ public class AIChat {
             }
         }
 
+        else if ("search_by_price_range".equals(action)) {
+            Object minPriceObj = query.data.get("minPrice");
+            Object maxPriceObj = query.data.get("maxPrice");
+            String categoryKeyword = (String) query.data.get("categoryKeyword");
+
+            Double minPrice = 0.0;
+            Double maxPrice = Double.MAX_VALUE;
+
+            if (minPriceObj != null) {
+                if (minPriceObj instanceof Number) {
+                    minPrice = ((Number) minPriceObj).doubleValue();
+                }
+            }
+
+            if (maxPriceObj != null) {
+                if (maxPriceObj instanceof Number) {
+                    maxPrice = ((Number) maxPriceObj).doubleValue();
+                }
+            }
+
+            System.out.println("🔍 Price Range Search: Min=" + minPrice + ", Max=" + maxPrice +
+                    ", Category=" + categoryKeyword);
+
+            List<ProductResponseDTO> targetProducts = products;
+            if (categoryKeyword != null && !categoryKeyword.isEmpty()) {
+                targetProducts = filterProductsByCategoryOrName(products, categoryKeyword);
+            }
+
+            final Double finalMinPrice = minPrice;
+            final Double finalMaxPrice = maxPrice;
+
+            List<ProductResponseDTO> filteredProducts = targetProducts.stream()
+                    .filter(p -> {
+                        // LOGIC MỚI: Tính giá thực tế (Nếu có Sale thì lấy giá Sale, không thì lấy giá gốc)
+                        double effectivePrice = p.getPrice();
+                        if (p.getSalePercent() != null && p.getSalePercent() > 0 && p.getSalePrice() != null) {
+                            effectivePrice = p.getSalePrice();
+                        }
+
+                        return effectivePrice >= finalMinPrice && effectivePrice <= finalMaxPrice;
+                    })
+                    .sorted(Comparator.comparing(p -> {
+                        if (p.getSalePercent() != null && p.getSalePercent() > 0 && p.getSalePrice() != null) {
+                            return p.getSalePrice();
+                        }
+                        return p.getPrice();
+                    }))
+                    .collect(Collectors.toList());
+
+            if (filteredProducts.isEmpty()) {
+                String categoryMsg = (categoryKeyword != null && !categoryKeyword.isEmpty())
+                        ? " thuộc nhóm " + translateCategory(categoryKeyword)
+                        : "";
+
+                String priceMsg = buildPriceRangeMessage(minPrice, maxPrice);
+
+                query.message = String.format(
+                        "Không tìm thấy sản phẩm%s trong khoảng giá %s.",
+                        categoryMsg,
+                        priceMsg
+                );
+
+                query.data.put("products", new ArrayList<>());
+            } else {
+                String categoryMsg = (categoryKeyword != null && !categoryKeyword.isEmpty())
+                        ? " " + translateCategory(categoryKeyword)
+                        : "";
+
+                String priceMsg = buildPriceRangeMessage(minPrice, maxPrice);
+
+                query.message = String.format(
+                        "Tìm thấy %d sản phẩm%s trong khoảng giá %s 👇",
+                        filteredProducts.size(),
+                        categoryMsg,
+                        priceMsg
+                );
+
+                query.data.put("products", filteredProducts);
+                query.data.put("priceRange", Map.of(
+                        "min", minPrice,
+                        "max", maxPrice
+                ));
+
+                query.data.put("showImage", true);
+            }
+        }
+
         if (foundProduct != null) {
             sessionLastProducts.put(sessionId, foundProduct);
 
@@ -655,57 +742,128 @@ public class AIChat {
         return query;
     }
 
+    private String buildPriceRangeMessage(Double minPrice, Double maxPrice) {
+        if (maxPrice >= Double.MAX_VALUE - 1) {
+            return "trên " + formatMoney(minPrice) + " VNĐ";
+        } else if (minPrice == 0 || minPrice < 1) {
+            return "dưới " + formatMoney(maxPrice) + " VNĐ";
+        } else {
+            return "từ " + formatMoney(minPrice) + " đến " + formatMoney(maxPrice) + " VNĐ";
+        }
+    }
+
     private List<ProductResponseDTO> filterProductsByCategoryOrName(List<ProductResponseDTO> products, String keyword) {
         if (keyword == null || keyword.isEmpty()) {
             return products;
         }
 
-        String searchKey = keyword.toLowerCase().trim();
+        // Chuẩn hóa từ khóa tìm kiếm
+        String finalKeyword = keyword.toLowerCase().trim();
 
         return products.stream()
-                .filter(p -> {
-                    String catName = (p.getCategoryName() != null) ? p.getCategoryName().toLowerCase() : "";
-
-                    boolean matchCategory = catName.contains(searchKey);
-
-                    String prodName = (p.getName() != null) ? p.getName().toLowerCase() : "";
-                    boolean matchName = prodName.contains(searchKey);
-
-                    return matchCategory || matchName;
-                })
+                .filter(p -> isProductMatchingKeyword(p, finalKeyword))
                 .collect(Collectors.toList());
+    }
+
+    private boolean isProductMatchingKeyword(ProductResponseDTO p, String keyword) {
+        // 1. Chuẩn hóa dữ liệu
+        String pName = (p.getName() != null) ? p.getName().toLowerCase() : "";
+        String pCat = (p.getCategoryName() != null) ? p.getCategoryName().toLowerCase() : "";
+
+        String pTags = "";
+        if (p.getTags() != null && !p.getTags().isEmpty()) {
+            pTags = p.getTags().stream()
+                    .map(String::toLowerCase)
+                    .collect(Collectors.joining(" "));
+        }
+
+        // 2. CHECK TRỰC TIẾP (Ưu tiên cao nhất)
+        if (pName.contains(keyword) || pCat.contains(keyword)) {
+            // Lưu ý: Bỏ check pTags ở đây để tránh nhiễu, chỉ check Name và Category trước
+            return true;
+        }
+
+        // 3. CHECK THEO NHÓM
+
+        // === NHÓM PHỤ KIỆN (Accessories) - SỬA LẠI ===
+        if (keyword.equals("accessories") || keyword.contains("phụ kiện")) {
+
+            // 🚨 QUAN TRỌNG: LOẠI TRỪ QUẦN ÁO & GIÀY DÉP
+            // Nếu Category chứa từ khóa quần áo/giày -> RETURN FALSE NGAY (trừ khi là tất/vớ)
+            if (pCat.contains("clothing") || pCat.contains("shirt") || pCat.contains("pant") ||
+                    pCat.contains("jacket") || pCat.contains("hoodie") || pCat.contains("dress") ||
+                    pCat.contains("shoes") || pCat.contains("footwear") || pCat.contains("sneaker")) {
+
+                // Ngoại lệ: Nếu là Tất (Socks) thì vẫn tính là phụ kiện dù có thể bị lẫn
+                if (!pCat.contains("sock")) {
+                    return false;
+                }
+            }
+
+            // Logic cũ: Tìm từ khóa phụ kiện
+            if (pCat.contains("accessories") || pCat.contains("phụ kiện")) return true;
+
+            boolean isBag = pName.contains("bag") || pName.contains("túi") || pTags.contains("túi");
+            boolean isHat = pName.contains("hat") || pName.contains("nón") || pName.contains("mũ") || pTags.contains("mũ"); // Chỉ check mũ trong tags nếu category ko phải quần áo (đã chặn ở trên)
+            boolean isSock = pName.contains("sock") || pName.contains("tất") || pName.contains("vớ");
+            boolean isGlove = pName.contains("glove") || pName.contains("găng");
+
+            return isBag || isHat || isSock || isGlove;
+        }
+
+        // === NHÓM TÚI / BALO ===
+        if (keyword.equals("bags and backpacks") || keyword.contains("bag") || keyword.contains("túi")) {
+            return pName.contains("bag") || pName.contains("túi") || pName.contains("balo") ||
+                    pName.contains("backpack") ||
+                    pCat.contains("bag") || pCat.contains("túi") ||
+                    pTags.contains("túi") || pTags.contains("balo");
+        }
+
+        // === NHÓM GIÀY ===
+        if (keyword.equals("shoes") || keyword.equals("footwear") || keyword.contains("giày")) {
+            return pName.contains("shoe") || pName.contains("giày") || pName.contains("sneaker") ||
+                    pCat.contains("shoe") || pCat.contains("footwear");
+        }
+
+        // === NHÓM QUẦN ÁO ===
+        if (keyword.equals("clothing") || keyword.contains("quần áo") || keyword.contains("đồ")) {
+            return pName.contains("shirt") || pName.contains("áo") ||
+                    pName.contains("pant") || pName.contains("quần") ||
+                    pName.contains("short") || pName.contains("dress") ||
+                    pCat.contains("clothing") || pCat.contains("wear");
+        }
+
+        // Check tags cuối cùng (fallback) nếu chưa match ở trên
+        return pTags.contains(keyword);
+    }
+
+    private boolean capCheck(String text) {
+        return text.contains(" cap ") || text.endsWith(" cap") || text.startsWith("cap ");
     }
 
     private String formatMoney(Double amount) {
         return String.format("%,.0f", amount);
     }
 
-    // REPLACE IT WITH THIS:
     private BookingQuery handleWeatherQuery(BookingQuery query) {
-        // Defensive: Ensure query.data is never null
         if (query.data == null) {
             query.data = new HashMap<>();
         }
 
-        // Fix: Handle null value from map correctly
         Object cityObj = query.data.get("city");
         String city = (cityObj != null) ? cityObj.toString() : "Hà Nội";
 
         try {
-            // 1. Lấy thời tiết
             String weather = weatherService.getCurrentWeather(city);
 
-            // 2. Quyết định Indoor / Outdoor
             PitchEnvironment env = suggestEnvironmentByWeather(weather);
 
-            // 3. Lọc sân phù hợp
             List<PitchResponseDTO> suggestedPitches =
                     pitchService.getAllPitches().stream()
                             .filter(p -> p.getEnvironment() == env)
                             .limit(5)
                             .toList();
 
-            // 4. Message cho user
             query.message = String.format(
                     "Thời tiết ở %s hiện là **%s** 🌤️. Tôi gợi ý bạn chọn **sân %s**.",
                     city,
@@ -715,7 +873,6 @@ public class AIChat {
                             : "ngoài trời (Outdoor)"
             );
 
-            // 5. Data trả về cho FE
             query.data.clear();
             query.data.put("action", "weather_pitch_suggestion");
             query.data.put("environment", env.name());
@@ -736,36 +893,29 @@ public class AIChat {
 
         UUID userId = userService.getUserIdBySession(sessionId);
 
-        // ===== 1️⃣ DATA TỪ AI =====
         String activity = (String) query.data.get("activity");
         List<String> tags = (List<String>) query.data.get("tags");
         List<String> aiCategories = (List<String>) query.data.get("suggestedCategories");
 
-        // ===== 2️⃣ SAVE CONTEXT =====
         if (activity != null && sessionId != null) {
             sessionLastActivity.put(sessionId, activity);
         }
 
-        // ===== 3️⃣ FALLBACK TAGS =====
         if (tags == null || tags.isEmpty()) {
             tags = (activity != null) ? List.of(activity) : List.of("sport");
         }
 
-        // ===== 4️⃣ VECTOR DESCRIPTION =====
         String description = String.join(" ",
                 activity != null ? activity : "",
                 String.join(" ", tags)
         );
 
-        // ===== 5️⃣ VECTOR SEARCH =====
         List<ProductResponseDTO> results =
                 productService.findProductsByVector(description);
 
-        // ===== 6️⃣ RESOLVE DB CATEGORIES (QUAN TRỌNG NHẤT) =====
         List<String> resolvedCategories =
                 CategoryMapper.resolveCategories(activity, aiCategories);
 
-        // ===== 7️⃣ FALLBACK CATEGORY SEARCH =====
         if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
 
             System.out.println("⚠️ Vector empty. Fallback DB categories: " + resolvedCategories);
@@ -777,7 +927,6 @@ public class AIChat {
                     .toList();
         }
 
-        // ===== 8️⃣ NO RESULT =====
         if (results == null || results.isEmpty()) {
             query.message = "Hiện tại shop chưa có sản phẩm phù hợp hoạt động này 😢";
             query.data.put("products", List.of());
@@ -787,24 +936,19 @@ public class AIChat {
             return query;
         }
 
-        // ===== 9️⃣ MESSAGE =====
         query.message = String.format(
                 "Với hoạt động **%s**, bạn có thể tham khảo các sản phẩm sau 👇",
                 activity
         );
 
-        // ===== 🔟 GROUP PRODUCTS =====
         Map<String, List<Map<String, Object>>> groupedProducts = new LinkedHashMap<>();
 
         for (ProductResponseDTO p : results) {
 
-            // ✅ PHẢI CÓ DÒNG NÀY
             Map<String, Object> item = new HashMap<>();
 
-            // product gốc
             item.put("product", p);
 
-            // facts (KHÔNG DÙNG Map.of)
             Map<String, Object> facts = new HashMap<>();
             facts.put("activity", activity);
             facts.put("category", p.getCategoryName());
@@ -818,7 +962,6 @@ public class AIChat {
 
             item.put("facts", facts);
 
-            // group theo category
             String categoryKey = p.getCategoryName() != null
                     ? p.getCategoryName()
                     : "OTHER";
@@ -828,7 +971,6 @@ public class AIChat {
                     .add(item);
         }
 
-        // ===== 1️⃣1️⃣ RESPONSE DATA =====
         query.data.put("groupedProducts", groupedProducts);
         query.data.put("products", results);
         query.data.put("explainContext", Map.of(
@@ -880,7 +1022,12 @@ public class AIChat {
             if ("recommend_by_activity".equals(action)) {
                 return handleRecommendByActivity(query, sessionId);
             }
-            if (action.contains("product") || action.contains("stock") || action.contains("sales") || action.contains("sale") || action.contains("size") || action.contains("order")) {
+            if (action.contains("product") || action.contains("stock") ||
+                    action.contains("sales") || action.contains("sale") ||
+                    action.contains("size") || action.contains("order") ||
+                    action.contains("price") ||
+                    "search_by_price_range".equals(action)) {
+
                 return handleProductQuery(query, userInput, sessionId);
             }
         }
@@ -888,19 +1035,16 @@ public class AIChat {
         boolean isBookingRequest = query.bookingDate != null || !query.slotList.isEmpty() || !"ALL".equals(query.pitchType);
 
         if (isBookingRequest && query.data.get("action") == null) {
-            // 🔍 Detect environment keywords in user input
             PitchEnvironment requestedEnvironment = detectEnvironmentFromInput(userInput);
 
             List<PitchResponseDTO> matchedPitches = allPitches.stream()
                     .filter(p -> {
-                        // Filter by pitch type
                         if (!"ALL".equals(query.pitchType)) {
                             if (!p.getType().name().equalsIgnoreCase(query.pitchType)) {
                                 return false;
                             }
                         }
 
-                        // 🆕 Filter by environment if specified
                         if (requestedEnvironment != null) {
                             return p.getEnvironment() == requestedEnvironment;
                         }
@@ -950,7 +1094,6 @@ public class AIChat {
 
         String input = userInput.toLowerCase();
 
-        // Keywords for OUTDOOR
         if (input.contains("ngoài trời") ||
                 input.contains("ngoai troi") ||
                 input.contains("outdoor") ||
@@ -959,7 +1102,6 @@ public class AIChat {
             return PitchEnvironment.OUTDOOR;
         }
 
-        // Keywords for INDOOR
         if (input.contains("trong nhà") ||
                 input.contains("trong nha") ||
                 input.contains("indoor") ||
@@ -969,12 +1111,54 @@ public class AIChat {
             return PitchEnvironment.INDOOR;
         }
 
-        return null; // No environment specified
+        return null;
     }
 
-    /**
-     * Format environment for display
-     */
+    private String translateCategory(String categoryKeyword) {
+        if (categoryKeyword == null) return "";
+        String key = categoryKeyword.toLowerCase().trim();
+
+        if (key.contains("tennis accessories")) return "phụ kiện tennis";
+        if (key.contains("running shoes")) return "giày chạy bộ";
+        if (key.contains("football shoes")) return "giày đá bóng";
+        if (key.contains("basketball shoes")) return "giày bóng rổ";
+        if (key.contains("tennis shoes")) return "giày tennis";
+
+        switch (key) {
+            case "shoes":
+            case "footwear":
+                return "giày dép";
+            case "clothing":
+                return "quần áo";
+            case "accessories":
+                return "phụ kiện";
+            case "hats and headwears":
+                return "nón/mũ";
+            case "socks":
+                return "tất/vớ";
+            case "gloves":
+                return "găng tay";
+            case "bags and backpacks":
+                return "túi/balo";
+            case "jackets and gilets":
+                return "áo khoác";
+            case "hoodies and sweatshirts":
+                return "áo hoodie";
+            case "pants and leggings":
+                return "quần dài";
+            case "shorts":
+                return "quần đùi";
+            case "tops and t-shirts":
+                return "áo thun";
+            case "gym and training":
+                return "đồ tập gym";
+            case "sandals and slides":
+                return "dép/sandal";
+            default:
+                return categoryKeyword;
+        }
+    }
+
     private String formatEnvironment(PitchEnvironment env) {
         if (env == PitchEnvironment.INDOOR) {
             return "trong nhà";
@@ -984,88 +1168,88 @@ public class AIChat {
         return "";
     }
 
-    private BookingQuery handlePitchCountByTypeQuestion() {
-        List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
+//    private BookingQuery handlePitchCountByTypeQuestion() {
+//        List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
+//
+//        Map<String, Long> pitchCounts = allPitches.stream()
+//                .collect(Collectors.groupingBy(
+//                        p -> p.getType().name(),
+//                        Collectors.counting()
+//                ));
+//
+//        // Tạo thông điệp trả về - CHỈ MỘT DÒNG DUY NHẤT
+//        StringBuilder message = new StringBuilder("Số lượng sân theo loại: ");
+//
+//        // Sắp xếp các loại sân theo thứ tự: 5, 7, 11
+//        List<Map.Entry<String, Long>> sortedEntries = new ArrayList<>(pitchCounts.entrySet());
+//        sortedEntries.sort(Comparator.comparing(entry -> {
+//            String type = entry.getKey();
+//            if ("FIVE_A_SIDE".equals(type)) return 1;
+//            if ("SEVEN_A_SIDE".equals(type)) return 2;
+//            if ("ELEVEN_A_SIDE".equals(type)) return 3;
+//            return 4;
+//        }));
+//
+//        // Tạo danh sách các phần tử đã định dạng
+//        List<String> parts = new ArrayList<>();
+//        for (Map.Entry<String, Long> entry : sortedEntries) {
+//            String typeName = formatPitchType(entry.getKey());
+//            parts.add(typeName + ": " + entry.getValue() + " sân");
+//        }
+//
+//        // Ghép các phần tử thành một chuỗi duy nhất
+//        message.append(String.join(", ", parts));
+//
+//        // Tạo response
+//        BookingQuery query = new BookingQuery();
+//        query.message = message.toString(); // CHỈ TRẢ VỀ MỘT CHUỖI
+//        query.bookingDate = null;
+//        query.slotList = new ArrayList<>();
+//        query.pitchType = "ALL";
+//        query.data = new HashMap<>();
+//
+//        return query;
+//    }
 
-        Map<String, Long> pitchCounts = allPitches.stream()
-                .collect(Collectors.groupingBy(
-                        p -> p.getType().name(),
-                        Collectors.counting()
-                ));
-
-        // Tạo thông điệp trả về - CHỈ MỘT DÒNG DUY NHẤT
-        StringBuilder message = new StringBuilder("Số lượng sân theo loại: ");
-
-        // Sắp xếp các loại sân theo thứ tự: 5, 7, 11
-        List<Map.Entry<String, Long>> sortedEntries = new ArrayList<>(pitchCounts.entrySet());
-        sortedEntries.sort(Comparator.comparing(entry -> {
-            String type = entry.getKey();
-            if ("FIVE_A_SIDE".equals(type)) return 1;
-            if ("SEVEN_A_SIDE".equals(type)) return 2;
-            if ("ELEVEN_A_SIDE".equals(type)) return 3;
-            return 4;
-        }));
-
-        // Tạo danh sách các phần tử đã định dạng
-        List<String> parts = new ArrayList<>();
-        for (Map.Entry<String, Long> entry : sortedEntries) {
-            String typeName = formatPitchType(entry.getKey());
-            parts.add(typeName + ": " + entry.getValue() + " sân");
-        }
-
-        // Ghép các phần tử thành một chuỗi duy nhất
-        message.append(String.join(", ", parts));
-
-        // Tạo response
-        BookingQuery query = new BookingQuery();
-        query.message = message.toString(); // CHỈ TRẢ VỀ MỘT CHUỖI
-        query.bookingDate = null;
-        query.slotList = new ArrayList<>();
-        query.pitchType = "ALL";
-        query.data = new HashMap<>();
-
-        return query;
-    }
-
-    private BookingQuery handlePitchTypesQuestion() {
-        List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
-
-        // Lấy tất cả các loại sân duy nhất
-        Set<String> pitchTypes = allPitches.stream()
-                .map(p -> p.getType().name())
-                .collect(Collectors.toSet());
-
-        // Tạo message trả về
-        String message;
-        if (pitchTypes.isEmpty()) {
-            message = "Hiện không có sân nào trong hệ thống";
-        } else {
-            List<String> typeNames = pitchTypes.stream()
-                    .sorted()
-                    .map(this::formatPitchType)
-                    .collect(Collectors.toList());
-
-            message = "Hệ thống có " + pitchTypes.size() + " loại sân: " +
-                    String.join(", ", typeNames);
-        }
-
-        BookingQuery query = new BookingQuery();
-        query.message = message;
-        query.bookingDate = null;
-        query.slotList = new ArrayList<>();
-        query.pitchType = "ALL";
-        query.data = new HashMap<>();
-
-        return query;
-    }
-
-    private boolean isPitchCountByTypeQuestion(String input) {
-        String lowerInput = input.toLowerCase();
-        return lowerInput.contains("số sân mỗi loại") ||
-                lowerInput.contains("số lượng sân theo loại") ||
-                lowerInput.contains("mỗi loại sân có bao nhiêu") ||
-                lowerInput.contains("bao nhiêu sân mỗi loại");
-    }
+//    private BookingQuery handlePitchTypesQuestion() {
+//        List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
+//
+//        // Lấy tất cả các loại sân duy nhất
+//        Set<String> pitchTypes = allPitches.stream()
+//                .map(p -> p.getType().name())
+//                .collect(Collectors.toSet());
+//
+//        // Tạo message trả về
+//        String message;
+//        if (pitchTypes.isEmpty()) {
+//            message = "Hiện không có sân nào trong hệ thống";
+//        } else {
+//            List<String> typeNames = pitchTypes.stream()
+//                    .sorted()
+//                    .map(this::formatPitchType)
+//                    .collect(Collectors.toList());
+//
+//            message = "Hệ thống có " + pitchTypes.size() + " loại sân: " +
+//                    String.join(", ", typeNames);
+//        }
+//
+//        BookingQuery query = new BookingQuery();
+//        query.message = message;
+//        query.bookingDate = null;
+//        query.slotList = new ArrayList<>();
+//        query.pitchType = "ALL";
+//        query.data = new HashMap<>();
+//
+//        return query;
+//    }
+//
+//    private boolean isPitchCountByTypeQuestion(String input) {
+//        String lowerInput = input.toLowerCase();
+//        return lowerInput.contains("số sân mỗi loại") ||
+//                lowerInput.contains("số lượng sân theo loại") ||
+//                lowerInput.contains("mỗi loại sân có bao nhiêu") ||
+//                lowerInput.contains("bao nhiêu sân mỗi loại");
+//    }
 
     private String formatPitchType(String type) {
         if (type.equals("FIVE_A_SIDE")) return "sân 5";
@@ -1074,28 +1258,28 @@ public class AIChat {
         return type;
     }
 
-    private boolean isPitchTypesQuestion(String input) {
-        String lowerInput = input.toLowerCase();
-        return lowerInput.contains("loại sân") ||
-                lowerInput.contains("có bao nhiêu loại") ||
-                lowerInput.contains("các loại sân");
-    }
-
-    private boolean isTotalPitchesQuestion(String input) {
-        String lowerInput = input.toLowerCase();
-        return lowerInput.contains("tổng số sân") ||
-                lowerInput.contains("bao nhiêu sân") ||
-                lowerInput.contains("có bao nhiêu sân");
-    }
-
-    private BookingQuery createBasicResponse(String message) {
-        BookingQuery query = new BookingQuery();
-        query.message = message;
-        query.slotList = new ArrayList<>();
-        query.pitchType = "ALL";
-        query.data = new HashMap<>();
-        return query;
-    }
+//    private boolean isPitchTypesQuestion(String input) {
+//        String lowerInput = input.toLowerCase();
+//        return lowerInput.contains("loại sân") ||
+//                lowerInput.contains("có bao nhiêu loại") ||
+//                lowerInput.contains("các loại sân");
+//    }
+//
+//    private boolean isTotalPitchesQuestion(String input) {
+//        String lowerInput = input.toLowerCase();
+//        return lowerInput.contains("tổng số sân") ||
+//                lowerInput.contains("bao nhiêu sân") ||
+//                lowerInput.contains("có bao nhiêu sân");
+//    }
+//
+//    private BookingQuery createBasicResponse(String message) {
+//        BookingQuery query = new BookingQuery();
+//        query.message = message;
+//        query.slotList = new ArrayList<>();
+//        query.pitchType = "ALL";
+//        query.data = new HashMap<>();
+//        return query;
+//    }
 
     private boolean isGreeting(String s) { return s.toLowerCase().matches(".*(xin chào|chào|hello).*"); }
 
@@ -1455,6 +1639,65 @@ CẤU TRÚC JSON TRẢ VỀ:
                       }
                     }
                   }
+                  
+  17. Xử lý câu hỏi TÌM KIẾM THEO KHOẢNG GIÁ:
+            
+                    Nếu người dùng hỏi về sản phẩm trong một khoảng giá cụ thể:
+                    - "Tìm giày từ 1 triệu đến 2 triệu"
+                    - "Có sản phẩm nào giá dưới 500k không?"
+                    - "Cho tôi xem áo từ 200 nghìn đến 500 nghìn"
+                    - "Sản phẩm trong tầm giá 1tr"
+            
+                    → action: "search_by_price_range"
+            
+                    → data phải bao gồm:
+                    - minPrice: Giá tối thiểu (đơn vị: VNĐ, số nguyên)
+                    - maxPrice: Giá tối đa (đơn vị: VNĐ, số nguyên, có thể null nếu chỉ hỏi "dưới X")
+                    - categoryKeyword: Loại sản phẩm nếu có (VD: "Shoes", "Clothing", null nếu không có)
+            
+                    📍 QUY TẮC CHUYỂN ĐỔI GIÁ:
+                    - "1 triệu", "1tr", "1 củ" → 1000000
+                    - "500k", "500 nghìn", "500 ngàn" → 500000
+                    - "2.5 triệu", "2tr5" → 2500000
+                    - "dưới 1tr" → minPrice: 0, maxPrice: 1000000
+                    - "trên 2tr" → minPrice: 2000000, maxPrice: null
+                    - "trong tầm 1tr" → minPrice: 800000, maxPrice: 1200000 (±20%)
+            
+                    VÍ DỤ:
+            
+                    Input: "Tìm giày từ 1 triệu đến 2 triệu"
+                    Output:
+                    {
+                      "data": {
+                        "action": "search_by_price_range",
+                        "minPrice": 1000000,
+                        "maxPrice": 2000000,
+                        "categoryKeyword": "Shoes"
+                      }
+                    }
+            
+                    Input: "Có áo nào giá dưới 500k không?"
+                    Output:
+                    {
+                      "data": {
+                        "action": "search_by_price_range",
+                        "minPrice": 0,
+                        "maxPrice": 500000,
+                        "categoryKeyword": "Clothing"
+                      }
+                    }
+            
+                    Input: "Sản phẩm trong tầm giá 1 triệu"
+                    Output:
+                    {
+                      "data": {
+                        "action": "search_by_price_range",
+                        "minPrice": 800000,
+                        "maxPrice": 1200000,
+                        "categoryKeyword": null
+                      }
+                    }
+              */
   ...
   """;
 
