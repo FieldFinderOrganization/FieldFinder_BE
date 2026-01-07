@@ -667,7 +667,7 @@ public class AIChat {
                     String catName = (p.getCategoryName() != null) ? p.getCategoryName().toLowerCase() : "";
 
                     boolean matchCategory = catName.contains(searchKey);
-                    
+
                     String prodName = (p.getName() != null) ? p.getName().toLowerCase() : "";
                     boolean matchName = prodName.contains(searchKey);
 
@@ -680,8 +680,16 @@ public class AIChat {
         return String.format("%,.0f", amount);
     }
 
+    // REPLACE IT WITH THIS:
     private BookingQuery handleWeatherQuery(BookingQuery query) {
-        String city = query.data.getOrDefault("city", "Hà Nội").toString();
+        // Defensive: Ensure query.data is never null
+        if (query.data == null) {
+            query.data = new HashMap<>();
+        }
+
+        // Fix: Handle null value from map correctly
+        Object cityObj = query.data.get("city");
+        String city = (cityObj != null) ? cityObj.toString() : "Hà Nội";
 
         try {
             // 1. Lấy thời tiết
@@ -716,6 +724,7 @@ public class AIChat {
             return query;
 
         } catch (Exception e) {
+            e.printStackTrace();
             query.message = "Không thể lấy dữ liệu thời tiết lúc này.";
             query.data.clear();
             return query;
@@ -879,28 +888,54 @@ public class AIChat {
         boolean isBookingRequest = query.bookingDate != null || !query.slotList.isEmpty() || !"ALL".equals(query.pitchType);
 
         if (isBookingRequest && query.data.get("action") == null) {
+            // 🔍 Detect environment keywords in user input
+            PitchEnvironment requestedEnvironment = detectEnvironmentFromInput(userInput);
+
             List<PitchResponseDTO> matchedPitches = allPitches.stream()
                     .filter(p -> {
-                        if ("ALL".equals(query.pitchType)) return true;
-                        return p.getType().name().equalsIgnoreCase(query.pitchType);
+                        // Filter by pitch type
+                        if (!"ALL".equals(query.pitchType)) {
+                            if (!p.getType().name().equalsIgnoreCase(query.pitchType)) {
+                                return false;
+                            }
+                        }
+
+                        // 🆕 Filter by environment if specified
+                        if (requestedEnvironment != null) {
+                            return p.getEnvironment() == requestedEnvironment;
+                        }
+
+                        return true;
                     })
                     .collect(Collectors.toList());
 
             query.data.put("matchedPitches", matchedPitches);
 
             if (matchedPitches.isEmpty()) {
-                query.message = "Rất tiếc, tôi không tìm thấy sân " + formatPitchType(query.pitchType) + " nào phù hợp trong hệ thống.";
+                String envMsg = requestedEnvironment != null
+                        ? " " + formatEnvironment(requestedEnvironment)
+                        : "";
+                query.message = String.format(
+                        "Rất tiếc, tôi không tìm thấy sân%s %s nào phù hợp trong hệ thống.",
+                        envMsg,
+                        formatPitchType(query.pitchType)
+                );
             } else {
-                // Nếu AI không tự sinh message (null), ta tự tạo message phản hồi
                 if (query.message == null || query.message.isEmpty()) {
                     String dateStr = query.bookingDate != null ? " ngày " + query.bookingDate : "";
                     String timeStr = !query.slotList.isEmpty() ? " khung giờ " + query.slotList : "";
+                    String envStr = requestedEnvironment != null
+                            ? " " + formatEnvironment(requestedEnvironment)
+                            : "";
 
-                    query.message = String.format("Đã tìm thấy %d sân %s phù hợp%s%s. Bạn xem danh sách bên dưới nhé 👇",
+                    query.message = String.format(
+                            "Đã tìm thấy %d sân%s %s phù hợp%s%s. Bạn xem danh sách bên dưới nhé 👇",
                             matchedPitches.size(),
+                            envStr,
                             formatPitchType(query.pitchType),
                             dateStr,
-                            timeStr);
+                            timeStr
+                    );
                 }
             }
         }
@@ -908,6 +943,45 @@ public class AIChat {
         processSpecialCases(userInput, sessionId, query, allPitches);
 
         return query;
+    }
+
+    private PitchEnvironment detectEnvironmentFromInput(String userInput) {
+        if (userInput == null) return null;
+
+        String input = userInput.toLowerCase();
+
+        // Keywords for OUTDOOR
+        if (input.contains("ngoài trời") ||
+                input.contains("ngoai troi") ||
+                input.contains("outdoor") ||
+                input.contains("ngoài") ||
+                input.contains("bên ngoài")) {
+            return PitchEnvironment.OUTDOOR;
+        }
+
+        // Keywords for INDOOR
+        if (input.contains("trong nhà") ||
+                input.contains("trong nha") ||
+                input.contains("indoor") ||
+                input.contains("trong") ||
+                input.contains("có mái") ||
+                input.contains("có mái che")) {
+            return PitchEnvironment.INDOOR;
+        }
+
+        return null; // No environment specified
+    }
+
+    /**
+     * Format environment for display
+     */
+    private String formatEnvironment(PitchEnvironment env) {
+        if (env == PitchEnvironment.INDOOR) {
+            return "trong nhà";
+        } else if (env == PitchEnvironment.OUTDOOR) {
+            return "ngoài trời";
+        }
+        return "";
     }
 
     private BookingQuery handlePitchCountByTypeQuestion() {
@@ -1164,6 +1238,19 @@ CẤU TRÚC JSON TRẢ VỀ:
     "quantity": 1
   }
 }
+
+            ❗️Lưu ý quan trọng:
+              - `pitchType`: Loại sân (5, 7, 11 người)
+              - `environment`: 🆕 MÔI TRƯỜNG SÂN (NEW!)
+                + "INDOOR" nếu người dùng đề cập: "trong nhà", "indoor", "có mái", "có mái che"
+                + "OUTDOOR" nếu người dùng đề cập: "ngoài trời", "outdoor", "ngoài", "bên ngoài"
+                + null nếu không đề cập đến môi trường
+            
+              📍 VÍ DỤ VỀ ENVIRONMENT:
+              - "Cho tôi sân ngoài trời" → environment: "OUTDOOR"
+              - "Đặt sân trong nhà ngày mai" → environment: "INDOOR"
+              - "Sân 5 người hôm nay" → environment: null
+              - "Sân có mái che lúc 7h" → environment: "INDOOR"
 ❗️Lưu ý quan trọng:
   - `data`: Chỉ sử dụng khi người dùng hỏi về thời tiết hoặc sản phẩm. NẾU LÀ YÊU CẦU ĐẶT SÂN BÌNH THƯỜNG, HÃY ĐỂ data LÀ: {}
   - `bookingDate`: Chuỗi định dạng "yyyy-MM-dd". Nếu không phải yêu cầu đặt sân, để null.
@@ -1377,6 +1464,7 @@ CẤU TRÚC JSON TRẢ VỀ:
         public String pitchType;
         public String message;
         public Map<String, Object> data;
+        public String environment;
 
         @Override
         public String toString() {
@@ -1386,6 +1474,7 @@ CẤU TRÚC JSON TRẢ VỀ:
                     ", pitchType='" + pitchType + '\'' +
                     ", message='" + message + '\'' +
                     ", data=" + data +
+                    ",  environment='" + environment + '\'' +
                     '}';
         }
     }

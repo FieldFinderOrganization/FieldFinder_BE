@@ -137,4 +137,15 @@ public class UserController {
         userService.removeUserSession(sessionId);
         return ResponseEntity.ok("Session removed successfully.");
     }
+
+    // Get user by ID
+    @GetMapping("/{userId}")
+    public ResponseEntity<UserResponseDTO> getUserById(
+            @PathVariable UUID userId) {
+
+        UserResponseDTO user = userService.getUserById(userId);
+        return ResponseEntity.ok(user);
+    }
+
+
 }

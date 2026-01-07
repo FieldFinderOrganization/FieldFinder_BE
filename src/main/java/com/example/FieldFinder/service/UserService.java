@@ -26,6 +26,7 @@ public interface UserService {
     void registerUserSession(String sessionId, UUID userId);
 
     void removeUserSession(String sessionId);
+    UserResponseDTO getUserById(UUID userId);
 
 //    UserResponseDTO loginByEmailForTest(String email);
 }

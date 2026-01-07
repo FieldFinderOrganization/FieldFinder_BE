@@ -62,6 +62,7 @@ public class OrderServiceImpl implements OrderService {
                     .product(product)
                     .quantity(itemDTO.getQuantity())
                     .price(price)
+                    .size(itemDTO.getSize())
                     .build();
 
             orderItemsToSave.add(orderItem);
@@ -218,6 +219,7 @@ public class OrderServiceImpl implements OrderService {
                         .quantity(item.getQuantity())
                         .price(item.getPrice())
                         .imageUrl(item.getProduct().getImageUrl())
+                        .size(item.getSize())
                         .build())
                 .toList();
 

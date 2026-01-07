@@ -251,6 +251,18 @@ public class UserServiceImpl implements UserService {
         }
     }
 
+    @Override
+    public UserResponseDTO getUserById(UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() ->
+                        new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found")
+                );
+
+        return UserResponseDTO.toDto(user);
+    }
+
+
+
 //    @Override
 //    public UserResponseDTO loginByEmailForTest(String email) {
 //        User user = userRepository.findByEmail(email)
