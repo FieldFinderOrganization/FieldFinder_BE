@@ -8,6 +8,7 @@ import com.example.FieldFinder.dto.res.PaymentResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.mapper.BankBinMapper;
 import com.example.FieldFinder.repository.*;
+import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.PaymentService;
 import com.example.FieldFinder.service.ProductService;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final UserRepository userRepository;
     private final PayOSService payOSService;
     private final ProductService productService;
+    private final EmailService emailService;
 
     @Value("${front_end_url}")
     private String frontEndUrl;
@@ -263,6 +265,9 @@ public class PaymentServiceImpl implements PaymentService {
                                     );
                                 }
                             }
+
+                            System.out.println("📧 Sending confirmation email for Order #" + order.getOrderId());
+                            emailService.sendOrderConfirmation(order);
                         }
                     }
                 }
@@ -270,7 +275,7 @@ public class PaymentServiceImpl implements PaymentService {
                 System.out.println("❌ Payment Failed/Cancelled for TxID: " + transactionId);
 
                 if (!isAlreadyPaid) {
-                    payment.setPaymentStatus(Booking.PaymentStatus.PENDING); // Or FAILED
+                    payment.setPaymentStatus(Booking.PaymentStatus.PENDING);
 
                     if (booking != null) {
                         booking.setPaymentStatus(Booking.PaymentStatus.PENDING);

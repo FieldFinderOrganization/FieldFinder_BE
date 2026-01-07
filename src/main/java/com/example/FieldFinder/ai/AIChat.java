@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.LocalDate;
-import java.time.ZoneId; // Import thêm ZoneId
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -174,13 +174,7 @@ public class AIChat {
     }
 
     private String buildSystemPrompt(long totalPitches) {
-        // CẬP NHẬT QUAN TRỌNG: Sử dụng ZoneId Việt Nam để đảm bảo ngày giờ chính xác
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"));
-
-        // Log ra console để debug xem Server đang hiểu là ngày nào
-        System.out.println("🤖 AI Prompt Date Context (VN Time): Today=" + today +
-                ", Tomorrow=" + today.plusDays(1) +
-                ", NextDay=" + today.plusDays(2));
 
         return SYSTEM_INSTRUCTION
                 .replace("{{today}}", today.toString())
@@ -230,7 +224,6 @@ public class AIChat {
 
             ObjectNode rootNode = mapper.createObjectNode();
 
-            // System Prompt
             ObjectNode systemInstNode = rootNode.putObject("system_instruction");
             systemInstNode.putObject("parts").put("text", IMAGE_ANALYSIS_SYSTEM_PROMPT);
 
@@ -239,18 +232,16 @@ public class AIChat {
             userMessage.put("role", "user");
             ArrayNode parts = userMessage.putArray("parts");
 
-            // 1. Gửi Text yêu cầu
             parts.addObject().put("text", "Phân tích ảnh này và trích xuất Tags.");
 
             if (base64Image != null && !base64Image.isEmpty()) {
                 ObjectNode inlineData = parts.addObject().putObject("inline_data");
 
-                String mimeType = "image/jpeg"; // Mặc định
+                String mimeType = "image/jpeg";
                 String cleanBase64 = base64Image;
 
                 if (base64Image.contains(",")) {
                     String[] tokens = base64Image.split(",");
-                    // tokens[0] ví dụ: "data:image/png;base64"
                     if (tokens[0].contains("png")) {
                         mimeType = "image/png";
                     }
@@ -270,7 +261,7 @@ public class AIChat {
                     .build();
 
             try (Response response = client.newCall(request).execute()) {
-                if (!response.isSuccessful()) { /* ... xử lý lỗi ... */ }
+                if (!response.isSuccessful()) { /* ... */ }
 
                 String rawJson = extractGeminiResponse(response.body().string());
                 String cleanJson = cleanJson(rawJson);
@@ -355,8 +346,14 @@ public class AIChat {
 
     private void processSpecialCases(String userInput, String sessionId,
                                      BookingQuery query, List<PitchResponseDTO> allPitches) {
+
+        // --- SỬA LỖI QUAN TRỌNG ---
+        // Chỉ chạy logic tìm "Sân rẻ nhất" nếu câu hỏi thực sự nhắc đến "sân" hoặc "pitch".
+        // Điều này ngăn việc câu hỏi "Sản phẩm rẻ nhất" bị nhận diện nhầm là tìm sân.
+        boolean isPitchRequest = userInput.toLowerCase().contains("sân") || userInput.toLowerCase().contains("pitch");
+
         // Xử lý sân rẻ nhất/mắc nhất
-        if (query.message != null) {
+        if (query.message != null && isPitchRequest) {
             if (query.message.contains("giá rẻ nhất") || query.message.contains("giá mắc nhất")) {
                 PitchResponseDTO selectedPitch = findPitchByPrice(allPitches,
                         query.message.contains("giá rẻ nhất"));
@@ -368,7 +365,7 @@ public class AIChat {
             }
         }
 
-        // Xử lý "sân này" với fallback
+        // Xử lý "sân này" với fallback (Logic này đã check từ khóa 'sân này' nên an toàn)
         if (userInput.contains("sân này")) {
             PitchResponseDTO selectedPitch = sessionPitches.get(sessionId);
             if (selectedPitch == null) {
@@ -406,8 +403,6 @@ public class AIChat {
         String action = (String) query.data.get("action");
         String productName = (String) query.data.get("productName");
 
-        System.out.println("🤖 Handling Product Query: Action=" + action + ", SessionId=" + sessionId);
-
         ProductResponseDTO foundProduct = null;
 
         if ("list_on_sale".equals(action)) {
@@ -444,9 +439,6 @@ public class AIChat {
 
             if (p == null && sessionId != null) {
                 p = sessionLastProducts.get(sessionId);
-                if (p != null) {
-                    System.out.println("🔍 Context Check: Session " + sessionId + " -> Found: " + p.getName());
-                }
             }
 
             if (p != null) {
@@ -571,7 +563,6 @@ public class AIChat {
                     .orElse(null);
 
             if (foundProduct != null) {
-                // Nếu keyword là "Shoes" -> hiển thị "giày dép (Shoes)" cho thân thiện
                 String displayCat = categoryKeyword;
                 if ("Shoes".equalsIgnoreCase(categoryKeyword)) displayCat = "giày";
                 else if ("Clothing".equalsIgnoreCase(categoryKeyword)) displayCat = "quần áo";
@@ -587,10 +578,8 @@ public class AIChat {
             }
         }
         else if ("most_expensive_product".equals(action)) {
-            // Lấy từ khóa category từ AI
             String categoryKeyword = (String) query.data.get("categoryKeyword");
 
-            // Lọc danh sách
             List<ProductResponseDTO> targetProducts = filterProductsByCategoryOrName(products, categoryKeyword);
 
             foundProduct = targetProducts.stream()
@@ -598,7 +587,6 @@ public class AIChat {
                     .orElse(null);
 
             if (foundProduct != null) {
-                // Nếu keyword là "Shoes" -> hiển thị "giày dép (Shoes)" cho thân thiện
                 String displayCat = categoryKeyword;
                 if ("Shoes".equalsIgnoreCase(categoryKeyword)) displayCat = "giày";
                 else if ("Clothing".equalsIgnoreCase(categoryKeyword)) displayCat = "quần áo";
@@ -654,9 +642,6 @@ public class AIChat {
                 }
             }
 
-            System.out.println("🔍 Price Range Search: Min=" + minPrice + ", Max=" + maxPrice +
-                    ", Category=" + categoryKeyword);
-
             List<ProductResponseDTO> targetProducts = products;
             if (categoryKeyword != null && !categoryKeyword.isEmpty()) {
                 targetProducts = filterProductsByCategoryOrName(products, categoryKeyword);
@@ -667,12 +652,10 @@ public class AIChat {
 
             List<ProductResponseDTO> filteredProducts = targetProducts.stream()
                     .filter(p -> {
-                        // LOGIC MỚI: Tính giá thực tế (Nếu có Sale thì lấy giá Sale, không thì lấy giá gốc)
                         double effectivePrice = p.getPrice();
                         if (p.getSalePercent() != null && p.getSalePercent() > 0 && p.getSalePrice() != null) {
                             effectivePrice = p.getSalePrice();
                         }
-
                         return effectivePrice >= finalMinPrice && effectivePrice <= finalMaxPrice;
                     })
                     .sorted(Comparator.comparing(p -> {
@@ -736,7 +719,6 @@ public class AIChat {
             }
 
             query.data.put("showImage", shouldShowImage);
-            System.out.println("🖼️ ShowImage Flag: " + shouldShowImage + " (Action: " + action + ")");
         }
 
         return query;
@@ -757,7 +739,6 @@ public class AIChat {
             return products;
         }
 
-        // Chuẩn hóa từ khóa tìm kiếm
         String finalKeyword = keyword.toLowerCase().trim();
 
         return products.stream()
@@ -766,7 +747,6 @@ public class AIChat {
     }
 
     private boolean isProductMatchingKeyword(ProductResponseDTO p, String keyword) {
-        // 1. Chuẩn hóa dữ liệu
         String pName = (p.getName() != null) ? p.getName().toLowerCase() : "";
         String pCat = (p.getCategoryName() != null) ? p.getCategoryName().toLowerCase() : "";
 
@@ -777,41 +757,28 @@ public class AIChat {
                     .collect(Collectors.joining(" "));
         }
 
-        // 2. CHECK TRỰC TIẾP (Ưu tiên cao nhất)
         if (pName.contains(keyword) || pCat.contains(keyword)) {
-            // Lưu ý: Bỏ check pTags ở đây để tránh nhiễu, chỉ check Name và Category trước
             return true;
         }
 
-        // 3. CHECK THEO NHÓM
-
-        // === NHÓM PHỤ KIỆN (Accessories) - SỬA LẠI ===
         if (keyword.equals("accessories") || keyword.contains("phụ kiện")) {
-
-            // 🚨 QUAN TRỌNG: LOẠI TRỪ QUẦN ÁO & GIÀY DÉP
-            // Nếu Category chứa từ khóa quần áo/giày -> RETURN FALSE NGAY (trừ khi là tất/vớ)
             if (pCat.contains("clothing") || pCat.contains("shirt") || pCat.contains("pant") ||
                     pCat.contains("jacket") || pCat.contains("hoodie") || pCat.contains("dress") ||
                     pCat.contains("shoes") || pCat.contains("footwear") || pCat.contains("sneaker")) {
-
-                // Ngoại lệ: Nếu là Tất (Socks) thì vẫn tính là phụ kiện dù có thể bị lẫn
                 if (!pCat.contains("sock")) {
                     return false;
                 }
             }
-
-            // Logic cũ: Tìm từ khóa phụ kiện
             if (pCat.contains("accessories") || pCat.contains("phụ kiện")) return true;
 
             boolean isBag = pName.contains("bag") || pName.contains("túi") || pTags.contains("túi");
-            boolean isHat = pName.contains("hat") || pName.contains("nón") || pName.contains("mũ") || pTags.contains("mũ"); // Chỉ check mũ trong tags nếu category ko phải quần áo (đã chặn ở trên)
+            boolean isHat = pName.contains("hat") || pName.contains("nón") || pName.contains("mũ") || pTags.contains("mũ");
             boolean isSock = pName.contains("sock") || pName.contains("tất") || pName.contains("vớ");
             boolean isGlove = pName.contains("glove") || pName.contains("găng");
 
             return isBag || isHat || isSock || isGlove;
         }
 
-        // === NHÓM TÚI / BALO ===
         if (keyword.equals("bags and backpacks") || keyword.contains("bag") || keyword.contains("túi")) {
             return pName.contains("bag") || pName.contains("túi") || pName.contains("balo") ||
                     pName.contains("backpack") ||
@@ -819,13 +786,11 @@ public class AIChat {
                     pTags.contains("túi") || pTags.contains("balo");
         }
 
-        // === NHÓM GIÀY ===
         if (keyword.equals("shoes") || keyword.equals("footwear") || keyword.contains("giày")) {
             return pName.contains("shoe") || pName.contains("giày") || pName.contains("sneaker") ||
                     pCat.contains("shoe") || pCat.contains("footwear");
         }
 
-        // === NHÓM QUẦN ÁO ===
         if (keyword.equals("clothing") || keyword.contains("quần áo") || keyword.contains("đồ")) {
             return pName.contains("shirt") || pName.contains("áo") ||
                     pName.contains("pant") || pName.contains("quần") ||
@@ -833,12 +798,7 @@ public class AIChat {
                     pCat.contains("clothing") || pCat.contains("wear");
         }
 
-        // Check tags cuối cùng (fallback) nếu chưa match ở trên
         return pTags.contains(keyword);
-    }
-
-    private boolean capCheck(String text) {
-        return text.contains(" cap ") || text.endsWith(" cap") || text.startsWith("cap ");
     }
 
     private String formatMoney(Double amount) {
@@ -855,7 +815,6 @@ public class AIChat {
 
         try {
             String weather = weatherService.getCurrentWeather(city);
-
             PitchEnvironment env = suggestEnvironmentByWeather(weather);
 
             List<PitchResponseDTO> suggestedPitches =
@@ -890,9 +849,7 @@ public class AIChat {
 
     @SuppressWarnings("unchecked")
     private BookingQuery handleRecommendByActivity(BookingQuery query, String sessionId) {
-
         UUID userId = userService.getUserIdBySession(sessionId);
-
         String activity = (String) query.data.get("activity");
         List<String> tags = (List<String>) query.data.get("tags");
         List<String> aiCategories = (List<String>) query.data.get("suggestedCategories");
@@ -910,16 +867,10 @@ public class AIChat {
                 String.join(" ", tags)
         );
 
-        List<ProductResponseDTO> results =
-                productService.findProductsByVector(description);
-
-        List<String> resolvedCategories =
-                CategoryMapper.resolveCategories(activity, aiCategories);
+        List<ProductResponseDTO> results = productService.findProductsByVector(description);
+        List<String> resolvedCategories = CategoryMapper.resolveCategories(activity, aiCategories);
 
         if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
-
-            System.out.println("⚠️ Vector empty. Fallback DB categories: " + resolvedCategories);
-
             results = productService.getAllProducts(userId).stream()
                     .filter(p -> p.getCategoryName() != null &&
                             resolvedCategories.contains(p.getCategoryName()))
@@ -936,17 +887,12 @@ public class AIChat {
             return query;
         }
 
-        query.message = String.format(
-                "Với hoạt động **%s**, bạn có thể tham khảo các sản phẩm sau 👇",
-                activity
-        );
+        query.message = String.format("Với hoạt động **%s**, bạn có thể tham khảo các sản phẩm sau 👇", activity);
 
         Map<String, List<Map<String, Object>>> groupedProducts = new LinkedHashMap<>();
 
         for (ProductResponseDTO p : results) {
-
             Map<String, Object> item = new HashMap<>();
-
             item.put("product", p);
 
             Map<String, Object> facts = new HashMap<>();
@@ -962,22 +908,13 @@ public class AIChat {
 
             item.put("facts", facts);
 
-            String categoryKey = p.getCategoryName() != null
-                    ? p.getCategoryName()
-                    : "OTHER";
-
-            groupedProducts
-                    .computeIfAbsent(categoryKey, k -> new ArrayList<>())
-                    .add(item);
+            String categoryKey = p.getCategoryName() != null ? p.getCategoryName() : "OTHER";
+            groupedProducts.computeIfAbsent(categoryKey, k -> new ArrayList<>()).add(item);
         }
 
         query.data.put("groupedProducts", groupedProducts);
         query.data.put("products", results);
-        query.data.put("explainContext", Map.of(
-                "style", "sales_consultant",
-                "maxReasonLength", 25
-        ));
-
+        query.data.put("explainContext", Map.of("style", "sales_consultant", "maxReasonLength", 25));
         query.data.put("action", "recommend_by_activity");
         query.data.put("showImage", true);
 
@@ -995,11 +932,8 @@ public class AIChat {
         }
 
         List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
-
         String finalPrompt = buildSystemPrompt(allPitches.size());
-
         String cleanJson = callGeminiAPI(userInput, finalPrompt);
-
         BookingQuery query = parseAIResponse(cleanJson);
 
         if (query.data != null && query.data.containsKey("action")) {
@@ -1008,7 +942,6 @@ public class AIChat {
 
             if (action == null) {
                 if (productName != null && !productName.isEmpty()) {
-                    System.out.println("⚠️ Action is null but Product Name found. Defaulting to 'check_stock'");
                     action = "check_stock";
                     query.data.put("action", "check_stock");
                 } else {
@@ -1026,7 +959,9 @@ public class AIChat {
                     action.contains("sales") || action.contains("sale") ||
                     action.contains("size") || action.contains("order") ||
                     action.contains("price") ||
-                    "search_by_price_range".equals(action)) {
+                    "search_by_price_range".equals(action) ||
+                    "cheapest_product".equals(action) ||
+                    "most_expensive_product".equals(action)) {
 
                 return handleProductQuery(query, userInput, sessionId);
             }
@@ -1044,11 +979,9 @@ public class AIChat {
                                 return false;
                             }
                         }
-
                         if (requestedEnvironment != null) {
                             return p.getEnvironment() == requestedEnvironment;
                         }
-
                         return true;
                     })
                     .collect(Collectors.toList());
@@ -1056,68 +989,33 @@ public class AIChat {
             query.data.put("matchedPitches", matchedPitches);
 
             if (matchedPitches.isEmpty()) {
-                String envMsg = requestedEnvironment != null
-                        ? " " + formatEnvironment(requestedEnvironment)
-                        : "";
-                query.message = String.format(
-                        "Rất tiếc, tôi không tìm thấy sân%s %s nào phù hợp trong hệ thống.",
-                        envMsg,
-                        formatPitchType(query.pitchType)
-                );
+                String envMsg = requestedEnvironment != null ? " " + formatEnvironment(requestedEnvironment) : "";
+                query.message = String.format("Rất tiếc, tôi không tìm thấy sân%s %s nào phù hợp trong hệ thống.", envMsg, formatPitchType(query.pitchType));
             } else {
                 if (query.message == null || query.message.isEmpty()) {
                     String dateStr = query.bookingDate != null ? " ngày " + query.bookingDate : "";
                     String timeStr = !query.slotList.isEmpty() ? " khung giờ " + query.slotList : "";
-                    String envStr = requestedEnvironment != null
-                            ? " " + formatEnvironment(requestedEnvironment)
-                            : "";
-
-                    query.message = String.format(
-                            "Đã tìm thấy %d sân%s %s phù hợp%s%s. Bạn xem danh sách bên dưới nhé 👇",
-                            matchedPitches.size(),
-                            envStr,
-                            formatPitchType(query.pitchType),
-                            dateStr,
-                            timeStr
-                    );
+                    String envStr = requestedEnvironment != null ? " " + formatEnvironment(requestedEnvironment) : "";
+                    query.message = String.format("Đã tìm thấy %d sân%s %s phù hợp%s%s. Bạn xem danh sách bên dưới nhé 👇", matchedPitches.size(), envStr, formatPitchType(query.pitchType), dateStr, timeStr);
                 }
             }
         }
 
         processSpecialCases(userInput, sessionId, query, allPitches);
-
         return query;
     }
 
     private PitchEnvironment detectEnvironmentFromInput(String userInput) {
         if (userInput == null) return null;
-
         String input = userInput.toLowerCase();
-
-        if (input.contains("ngoài trời") ||
-                input.contains("ngoai troi") ||
-                input.contains("outdoor") ||
-                input.contains("ngoài") ||
-                input.contains("bên ngoài")) {
-            return PitchEnvironment.OUTDOOR;
-        }
-
-        if (input.contains("trong nhà") ||
-                input.contains("trong nha") ||
-                input.contains("indoor") ||
-                input.contains("trong") ||
-                input.contains("có mái") ||
-                input.contains("có mái che")) {
-            return PitchEnvironment.INDOOR;
-        }
-
+        if (input.contains("ngoài trời") || input.contains("ngoai troi") || input.contains("outdoor") || input.contains("ngoài") || input.contains("bên ngoài")) return PitchEnvironment.OUTDOOR;
+        if (input.contains("trong nhà") || input.contains("trong nha") || input.contains("indoor") || input.contains("trong") || input.contains("có mái") || input.contains("có mái che")) return PitchEnvironment.INDOOR;
         return null;
     }
 
     private String translateCategory(String categoryKeyword) {
         if (categoryKeyword == null) return "";
         String key = categoryKeyword.toLowerCase().trim();
-
         if (key.contains("tennis accessories")) return "phụ kiện tennis";
         if (key.contains("running shoes")) return "giày chạy bộ";
         if (key.contains("football shoes")) return "giày đá bóng";
@@ -1125,131 +1023,29 @@ public class AIChat {
         if (key.contains("tennis shoes")) return "giày tennis";
 
         switch (key) {
-            case "shoes":
-            case "footwear":
-                return "giày dép";
-            case "clothing":
-                return "quần áo";
-            case "accessories":
-                return "phụ kiện";
-            case "hats and headwears":
-                return "nón/mũ";
-            case "socks":
-                return "tất/vớ";
-            case "gloves":
-                return "găng tay";
-            case "bags and backpacks":
-                return "túi/balo";
-            case "jackets and gilets":
-                return "áo khoác";
-            case "hoodies and sweatshirts":
-                return "áo hoodie";
-            case "pants and leggings":
-                return "quần dài";
-            case "shorts":
-                return "quần đùi";
-            case "tops and t-shirts":
-                return "áo thun";
-            case "gym and training":
-                return "đồ tập gym";
-            case "sandals and slides":
-                return "dép/sandal";
-            default:
-                return categoryKeyword;
+            case "shoes": case "footwear": return "giày dép";
+            case "clothing": return "quần áo";
+            case "accessories": return "phụ kiện";
+            case "hats and headwears": return "nón/mũ";
+            case "socks": return "tất/vớ";
+            case "gloves": return "găng tay";
+            case "bags and backpacks": return "túi/balo";
+            case "jackets and gilets": return "áo khoác";
+            case "hoodies and sweatshirts": return "áo hoodie";
+            case "pants and leggings": return "quần dài";
+            case "shorts": return "quần đùi";
+            case "tops and t-shirts": return "áo thun";
+            case "gym and training": return "đồ tập gym";
+            case "sandals and slides": return "dép/sandal";
+            default: return categoryKeyword;
         }
     }
 
     private String formatEnvironment(PitchEnvironment env) {
-        if (env == PitchEnvironment.INDOOR) {
-            return "trong nhà";
-        } else if (env == PitchEnvironment.OUTDOOR) {
-            return "ngoài trời";
-        }
+        if (env == PitchEnvironment.INDOOR) return "trong nhà";
+        else if (env == PitchEnvironment.OUTDOOR) return "ngoài trời";
         return "";
     }
-
-//    private BookingQuery handlePitchCountByTypeQuestion() {
-//        List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
-//
-//        Map<String, Long> pitchCounts = allPitches.stream()
-//                .collect(Collectors.groupingBy(
-//                        p -> p.getType().name(),
-//                        Collectors.counting()
-//                ));
-//
-//        // Tạo thông điệp trả về - CHỈ MỘT DÒNG DUY NHẤT
-//        StringBuilder message = new StringBuilder("Số lượng sân theo loại: ");
-//
-//        // Sắp xếp các loại sân theo thứ tự: 5, 7, 11
-//        List<Map.Entry<String, Long>> sortedEntries = new ArrayList<>(pitchCounts.entrySet());
-//        sortedEntries.sort(Comparator.comparing(entry -> {
-//            String type = entry.getKey();
-//            if ("FIVE_A_SIDE".equals(type)) return 1;
-//            if ("SEVEN_A_SIDE".equals(type)) return 2;
-//            if ("ELEVEN_A_SIDE".equals(type)) return 3;
-//            return 4;
-//        }));
-//
-//        // Tạo danh sách các phần tử đã định dạng
-//        List<String> parts = new ArrayList<>();
-//        for (Map.Entry<String, Long> entry : sortedEntries) {
-//            String typeName = formatPitchType(entry.getKey());
-//            parts.add(typeName + ": " + entry.getValue() + " sân");
-//        }
-//
-//        // Ghép các phần tử thành một chuỗi duy nhất
-//        message.append(String.join(", ", parts));
-//
-//        // Tạo response
-//        BookingQuery query = new BookingQuery();
-//        query.message = message.toString(); // CHỈ TRẢ VỀ MỘT CHUỖI
-//        query.bookingDate = null;
-//        query.slotList = new ArrayList<>();
-//        query.pitchType = "ALL";
-//        query.data = new HashMap<>();
-//
-//        return query;
-//    }
-
-//    private BookingQuery handlePitchTypesQuestion() {
-//        List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
-//
-//        // Lấy tất cả các loại sân duy nhất
-//        Set<String> pitchTypes = allPitches.stream()
-//                .map(p -> p.getType().name())
-//                .collect(Collectors.toSet());
-//
-//        // Tạo message trả về
-//        String message;
-//        if (pitchTypes.isEmpty()) {
-//            message = "Hiện không có sân nào trong hệ thống";
-//        } else {
-//            List<String> typeNames = pitchTypes.stream()
-//                    .sorted()
-//                    .map(this::formatPitchType)
-//                    .collect(Collectors.toList());
-//
-//            message = "Hệ thống có " + pitchTypes.size() + " loại sân: " +
-//                    String.join(", ", typeNames);
-//        }
-//
-//        BookingQuery query = new BookingQuery();
-//        query.message = message;
-//        query.bookingDate = null;
-//        query.slotList = new ArrayList<>();
-//        query.pitchType = "ALL";
-//        query.data = new HashMap<>();
-//
-//        return query;
-//    }
-//
-//    private boolean isPitchCountByTypeQuestion(String input) {
-//        String lowerInput = input.toLowerCase();
-//        return lowerInput.contains("số sân mỗi loại") ||
-//                lowerInput.contains("số lượng sân theo loại") ||
-//                lowerInput.contains("mỗi loại sân có bao nhiêu") ||
-//                lowerInput.contains("bao nhiêu sân mỗi loại");
-//    }
 
     private String formatPitchType(String type) {
         if (type.equals("FIVE_A_SIDE")) return "sân 5";
@@ -1257,29 +1053,6 @@ public class AIChat {
         if (type.equals("ELEVEN_A_SIDE")) return "sân 11";
         return type;
     }
-
-//    private boolean isPitchTypesQuestion(String input) {
-//        String lowerInput = input.toLowerCase();
-//        return lowerInput.contains("loại sân") ||
-//                lowerInput.contains("có bao nhiêu loại") ||
-//                lowerInput.contains("các loại sân");
-//    }
-//
-//    private boolean isTotalPitchesQuestion(String input) {
-//        String lowerInput = input.toLowerCase();
-//        return lowerInput.contains("tổng số sân") ||
-//                lowerInput.contains("bao nhiêu sân") ||
-//                lowerInput.contains("có bao nhiêu sân");
-//    }
-//
-//    private BookingQuery createBasicResponse(String message) {
-//        BookingQuery query = new BookingQuery();
-//        query.message = message;
-//        query.slotList = new ArrayList<>();
-//        query.pitchType = "ALL";
-//        query.data = new HashMap<>();
-//        return query;
-//    }
 
     private boolean isGreeting(String s) { return s.toLowerCase().matches(".*(xin chào|chào|hello).*"); }
 
@@ -1305,13 +1078,10 @@ public class AIChat {
     public List<String> generateTagsForProduct(String imageUrl) {
         try {
             waitIfNeeded();
-
             String base64Image = downloadImageAsBase64(imageUrl);
             if (base64Image == null) return new ArrayList<>();
 
             ObjectNode rootNode = mapper.createObjectNode();
-
-            // Set System Prompt
             ObjectNode systemInstNode = rootNode.putObject("system_instruction");
             systemInstNode.putObject("parts").put("text", DATA_ENRICHMENT_SYSTEM_PROMPT);
 
@@ -1319,16 +1089,14 @@ public class AIChat {
             ObjectNode userMessage = contentsArray.addObject();
             userMessage.put("role", "user");
             ArrayNode parts = userMessage.putArray("parts");
-
             parts.addObject().put("text", "Hãy sinh tags cho sản phẩm này.");
 
-            // Gửi ảnh Base64
             ObjectNode inlineData = parts.addObject().putObject("inline_data");
             inlineData.put("mime_type", "image/jpeg");
             inlineData.put("data", base64Image);
 
             ObjectNode generationConfig = rootNode.putObject("generationConfig");
-            generationConfig.put("temperature", 0.1); // Cần chính xác, ít sáng tạo
+            generationConfig.put("temperature", 0.1);
             generationConfig.put("response_mime_type", "application/json");
 
             Request request = new Request.Builder()
@@ -1338,14 +1106,11 @@ public class AIChat {
 
             try (Response response = client.newCall(request).execute()) {
                 if (!response.isSuccessful()) return new ArrayList<>();
-
                 String jsonRes = cleanJson(extractGeminiResponse(response.body().string()));
                 JsonNode root = mapper.readTree(jsonRes);
-
                 List<String> tags = mapper.convertValue(root.path("tags"), new TypeReference<List<String>>(){});
-                return sanitizeTags(tags); // Làm sạch trước khi trả về
+                return sanitizeTags(tags);
             }
-
         } catch (Exception e) {
             e.printStackTrace();
             return new ArrayList<>();
@@ -1354,17 +1119,10 @@ public class AIChat {
 
     private PitchEnvironment suggestEnvironmentByWeather(String weather) {
         String w = weather.toLowerCase();
-
-        if (w.contains("mưa") || w.contains("rain")
-                || w.contains("storm") || w.contains("bão")
-                || w.contains("ẩm")) {
-            return PitchEnvironment.INDOOR;
-        }
+        if (w.contains("mưa") || w.contains("rain") || w.contains("storm") || w.contains("bão") || w.contains("ẩm")) return PitchEnvironment.INDOOR;
         return PitchEnvironment.OUTDOOR;
     }
 
-
-    // 3. HÀM HELPER: Tải ảnh từ URL về và convert sang Base64
     private String downloadImageAsBase64(String imageUrl) {
         try {
             Request request = new Request.Builder().url(imageUrl).build();
@@ -1507,11 +1265,12 @@ CẤU TRÚC JSON TRẢ VỀ:
      - `data`: {"totalPitches": {{totalPitches}}}
      - `message`: "Hệ thống hiện có {{totalPitches}} sân bóng."
   4. Hỏi sân rẻ nhất (ví dụ: "Sân nào có giá rẻ nhất?"):
-     - `data`: {}
-     - `message`: "Tôi sẽ tìm sân có giá rẻ nhất."
+     - **CHỈ KHI NGƯỜI DÙNG NHẮC ĐẾN TỪ 'SÂN' HOẶC 'PITCH'**
+     - data: {}
+     - message: "Tôi sẽ tìm sân có giá rẻ nhất."
   5. Hỏi sân mắc nhất (ví dụ: "Sân nào có giá mắc nhất?"):
-     - `data`: {}
-     - `message`: "Tôi sẽ tìm sân có giá mắc nhất."
+     - data: {}
+     - message: "Tôi sẽ tìm sân có giá mắc nhất."
   6. Hỏi số sân theo loại (ví dụ: "Mỗi loại sân có bao nhiêu sân?"):
      - `data`: {"pitchCounts": {"FIVE_A_SIDE": {{fiveASideCount}}, "SEVEN_A_SIDE": {{sevenASideCount}}, "ELEVEN_A_SIDE": {{elevenASideCount}}}}
      - `message`: "Số lượng sân theo loại: sân 5 người: {{fiveASideCount}} sân, sân 7 người: {{sevenASideCount}} sân, sân 11 người: {{elevenASideCount}} sân."
@@ -1526,6 +1285,10 @@ CẤU TRÚC JSON TRẢ VỀ:
   9. Xử lý câu hỏi về giá (Rẻ nhất / Mắc nhất):\\n" +
      - Action: \\"cheapest_product\\" hoặc \\"most_expensive_product\\"\\n" +
      - Data: { \\"categoryKeyword\\": \\"EXACT_CATEGORY_NAME_IN_DB\\" }\\n" +
+            
+       ⚠️ QUY TẮC PHÂN BIỆT SÂN VS SẢN PHẨM:\\n" +
+       - Nếu câu hỏi chứa từ 'sản phẩm', 'đồ', 'giày', 'áo', 'quần', 'vợt', 'túi'... -> LÀ HỎI VỀ SẢN PHẨM.\\n" +
+       - Nếu câu hỏi chứa từ 'sân', 'sân bóng', 'đá banh'... -> LÀ HỎI VỀ SÂN.\\n" +
             
        ⚠️ BẢNG MAPPING TỪ KHÓA (Dựa trên Database):\\n" +
             
