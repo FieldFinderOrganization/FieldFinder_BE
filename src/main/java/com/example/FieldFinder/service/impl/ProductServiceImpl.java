@@ -53,39 +53,43 @@ public class ProductServiceImpl implements ProductService {
         }
 
         // 2. Implicit (Theo Category)
-        List<Long> categoryIds = new ArrayList<>();
-        Category current = product.getCategory();
-        while (current != null) {
-            categoryIds.add(current.getCategoryId());
-            current = current.getParent();
-        }
+        if (product.getCategory() != null) {
+            List<Long> categoryIds = new ArrayList<>();
+            Category current = product.getCategory();
+            while (current != null) {
+                categoryIds.add(current.getCategoryId());
+                current = current.getParent();
+            }
 
-        List<Discount> implicitDiscounts = discountRepository.findApplicableDiscountsForProduct(
-                product.getProductId(),
-                categoryIds
-        );
+            if (!categoryIds.isEmpty()) {
+                List<Discount> implicitDiscounts = discountRepository.findApplicableDiscountsForProduct(
+                        product.getProductId(),
+                        categoryIds
+                );
 
-        // Merge vào list chính (tránh trùng lặp ID)
-        Set<UUID> existingIds = publicDiscounts.stream()
-                .map(Discount::getDiscountId)
-                .collect(Collectors.toSet());
+                // Merge vào list chính (tránh trùng lặp ID)
+                Set<UUID> existingIds = publicDiscounts.stream()
+                        .map(Discount::getDiscountId)
+                        .collect(Collectors.toSet());
 
-        for (Discount d : implicitDiscounts) {
-            if (!existingIds.contains(d.getDiscountId())) {
-                publicDiscounts.add(d);
+                for (Discount d : implicitDiscounts) {
+                    if (!existingIds.contains(d.getDiscountId())) {
+                        publicDiscounts.add(d);
+                    }
+                }
             }
         }
         return publicDiscounts;
     }
 
     // --- HELPER: Logic tính giá (cho danh sách products) ---
-    private void calculateAndSetUserPrice(Product product, UUID userId) {
+    // SỬA ĐỔI: Nhận usedDiscountIds thay vì userId để tránh query nhiều lần
+    private void calculateAndSetUserPrice(Product product, List<UUID> usedDiscountIds) {
         // 1. Lấy mã công khai
         List<Discount> allDiscounts = getPublicDiscounts(product);
 
-        // 2. Lọc mã đã dùng (nếu có user)
-        if (userId != null) {
-            List<UUID> usedDiscountIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
+        // 2. Lọc mã đã dùng
+        if (usedDiscountIds != null && !usedDiscountIds.isEmpty()) {
             allDiscounts.removeIf(d -> usedDiscountIds.contains(d.getDiscountId()));
         }
 
@@ -93,9 +97,10 @@ public class ProductServiceImpl implements ProductService {
         product.calculateSalePriceForUser(allDiscounts);
     }
 
-    private ProductResponseDTO mapToResponse(Product product, UUID userId) {
+    // SỬA ĐỔI: Nhận usedDiscountIds
+    private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds) {
         if (product == null) return null;
-        calculateAndSetUserPrice(product, userId);
+        calculateAndSetUserPrice(product, usedDiscountIds);
         ProductResponseDTO dto = ProductResponseDTO.fromEntity(product);
         dto.setSalePrice(product.getSalePrice());
         dto.setSalePercent(product.getOnSalePercent());
@@ -142,7 +147,8 @@ public class ProductServiceImpl implements ProductService {
             new Thread(() -> enrichSingleProduct(product.getProductId(), product.getImageUrl())).start();
         }
 
-        return mapToResponse(product, null);
+        // Khi tạo mới chưa có user context, truyền list rỗng
+        return mapToResponse(product, Collections.emptyList());
     }
 
     @Override
@@ -150,15 +156,26 @@ public class ProductServiceImpl implements ProductService {
     public ProductResponseDTO getProductById(Long id, UUID userId) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found!"));
-        return mapToResponse(product, userId);
+
+        // Lấy danh sách mã đã dùng của user này
+        List<UUID> usedDiscountIds = (userId != null)
+                ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
+                : Collections.emptyList();
+
+        return mapToResponse(product, usedDiscountIds);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<ProductResponseDTO> getAllProducts(UUID userId) {
+        // OPTIMIZATION: Lấy danh sách mã đã dùng 1 lần duy nhất
+        List<UUID> usedDiscountIds = (userId != null)
+                ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
+                : Collections.emptyList();
+
         return productRepository.findAll()
                 .stream()
-                .map(p -> mapToResponse(p, userId))
+                .map(p -> mapToResponse(p, usedDiscountIds))
                 .collect(Collectors.toList());
     }
 
@@ -218,7 +235,7 @@ public class ProductServiceImpl implements ProductService {
             new Thread(() -> enrichSingleProduct(product.getProductId(), request.getImageUrl())).start();
         }
 
-        return getProductById(id, null);
+        return mapToResponse(product, Collections.emptyList());
     }
 
     @Override
@@ -268,19 +285,30 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     public List<ProductResponseDTO> getTopSellingProducts(int limit, UUID userId) {
         Pageable pageable = PageRequest.of(0, limit);
+
+        // OPTIMIZATION: Lấy danh sách mã đã dùng
+        List<UUID> usedDiscountIds = (userId != null)
+                ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
+                : Collections.emptyList();
+
         return productRepository.findTopSellingProducts(pageable)
                 .stream()
-                .map(p -> mapToResponse(p, userId))
+                .map(p -> mapToResponse(p, usedDiscountIds))
                 .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<ProductResponseDTO> findProductsByCategories(List<String> categories, UUID userId) {
+        // OPTIMIZATION: Lấy danh sách mã đã dùng
+        List<UUID> usedDiscountIds = (userId != null)
+                ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
+                : Collections.emptyList();
+
         return productRepository.findAll().stream()
                 .filter(p -> p.getCategory() != null && categories.contains(p.getCategory().getName()))
                 .limit(12)
-                .map(p -> mapToResponse(p, userId))
+                .map(p -> mapToResponse(p, usedDiscountIds))
                 .collect(Collectors.toList());
     }
 
@@ -295,7 +323,7 @@ public class ProductServiceImpl implements ProductService {
         return candidates.stream()
                 .filter(p -> isValidCategory(p, majorCategory))
                 .sorted((p1, p2) -> Long.compare(calculateScore(p2, lowerKeywords), calculateScore(p1, lowerKeywords)))
-                .map(p -> mapToResponse(p, null))
+                .map(p -> mapToResponse(p, Collections.emptyList())) // Search ảnh chưa support user specific price để tối ưu tốc độ
                 .collect(Collectors.toList());
     }
 
@@ -386,7 +414,7 @@ public class ProductServiceImpl implements ProductService {
                 .filter(entry -> entry.getValue() > 0.6)
                 .sorted((e1, e2) -> Double.compare(e2.getValue(), e1.getValue()))
                 .limit(10)
-                .map(entry -> mapToResponse(entry.getKey(), null))
+                .map(entry -> mapToResponse(entry.getKey(), Collections.emptyList()))
                 .collect(Collectors.toList());
     }
 
@@ -394,7 +422,7 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     public ProductResponseDTO getProductByName(String productName) {
         List<Product> products = productRepository.findByKeywords(List.of(productName.toLowerCase()));
-        return products.isEmpty() ? null : mapToResponse(products.get(0), null);
+        return products.isEmpty() ? null : mapToResponse(products.get(0), Collections.emptyList());
     }
 
     private boolean isShoe(String text) { return text.contains("giày") || text.contains("shoe") || text.contains("sneaker"); }
@@ -415,34 +443,41 @@ public class ProductServiceImpl implements ProductService {
     }
 
     // --- LOGIC CHI TIẾT SẢN PHẨM (Bao gồm Private Discount) ---
-
     @Override
     @Transactional(readOnly = true)
     public ProductResponseDTO getProductDetail(Long productId, UUID userId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Sản phẩm không tồn tại!"));
 
-        // 1. Lấy danh sách giảm giá công khai (Dùng lại helper)
+        // 1. Lấy mã công khai (để áp dụng trước)
         List<Discount> allDiscounts = getPublicDiscounts(product);
-        Set<UUID> addedIds = allDiscounts.stream().map(Discount::getDiscountId).collect(Collectors.toSet());
 
-        // 2. Lấy danh sách giảm giá RIÊNG trong ví User (Logic riêng cho trang Detail)
         if (userId != null) {
+            // A. Lấy danh sách ID đã dùng
+            List<UUID> usedDiscountIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
+
+            // B. Loại bỏ mã công khai nếu đã dùng
+            allDiscounts.removeIf(d -> usedDiscountIds.contains(d.getDiscountId()));
+
+            // C. Lấy mã riêng trong ví (chưa dùng)
             List<UserDiscount> userWallet = userDiscountRepository.findByUser_UserIdAndIsUsedFalse(userId);
+            Set<UUID> addedIds = allDiscounts.stream().map(Discount::getDiscountId).collect(Collectors.toSet());
+
             for (UserDiscount ud : userWallet) {
                 Discount d = ud.getDiscount();
-                // Chỉ thêm nếu chưa có và áp dụng được cho sản phẩm
-                if (!addedIds.contains(d.getDiscountId()) && isApplicableToProduct(d, product)) {
+
+                // Chỉ thêm nếu:
+                // 1. Chưa có trong list hiện tại
+                // 2. Chưa bị dùng (được check qua usedIds cho chắc chắn)
+                // 3. Có thể áp dụng cho sản phẩm này
+                if (!addedIds.contains(d.getDiscountId())
+                        && !usedDiscountIds.contains(d.getDiscountId())
+                        && isApplicableToProduct(d, product)) {
+
                     allDiscounts.add(d);
                     addedIds.add(d.getDiscountId());
                 }
             }
-        }
-
-        // 3. Lọc bỏ các mã đã sử dụng (Check lịch sử dùng chung)
-        if (userId != null) {
-            List<UUID> usedIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
-            allDiscounts.removeIf(d -> usedIds.contains(d.getDiscountId()));
         }
 
         // 4. Tính giá
@@ -456,11 +491,22 @@ public class ProductServiceImpl implements ProductService {
         return dto;
     }
 
-    // Hàm kiểm tra scope của mã giảm giá (Có thể mở rộng logic sau này)
+    // Hàm kiểm tra scope của mã giảm giá
     private boolean isApplicableToProduct(Discount d, Product p) {
-        // Ví dụ logic đơn giản: Nếu Discount có categoryId thì phải khớp
-        // Hiện tại tạm thời trả về true vì chưa rõ cấu trúc entity Discount chi tiết
-        // Bạn có thể thêm logic check category/product specific ở đây
-        return true;
+        // Logic kiểm tra xem mã giảm giá trong ví có áp dụng được cho sản phẩm này không
+        if (d.getScope() == Discount.DiscountScope.GLOBAL) return true;
+
+        if (d.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
+            // Cần fetch applicableProducts nếu là lazy loading hoặc check ID
+            return d.getApplicableProducts().stream().anyMatch(prod -> prod.getProductId().equals(p.getProductId()));
+        }
+
+        if (d.getScope() == Discount.DiscountScope.CATEGORY) {
+            if (p.getCategory() == null) return false;
+            // Check nếu category ID của sản phẩm nằm trong list category của discount
+            return d.getApplicableCategories().stream().anyMatch(cat -> cat.getCategoryId().equals(p.getCategory().getCategoryId()));
+        }
+
+        return false;
     }
 }

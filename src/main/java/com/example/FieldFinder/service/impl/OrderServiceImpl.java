@@ -54,6 +54,9 @@ public class OrderServiceImpl implements OrderService {
             Product product = productRepository.findById(itemDTO.getProductId())
                     .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
 
+            // Tính giá đã áp dụng khuyến mãi cá nhân tại thời điểm mua
+            // Lưu ý: Nếu muốn chính xác tuyệt đối, nên gọi lại logic tính giá từ ProductService
+            // Nhưng ở đây ta dùng getEffectivePrice() mặc định (hoặc giá từ FE gửi lên nếu cần validate)
             double price = product.getEffectivePrice() * itemDTO.getQuantity();
             subTotal += price;
 
@@ -76,8 +79,24 @@ public class OrderServiceImpl implements OrderService {
                 Discount discount = discountRepository.findByCode(code)
                         .orElseThrow(() -> new RuntimeException("Discount code not found: " + code));
 
+                // Tìm trong ví user (hoặc tạo mới nếu là mã global chưa lưu ví)
                 UserDiscount userDiscount = userDiscountRepository.findByUserAndDiscount(user, discount)
-                        .orElseThrow(() -> new RuntimeException("You don't own this voucher: " + code));
+                        .orElse(null);
+
+                // Nếu chưa có trong ví, kiểm tra xem có phải mã Global public không
+                if (userDiscount == null) {
+                    if(discount.getScope() == Discount.DiscountScope.GLOBAL) {
+                        userDiscount = UserDiscount.builder()
+                                .user(user)
+                                .discount(discount)
+                                .savedAt(LocalDateTime.now())
+                                .isUsed(false)
+                                .build();
+                        userDiscountRepository.save(userDiscount);
+                    } else {
+                        throw new RuntimeException("You don't own this voucher: " + code);
+                    }
+                }
 
                 if (userDiscount.isUsed()) {
                     throw new RuntimeException("Voucher has already been used: " + code);
@@ -95,6 +114,7 @@ public class OrderServiceImpl implements OrderService {
                 double discountValueForCode = calculateDiscountAmount(discount, orderItemsToSave, subTotal);
                 totalDiscountAmount += discountValueForCode;
 
+                // QUAN TRỌNG: Đánh dấu đã sử dụng để ProductService lọc ra sau này
                 userDiscount.setUsed(true);
                 userDiscount.setUsedAt(LocalDateTime.now());
                 userDiscountRepository.save(userDiscount);
@@ -120,11 +140,11 @@ public class OrderServiceImpl implements OrderService {
         }
         else if (discount.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
             List<Long> applicableProductIds = discount.getApplicableProducts().stream()
-                    .map(Product::getProductId).toList(); // Assumes ProductId is Long based on usage context
+                    .map(Product::getProductId).toList();
 
             for (OrderItem item : items) {
                 if (applicableProductIds.contains(item.getProduct().getProductId())) {
-                    applicableAmount += item.getPrice(); // item.getPrice() đã là (đơn giá * số lượng)
+                    applicableAmount += item.getPrice();
                 }
             }
         }
@@ -133,7 +153,6 @@ public class OrderServiceImpl implements OrderService {
                     .map(Category::getCategoryId).toList();
 
             for (OrderItem item : items) {
-                // Giả sử Product có getCategory()
                 Category prodCat = item.getProduct().getCategory();
                 if (prodCat != null && applicableCategoryIds.contains(prodCat.getCategoryId())) {
                     applicableAmount += item.getPrice();
@@ -143,21 +162,17 @@ public class OrderServiceImpl implements OrderService {
 
         if (applicableAmount == 0) return 0.0;
 
-        // Tính toán dựa trên Type (FIXED hay PERCENTAGE)
         double calculatedDiscount = 0.0;
         BigDecimal val = discount.getValue();
 
         if (discount.getDiscountType() == Discount.DiscountType.FIXED_AMOUNT) {
             calculatedDiscount = val.doubleValue();
-            // Không giảm quá số tiền của các sản phẩm áp dụng
             if (calculatedDiscount > applicableAmount) {
                 calculatedDiscount = applicableAmount;
             }
         } else {
             // PERCENTAGE
             calculatedDiscount = (applicableAmount * val.doubleValue()) / 100.0;
-
-            // Check Max Discount Amount
             if (discount.getMaxDiscountAmount() != null) {
                 double max = discount.getMaxDiscountAmount().doubleValue();
                 if (calculatedDiscount > max) {
