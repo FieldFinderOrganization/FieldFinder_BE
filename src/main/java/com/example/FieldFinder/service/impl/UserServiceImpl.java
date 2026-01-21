@@ -53,7 +53,6 @@ public class UserServiceImpl implements UserService {
         }
 
         try {
-            // 1. Tạo user trên Firebase Authentication
             UserRecord.CreateRequest request = new UserRecord.CreateRequest()
                     .setEmail(userRequestDTO.getEmail())
                     .setPassword(userRequestDTO.getPassword())
@@ -70,15 +69,11 @@ public class UserServiceImpl implements UserService {
                     "Click this link to verify your account: " + link
             );
 
-            // 2. Lưu user vào DB (Firebase quản lý password, nên để null trong DB)
             String encodedPassword = passwordEncoder.encode(userRequestDTO.getPassword());
 
             User user = userRequestDTO.toEntity(firebaseUser.getUid(), encodedPassword);
             User savedUser = userRepository.save(user);
 
-            // Gán UID từ Firebase
-
-            // 3. Trả về DTO
             return UserResponseDTO.toDto(savedUser);
 
         } catch (FirebaseAuthException e) {
@@ -93,16 +88,13 @@ public class UserServiceImpl implements UserService {
     public UserResponseDTO loginUser(FirebaseToken decodedToken) {
         String email = decodedToken.getEmail();
 
-        // 1. Tìm user trong DB theo email
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found. Please check your email or register!"));
 
-        // 2. Kiểm tra trạng thái
         if (user.getStatus() == User.Status.BLOCKED) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your account has been blocked. Please contact admin!");
         }
 
-        // 3. Trả về DTO
         return UserResponseDTO.toDto(user);
     }
 

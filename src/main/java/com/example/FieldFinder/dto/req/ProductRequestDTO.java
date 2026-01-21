@@ -2,6 +2,7 @@ package com.example.FieldFinder.dto.req;
 
 import lombok.Data;
 import java.util.List;
+import java.util.Set;
 
 @Data
 public class ProductRequestDTO {
@@ -14,7 +15,7 @@ public class ProductRequestDTO {
     private String brand;
     private String sex;
 
-    private List<String> tags;
+    private Set<String> tags;
 
     private List<VariantDTO> variants;
 

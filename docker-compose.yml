@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    container_name: fieldfinder_be
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./.env:/app/.env
+    environment:
+      SPRING_DATASOURCE_URL: ${DB_URL}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+
+volumes:
+  db_data:

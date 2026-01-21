@@ -4,6 +4,7 @@ import com.example.FieldFinder.entity.Product;
 import lombok.Builder;
 import lombok.Data;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Data
@@ -22,7 +23,7 @@ public class ProductResponseDTO {
     private String brand;
     private String sex;
 
-    private List<String> tags;
+    private Set<String> tags;
 
     private List<VariantDTO> variants;
 

@@ -123,7 +123,7 @@ public class ProductServiceImpl implements ProductService {
                 .imageUrl(request.getImageUrl())
                 .brand(request.getBrand())
                 .sex(request.getSex())
-                .tags(request.getTags() != null ? request.getTags() : new ArrayList<>())
+                .tags(request.getTags() != null ? request.getTags() : new HashSet<>())
                 .build();
 
         productRepository.save(product);
@@ -199,7 +199,7 @@ public class ProductServiceImpl implements ProductService {
         product.setSex(request.getSex());
 
         if (request.getTags() != null) {
-            if (product.getTags() == null) product.setTags(new ArrayList<>());
+            if (product.getTags() == null) product.setTags(new HashSet<>());
             else product.getTags().clear();
             product.getTags().addAll(request.getTags());
         }
@@ -370,7 +370,7 @@ public class ProductServiceImpl implements ProductService {
     protected void updateProductTagsInBackGround(Long productId, List<String> newTags) {
         Product p = productRepository.findById(productId).orElse(null);
         if (p != null) {
-            if (p.getTags() == null) p.setTags(new ArrayList<>());
+            if (p.getTags() == null) p.setTags(new HashSet<>());
             p.getTags().addAll(newTags);
             List<String> distinctTags = p.getTags().stream().map(String::toLowerCase).distinct().collect(Collectors.toList());
             p.getTags().clear();
