@@ -16,8 +16,8 @@ public class ProductResponseDTO {
     private String categoryName;
     private Double price;
 
-    private Integer salePercent; // % giảm thực tế
-    private Double salePrice;    // Giá sau khi giảm hết các mã
+    private Integer salePercent;
+    private Double salePrice;
 
     private String imageUrl;
     private String brand;
@@ -40,16 +40,12 @@ public class ProductResponseDTO {
     @Builder
     public static class VariantDTO {
         private String size;
-        private Integer quantity; // Số lượng tồn kho hiện tại
-        private Integer stockTotal; // Tổng số lượng nhập
+        private Integer quantity;
+        private Integer stockTotal;
     }
 
     private Integer totalSold;
 
-    /**
-     * Helper method để chuyển đổi từ Entity sang DTO.
-     * Gọi đúng các hàm tính toán logic giá (getSalePrice, getOnSalePercent).
-     */
     public static ProductResponseDTO fromEntity(Product product) {
         return ProductResponseDTO.builder()
                 .id(product.getProductId())
@@ -58,10 +54,8 @@ public class ProductResponseDTO {
                 .categoryName(product.getCategory() != null ? product.getCategory().getName() : null)
                 .price(product.getPrice())
 
-                // --- GỌI LOGIC TÍNH TOÁN CỦA ENTITY ---
                 .salePrice(product.getSalePrice())
                 .salePercent(product.getOnSalePercent())
-                // --------------------------------------
 
                 .imageUrl(product.getImageUrl())
                 .brand(product.getBrand())
@@ -71,7 +65,7 @@ public class ProductResponseDTO {
                 .variants(product.getVariants() != null ? product.getVariants().stream()
                         .map(v -> VariantDTO.builder()
                                 .size(v.getSize())
-                                .quantity(v.getAvailableQuantity()) // Chú ý: dùng availableQuantity từ ProductVariant
+                                .quantity(v.getAvailableQuantity())
                                 .stockTotal(v.getStockQuantity())
                                 .build())
                         .collect(Collectors.toList()) : null)

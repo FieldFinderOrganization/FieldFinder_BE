@@ -1,5 +1,6 @@
 package com.example.FieldFinder.entity;
 
+import com.example.FieldFinder.converter.StringSetConverter;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
@@ -32,9 +33,8 @@ public class Product {
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "product_tags", joinColumns = @JoinColumn(name = "product_id"))
-    @Column(name = "tag")
+    @Convert(converter = StringSetConverter.class)
+    @Column(name = "tags", columnDefinition = "TEXT")
     @Builder.Default
     private Set<String> tags = new HashSet<>();
 

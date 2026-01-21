@@ -31,7 +31,6 @@ public class DiscountRequestDTO {
 
     public Discount toEntity() {
 
-        /* ===== STATUS ===== */
         Discount.DiscountStatus statusEnum;
         try {
             statusEnum = Discount.DiscountStatus.valueOf(
@@ -41,7 +40,6 @@ public class DiscountRequestDTO {
             statusEnum = Discount.DiscountStatus.INACTIVE;
         }
 
-        /* ===== SCOPE (FIX LỖI CHÍNH) ===== */
         Discount.DiscountScope scopeEnum;
         try {
             scopeEnum = Discount.DiscountScope.valueOf(
@@ -53,7 +51,6 @@ public class DiscountRequestDTO {
             scopeEnum = Discount.DiscountScope.GLOBAL;
         }
 
-        /* ===== DISCOUNT TYPE ===== */
         Discount.DiscountType discountTypeEnum;
         try {
             discountTypeEnum = Discount.DiscountType.valueOf(this.discountType);
