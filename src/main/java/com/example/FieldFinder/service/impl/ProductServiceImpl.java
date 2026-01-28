@@ -6,6 +6,9 @@ import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.ProductService;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -107,10 +110,13 @@ public class ProductServiceImpl implements ProductService {
         return dto;
     }
 
-    // --- MAIN METHODS ---
-
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "product_detail", allEntries = true),
+            @CacheEvict(value = "top_selling", allEntries = true),
+            @CacheEvict(value = "products_category", allEntries = true)
+    })
     public ProductResponseDTO createProduct(ProductRequestDTO request) {
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new RuntimeException("Category not found!"));
@@ -157,7 +163,6 @@ public class ProductServiceImpl implements ProductService {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found!"));
 
-        // Lấy danh sách mã đã dùng của user này
         List<UUID> usedDiscountIds = (userId != null)
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
@@ -168,7 +173,6 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public List<ProductResponseDTO> getAllProducts(UUID userId) {
-        // OPTIMIZATION: Lấy danh sách mã đã dùng 1 lần duy nhất
         List<UUID> usedDiscountIds = (userId != null)
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
@@ -181,6 +185,11 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "product_detail", allEntries = true),
+            @CacheEvict(value = "top_selling", allEntries = true),
+            @CacheEvict(value = "products_category", allEntries = true)
+    })
     public ProductResponseDTO updateProduct(Long id, ProductRequestDTO request) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found!"));
@@ -239,6 +248,10 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(value = "product_detail", allEntries = true),
+            @CacheEvict(value = "top_selling", allEntries = true)
+    })
     public void deleteProduct(Long id) {
         productRepository.deleteById(id);
     }
@@ -283,10 +296,10 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "top_selling", key = "'top5_' + (#userId != null ? #userId.toString() : 'anon')")
     public List<ProductResponseDTO> getTopSellingProducts(int limit, UUID userId) {
         Pageable pageable = PageRequest.of(0, limit);
 
-        // OPTIMIZATION: Lấy danh sách mã đã dùng
         List<UUID> usedDiscountIds = (userId != null)
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
@@ -300,7 +313,6 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public List<ProductResponseDTO> findProductsByCategories(List<String> categories, UUID userId) {
-        // OPTIMIZATION: Lấy danh sách mã đã dùng
         List<UUID> usedDiscountIds = (userId != null)
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
@@ -442,34 +454,26 @@ public class ProductServiceImpl implements ProductService {
         productRepository.save(product);
     }
 
-    // --- LOGIC CHI TIẾT SẢN PHẨM (Bao gồm Private Discount) ---
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "product_detail", key = "#productId + '_' + (#userId != null ? #userId.toString() : 'anon')")
     public ProductResponseDTO getProductDetail(Long productId, UUID userId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Sản phẩm không tồn tại!"));
 
-        // 1. Lấy mã công khai (để áp dụng trước)
         List<Discount> allDiscounts = getPublicDiscounts(product);
 
         if (userId != null) {
-            // A. Lấy danh sách ID đã dùng
             List<UUID> usedDiscountIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
 
-            // B. Loại bỏ mã công khai nếu đã dùng
             allDiscounts.removeIf(d -> usedDiscountIds.contains(d.getDiscountId()));
 
-            // C. Lấy mã riêng trong ví (chưa dùng)
             List<UserDiscount> userWallet = userDiscountRepository.findByUser_UserIdAndIsUsedFalse(userId);
             Set<UUID> addedIds = allDiscounts.stream().map(Discount::getDiscountId).collect(Collectors.toSet());
 
             for (UserDiscount ud : userWallet) {
                 Discount d = ud.getDiscount();
 
-                // Chỉ thêm nếu:
-                // 1. Chưa có trong list hiện tại
-                // 2. Chưa bị dùng (được check qua usedIds cho chắc chắn)
-                // 3. Có thể áp dụng cho sản phẩm này
                 if (!addedIds.contains(d.getDiscountId())
                         && !usedDiscountIds.contains(d.getDiscountId())
                         && isApplicableToProduct(d, product)) {
@@ -480,10 +484,8 @@ public class ProductServiceImpl implements ProductService {
             }
         }
 
-        // 4. Tính giá
         product.calculateSalePriceForUser(allDiscounts);
 
-        // 5. Map DTO
         ProductResponseDTO dto = ProductResponseDTO.fromEntity(product);
         dto.setSalePrice(product.getSalePrice());
         dto.setSalePercent(product.getOnSalePercent());
@@ -491,19 +493,15 @@ public class ProductServiceImpl implements ProductService {
         return dto;
     }
 
-    // Hàm kiểm tra scope của mã giảm giá
     private boolean isApplicableToProduct(Discount d, Product p) {
-        // Logic kiểm tra xem mã giảm giá trong ví có áp dụng được cho sản phẩm này không
         if (d.getScope() == Discount.DiscountScope.GLOBAL) return true;
 
         if (d.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
-            // Cần fetch applicableProducts nếu là lazy loading hoặc check ID
             return d.getApplicableProducts().stream().anyMatch(prod -> prod.getProductId().equals(p.getProductId()));
         }
 
         if (d.getScope() == Discount.DiscountScope.CATEGORY) {
             if (p.getCategory() == null) return false;
-            // Check nếu category ID của sản phẩm nằm trong list category của discount
             return d.getApplicableCategories().stream().anyMatch(cat -> cat.getCategoryId().equals(p.getCategory().getCategoryId()));
         }
 

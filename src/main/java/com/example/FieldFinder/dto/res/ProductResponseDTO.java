@@ -1,15 +1,24 @@
 package com.example.FieldFinder.dto.res;
 
 import com.example.FieldFinder.entity.Product;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 @Data
 @Builder
-public class ProductResponseDTO {
+@AllArgsConstructor
+@NoArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class ProductResponseDTO{
+
     private Long id;
     private String name;
     private String description;
@@ -27,6 +36,7 @@ public class ProductResponseDTO {
 
     private List<VariantDTO> variants;
 
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     public Integer getStockQuantity() {
         if (variants == null || variants.isEmpty()) {
             return 0;
@@ -38,6 +48,8 @@ public class ProductResponseDTO {
 
     @Data
     @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
     public static class VariantDTO {
         private String size;
         private Integer quantity;
