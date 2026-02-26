@@ -6,6 +6,7 @@ import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.ProductService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
@@ -27,6 +28,9 @@ public class ProductServiceImpl implements ProductService {
     private final DiscountRepository discountRepository;
     private final UserDiscountRepository userDiscountRepository;
     private final AIChat aiChat;
+
+    @Autowired
+    private org.springframework.data.redis.core.RedisTemplate<String, Object> redisTemplate;
 
     public ProductServiceImpl(
             ProductRepository productRepository,
@@ -244,6 +248,8 @@ public class ProductServiceImpl implements ProductService {
             new Thread(() -> enrichSingleProduct(product.getProductId(), request.getImageUrl())).start();
         }
 
+        evictProductDetailCache(id);
+
         return mapToResponse(product, Collections.emptyList());
     }
 
@@ -452,6 +458,8 @@ public class ProductServiceImpl implements ProductService {
         ProductDiscount pd = ProductDiscount.builder().product(product).discount(discount).build();
         product.getDiscounts().add(pd);
         productRepository.save(product);
+
+        evictProductDetailCache(productId);
     }
 
     @Override
@@ -506,5 +514,16 @@ public class ProductServiceImpl implements ProductService {
         }
 
         return false;
+    }
+
+    private void evictProductDetailCache(Long productId) {
+        String pattern = "product_detail::" + productId + "_*";
+
+        java.util.Set<String> keys = redisTemplate.keys(pattern);
+
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+            System.out.println("Đã xóa " + keys.size() + " bản ghi cache cho sản phẩm ID: " + productId);
+        }
     }
 }

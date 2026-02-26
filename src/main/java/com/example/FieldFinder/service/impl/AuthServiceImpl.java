@@ -1,33 +1,35 @@
 package com.example.FieldFinder.service.impl;
 
-import com.example.FieldFinder.entity.LoginOtp;
-import com.example.FieldFinder.repository.OtpRepository;
 import com.example.FieldFinder.service.AuthService;
 import com.example.FieldFinder.service.EmailService;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.LocalDateTime;
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
-    private final OtpRepository otpRepository;
+
     private final EmailService emailService;
 
-    @Override
-    @Transactional
-    public void sendLoginOtp(String email) {
+    private final RedisTemplate<String, Object> redisTemplate;
 
-        otpRepository.deleteByEmail(email);
+    private static final String OTP_PREFIX = "login_otp:";
+
+    @Override
+    public void sendLoginOtp(String email) {
 
         String otp = String.format("%06d", new Random().nextInt(999999));
 
-        otpRepository.save(new LoginOtp(email, otp, LocalDateTime.now().plusMinutes(5)));
+        String redisKey = OTP_PREFIX + email;
+
+
+        redisTemplate.opsForValue().set(redisKey, otp, 5, TimeUnit.MINUTES);
 
         String subject = "Mã xác thực đăng nhập FieldFinder";
         String body = String.format("""
@@ -45,22 +47,23 @@ public class AuthServiceImpl implements AuthService {
 
 
     @Override
-    @Transactional
     public boolean verifyOtp(String email, String code) {
-        LoginOtp otp = otpRepository.findTopByEmailOrderByExpiryDesc(email)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP not found"));
+        String redisKey = OTP_PREFIX + email;
 
+        Object savedOtpObj = redisTemplate.opsForValue().get(redisKey);
 
-        if (!otp.getCode().equals(code)) {
+        if (savedOtpObj == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP is expired or not found");
+        }
+
+        String savedOtp = String.valueOf(savedOtpObj);
+
+        if (!savedOtp.equals(code)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP is not correct");
         }
 
-        if (otp.getExpiry().isBefore(LocalDateTime.now())) {
-            otpRepository.delete(otp);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP is expired");
-        }
+        redisTemplate.delete(redisKey);
 
-        otpRepository.delete(otp);
         return true;
     }
 }

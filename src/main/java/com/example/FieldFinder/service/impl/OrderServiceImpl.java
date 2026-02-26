@@ -10,6 +10,8 @@ import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.OrderService;
 import lombok.RequiredArgsConstructor;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +21,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -32,11 +35,18 @@ public class OrderServiceImpl implements OrderService {
     private final DiscountRepository discountRepository;
     private final UserDiscountRepository userDiscountRepository;
 
+    // THÊM: 2 công cụ để xử lý tồn kho và khóa phân tán
+    private final ProductVariantRepository productVariantRepository;
+    private final RedissonClient redissonClient;
+
     @Override
     @Transactional
     public OrderResponseDTO createOrder(OrderRequestDTO request) {
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("User not found!"));
+        User user = null;
+        if (!"GUEST".equals(request.getUserId())) {
+            user = userRepository.findById(UUID.fromString(String.valueOf(request.getUserId())))
+                    .orElseThrow(() -> new RuntimeException("User not found!"));
+        }
 
         Order order = Order.builder()
                 .user(user)
@@ -50,40 +60,77 @@ public class OrderServiceImpl implements OrderService {
         double subTotal = 0.0;
         List<OrderItem> orderItemsToSave = new ArrayList<>();
 
+        // QUAN TRỌNG: Vòng lặp xử lý từng sản phẩm với Lock phân tán
         for (OrderItemRequestDTO itemDTO : request.getItems()) {
-            Product product = productRepository.findById(itemDTO.getProductId())
-                    .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
 
-            // Tính giá đã áp dụng khuyến mãi cá nhân tại thời điểm mua
-            // Lưu ý: Nếu muốn chính xác tuyệt đối, nên gọi lại logic tính giá từ ProductService
-            // Nhưng ở đây ta dùng getEffectivePrice() mặc định (hoặc giá từ FE gửi lên nếu cần validate)
-            double price = product.getEffectivePrice() * itemDTO.getQuantity();
-            subTotal += price;
+            // 1. Tạo ổ khóa duy nhất cho Sản phẩm + Size đó
+            // Ví dụ: lock_product_5_size_M
+            String lockKey = "lock_product_" + itemDTO.getProductId() + "_size_" + itemDTO.getSize();
+            RLock lock = redissonClient.getLock(lockKey);
 
-            OrderItem orderItem = OrderItem.builder()
-                    .order(order)
-                    .product(product)
-                    .quantity(itemDTO.getQuantity())
-                    .price(price)
-                    .size(itemDTO.getSize())
-                    .build();
+            boolean isLocked = false;
+            try {
+                // 2. Cố gắng lấy khóa (Chờ tối đa 3 giây, giữ khóa tối đa 10 giây nếu server sập)
+                isLocked = lock.tryLock(3, 10, TimeUnit.SECONDS);
 
-            orderItemsToSave.add(orderItem);
+                if (isLocked) {
+                    Product product = productRepository.findById(itemDTO.getProductId())
+                            .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
+
+                    // A. Đọc tồn kho thực tế TỪ DATABASE
+                    ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(itemDTO.getProductId(), itemDTO.getSize())
+                            .orElseThrow(() -> new RuntimeException("Không tìm thấy size " + itemDTO.getSize() + " cho sản phẩm " + product.getName()));
+
+                    // B. Kiểm tra cháy hàng
+                    if (variant.getAvailableQuantity() < itemDTO.getQuantity()) {
+                        throw new RuntimeException("Rất tiếc! Sản phẩm " + product.getName() + " (Size " + itemDTO.getSize() + ") vừa hết hàng hoặc không đủ số lượng.");
+                    }
+
+                    // C. CHỈ GIỮ HÀNG (Khóa tạm thời) chứ chưa trừ hẳn kho
+                    // Cách này để khi Webhook trả về thanh toán thành công, hàm commitStock() trừ kho là vừa đẹp.
+                    variant.setLockedQuantity(variant.getLockedQuantity() + itemDTO.getQuantity());
+                    productVariantRepository.saveAndFlush(variant);
+
+                    // D. Tính toán tiền và tạo OrderItem
+                    double price = product.getEffectivePrice() * itemDTO.getQuantity();
+                    subTotal += price;
+
+                    OrderItem orderItem = OrderItem.builder()
+                            .order(order)
+                            .product(product)
+                            .quantity(itemDTO.getQuantity())
+                            .price(price)
+                            .size(itemDTO.getSize())
+                            .build();
+
+                    orderItemsToSave.add(orderItem);
+                } else {
+                    // Nếu 3 giây vẫn không lấy được khóa (quá nhiều người mua cùng lúc)
+                    throw new RuntimeException("Hệ thống đang quá tải đối với sản phẩm này, vui lòng thử lại sau giây lát!");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Lỗi hệ thống khi xử lý tồn kho!");
+            } finally {
+                // 3. LUÔN LUÔN TRẢ KHÓA LẠI CHO HỆ THỐNG
+                if (isLocked && lock.isHeldByCurrentThread()) {
+                    lock.unlock();
+                }
+            }
         }
         orderItemRepository.saveAll(orderItemsToSave);
 
         double totalDiscountAmount = 0.0;
 
-        if (request.getDiscountCodes() != null && !request.getDiscountCodes().isEmpty()) {
+        // Đã FIX LỖI: Cú pháp if bị lặp lại 2 lần
+        if (request.getDiscountCodes() != null && !request.getDiscountCodes().isEmpty() && user != null) {
             for (String code : request.getDiscountCodes()) {
                 Discount discount = discountRepository.findByCode(code)
                         .orElseThrow(() -> new RuntimeException("Discount code not found: " + code));
 
-                // Tìm trong ví user (hoặc tạo mới nếu là mã global chưa lưu ví)
                 UserDiscount userDiscount = userDiscountRepository.findByUserAndDiscount(user, discount)
                         .orElse(null);
 
-                // Nếu chưa có trong ví, kiểm tra xem có phải mã Global public không
                 if (userDiscount == null) {
                     if(discount.getScope() == Discount.DiscountScope.GLOBAL) {
                         userDiscount = UserDiscount.builder()
@@ -114,7 +161,6 @@ public class OrderServiceImpl implements OrderService {
                 double discountValueForCode = calculateDiscountAmount(discount, orderItemsToSave, subTotal);
                 totalDiscountAmount += discountValueForCode;
 
-                // QUAN TRỌNG: Đánh dấu đã sử dụng để ProductService lọc ra sau này
                 userDiscount.setUsed(true);
                 userDiscount.setUsedAt(LocalDateTime.now());
                 userDiscountRepository.save(userDiscount);
@@ -122,9 +168,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         double finalAmount = Math.max(0, subTotal - totalDiscountAmount);
-
         order.setTotalAmount(finalAmount);
-
         order.setItems(orderItemsToSave);
 
         orderRepository.save(order);
@@ -171,7 +215,6 @@ public class OrderServiceImpl implements OrderService {
                 calculatedDiscount = applicableAmount;
             }
         } else {
-            // PERCENTAGE
             calculatedDiscount = (applicableAmount * val.doubleValue()) / 100.0;
             if (discount.getMaxDiscountAmount() != null) {
                 double max = discount.getMaxDiscountAmount().doubleValue();
@@ -240,7 +283,7 @@ public class OrderServiceImpl implements OrderService {
 
         return OrderResponseDTO.builder()
                 .orderId(order.getOrderId())
-                .userName(order.getUser().getName())
+                .userName(order.getUser() != null ? order.getUser().getName() : "Guest")
                 .totalAmount(order.getTotalAmount())
                 .status(order.getStatus().name())
                 .paymentMethod(order.getPaymentMethod().name())

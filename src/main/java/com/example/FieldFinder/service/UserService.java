@@ -1,7 +1,7 @@
 package com.example.FieldFinder.service;
 
 import com.example.FieldFinder.dto.req.AuthRequestDTO;
-import com.example.FieldFinder.dto.req.LoginRequestDTO;
+//import com.example.FieldFinder.dto.req.LoginRequestDTO;
 import com.example.FieldFinder.dto.req.UserRequestDTO;
 import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
 import com.example.FieldFinder.dto.res.UserResponseDTO;

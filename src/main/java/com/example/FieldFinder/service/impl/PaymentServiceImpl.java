@@ -103,18 +103,6 @@ public class PaymentServiceImpl implements PaymentService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
 
-        for (ShopPaymentRequestDTO.CartItemDTO itemDTO : requestDTO.getItems()) {
-            Product product = productRepository.findById(itemDTO.getProductId())
-                    .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
-
-            String size = itemDTO.getSize();
-            if (size == null || size.isEmpty()) {
-                throw new RuntimeException("Size is required for product: " + product.getName());
-            }
-
-            productService.holdStock(product.getProductId(), size, itemDTO.getQuantity());
-        }
-
         String checkoutUrl = null;
         String transactionId = null;
 

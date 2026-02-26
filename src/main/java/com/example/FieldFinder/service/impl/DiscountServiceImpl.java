@@ -8,12 +8,14 @@ import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.DiscountService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -28,6 +30,32 @@ public class DiscountServiceImpl implements DiscountService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
 
+    private final RedisTemplate<String, Object> redisTemplate;
+
+    private void clearProductCacheByDiscount(Discount discount) {
+        if (discount == null) return;
+
+        if (discount.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
+            if (discount.getApplicableProducts() != null) {
+                for (Product p : discount.getApplicableProducts()) {
+                    String pattern = "product_detail::" + p.getProductId() + "_*";
+                    Set<String> keys = redisTemplate.keys(pattern);
+                    if (keys != null && !keys.isEmpty()) {
+                        redisTemplate.delete(keys);
+                    }
+                }
+            }
+        } else {
+            Set<String> keys = redisTemplate.keys("product_detail::*");
+            if (keys != null && !keys.isEmpty()) {
+                redisTemplate.delete(keys);
+            }
+        }
+
+        Set<String> topSellingKeys = redisTemplate.keys("top_selling::*");
+        if (topSellingKeys != null && !topSellingKeys.isEmpty()) redisTemplate.delete(topSellingKeys);
+    }
+
     @Override
     @Transactional
     public DiscountResponseDTO createDiscount(DiscountRequestDTO dto) {
@@ -40,6 +68,9 @@ public class DiscountServiceImpl implements DiscountService {
         handleScopeMapping(discount, dto);
 
         Discount saved = discountRepository.save(discount);
+
+        clearProductCacheByDiscount(saved);
+
         return DiscountResponseDTO.fromEntity(saved);
     }
 
@@ -69,6 +100,9 @@ public class DiscountServiceImpl implements DiscountService {
         handleScopeMapping(discount, dto);
 
         Discount updated = discountRepository.save(discount);
+
+        clearProductCacheByDiscount(updated);
+
         return DiscountResponseDTO.fromEntity(updated);
     }
 
@@ -106,8 +140,13 @@ public class DiscountServiceImpl implements DiscountService {
     }
 
     @Override
+    @Transactional
     public void deleteDiscount(String id) {
-        discountRepository.deleteById(UUID.fromString(id));
+        Discount discount = discountRepository.findById(UUID.fromString(id)).orElse(null);
+        if (discount != null) {
+            discountRepository.delete(discount);
+            clearProductCacheByDiscount(discount);
+        }
     }
 
     @Override
@@ -158,6 +197,8 @@ public class DiscountServiceImpl implements DiscountService {
 
         discount.setQuantity(discount.getQuantity() - 1);
         discountRepository.save(discount);
+
+        clearProductCacheByDiscount(discount);
     }
 
     @Override
