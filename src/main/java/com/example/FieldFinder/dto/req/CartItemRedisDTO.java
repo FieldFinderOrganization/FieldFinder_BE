@@ -2,15 +2,15 @@ package com.example.FieldFinder.dto.req;
 
 import lombok.*;
 
-import java.util.UUID;
+import java.io.Serializable;
 
-@Getter
-@Setter
+@Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
-public class CartItemRequestDTO {
+public class CartItemRedisDTO implements Serializable {
     private Long productId;
-    private int quantity;
     private String size;
+    private int quantity;
+    private String addedAt;
 }

@@ -2,8 +2,7 @@ package com.example.FieldFinder.dto.res;
 
 import lombok.*;
 
-import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.List;
 
 @Getter
 @Setter
@@ -11,8 +10,26 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 public class CartResponseDTO {
-    private Long cartId;
-    private UUID userId;
-    private String userName;
-    private LocalDateTime createdAt;
+    private List<CartItemDetail> items;
+    private Double totalCartPrice;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CartItemDetail {
+        private Long productId;
+        private String productName;
+        private String imageUrl;
+        private String size;
+
+        private Double originalPrice;
+        private Double unitPrice;
+        private Double totalPrice;
+
+        private Integer quantity;
+        private Integer stockAvailable;
+
+        private Integer salePercent;
+    }
 }
