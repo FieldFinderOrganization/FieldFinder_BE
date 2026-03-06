@@ -1,17 +1,17 @@
 package com.example.FieldFinder.controller;
 
-import com.example.FieldFinder.dto.req.AuthRequestDTO;
-//import com.example.FieldFinder.dto.req.LoginRequestDTO;
 import com.example.FieldFinder.dto.req.UserRequestDTO;
 import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
 import com.example.FieldFinder.dto.res.UserResponseDTO;
 import com.example.FieldFinder.service.UserService;
-import com.google.api.client.util.Value;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -22,6 +22,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
+
     private final UserService userService;
 
     public UserController(UserService userService) {
@@ -37,114 +38,118 @@ public class UserController {
     @PostMapping("/login")
     public ResponseEntity<?> loginUser(@RequestBody Map<String, String> body) {
         String idToken = body.get("idToken");
-
         try {
             FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
-
             UserResponseDTO loggedInUser = userService.loginUser(decodedToken);
-
             return ResponseEntity.ok(Map.of(
-                    "message", "Login successful",
+                    "message", "Đăng nhập thành công",
                     "user", loggedInUser
             ));
-
         } catch (FirebaseAuthException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Invalid Firebase ID token", "details", e.getMessage()));
+                    .body(Map.of("error", "Firebase ID token không hợp lệ", "details", e.getMessage()));
         }
     }
 
     @PostMapping("/login-social")
     public ResponseEntity<?> loginWithSocial(@RequestBody Map<String, String> body) {
         String idToken = body.get("idToken");
-
         try {
             FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
-
             UserResponseDTO loggedInUser = userService.loginWithFirebase(decodedToken);
-
             return ResponseEntity.ok(Map.of(
-                    "message", "Login successful",
+                    "message", "Đăng nhập mạng xã hội thành công",
                     "user", loggedInUser
             ));
-
         } catch (FirebaseAuthException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Invalid Firebase ID token", "details", e.getMessage()));
+                    .body(Map.of("error", "Firebase ID token không hợp lệ", "details", e.getMessage()));
         }
     }
 
+    @PostMapping("/forgot-password")
+    public ResponseEntity<String> forgotPassword(@RequestParam String email) {
+        userService.sendPasswordResetEmail(email);
+        return ResponseEntity.ok("Email khôi phục mật khẩu đã được gửi.");
+    }
 
-    // Update user
+    @PostMapping("/reset-password")
+    public ResponseEntity<String> resetPassword(
+            @RequestParam String token,
+            @RequestParam String newPassword) {
+        userService.resetPassword(token, newPassword);
+        return ResponseEntity.ok("Cập nhật mật khẩu thành công.");
+    }
+
+
     @PutMapping("/{userId}")
+    @PreAuthorize("hasRole('ADMIN') or @securityChecker.isOwner(#userId, authentication.name)")
     public ResponseEntity<UserResponseDTO> updateUser(
             @PathVariable UUID userId,
             @RequestBody UserUpdateRequestDTO userUpdateRequestDTO) {
-
         UserResponseDTO updatedUser = userService.updateUser(userId, userUpdateRequestDTO);
         return ResponseEntity.ok(updatedUser);
     }
 
-    // Get all users
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
         List<UserResponseDTO> users = userService.getAllUsers();
         return ResponseEntity.ok(users);
     }
 
-    // Update user status
     @PatchMapping("/{userId}/status")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserResponseDTO> updateUserStatus(
             @PathVariable UUID userId,
             @RequestParam("status") String status) {
-
         UserResponseDTO updatedUser = userService.updateUserStatus(userId, status);
         return ResponseEntity.ok(updatedUser);
     }
 
-    // Forgot password (send email)
-    @PostMapping("/forgot-password")
-    public ResponseEntity<String> forgotPassword(@RequestParam String email) {
-        userService.sendPasswordResetEmail(email);
-        return ResponseEntity.ok("Password reset email sent.");
-    }
-
-    // Reset password
-    @PostMapping("/reset-password")
-    public ResponseEntity<String> resetPassword(
-            @RequestParam String token,
-            @RequestParam String newPassword) {
-
-        userService.resetPassword(token, newPassword);
-        return ResponseEntity.ok("Password updated successfully.");
+    @PostMapping("/ban")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<String> banUser(@RequestParam String email) {
+        userService.blockUser(email);
+        return ResponseEntity.ok("Khóa tài khoản thành công.");
     }
 
     @PostMapping("/{userId}/register-session")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<String> registerSession(@PathVariable UUID userId, @RequestParam String sessionId) {
         userService.registerUserSession(sessionId, userId);
-        return ResponseEntity.ok("Session registered successfully.");
+        return ResponseEntity.ok("Đăng ký session thành công.");
     }
 
     @GetMapping("/{sessionId}/get-user-by-session")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<UUID> getUserBySessionId(@PathVariable String sessionId) {
         UUID userId = userService.getUserIdBySession(sessionId);
         return ResponseEntity.ok(userId);
     }
 
     @DeleteMapping("/{sessionId}/remove-session")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<String> removeSession(@PathVariable String sessionId) {
         userService.removeUserSession(sessionId);
-        return ResponseEntity.ok("Session removed successfully.");
+        return ResponseEntity.ok("Xóa session thành công.");
     }
 
-    // Get user by ID
     @GetMapping("/{userId}")
-    public ResponseEntity<UserResponseDTO> getUserById(
-            @PathVariable UUID userId) {
-
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<UserResponseDTO> getUserById(@PathVariable UUID userId) {
         UserResponseDTO user = userService.getUserById(userId);
         return ResponseEntity.ok(user);
     }
 
+    @Component("securityChecker")
+    public static class SecurityChecker {
+        @Autowired
+        private UserService userService;
 
+        public boolean isOwner(UUID targetUserId, String currentLoginEmail) {
+            UserResponseDTO targetUser = userService.getUserById(targetUserId);
+            return targetUser.getEmail().equals(currentLoginEmail);
+        }
+    }
 }

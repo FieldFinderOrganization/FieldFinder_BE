@@ -8,6 +8,7 @@ import com.example.FieldFinder.service.CartRedisService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
@@ -46,12 +47,14 @@ public class CartController {
     }
 
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<CartResponseDTO> getMyCart(Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
         return ResponseEntity.ok(cartService.getCart(userId));
     }
 
     @PostMapping("/add")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<String> addItem(@RequestBody CartItemRequestDTO request, Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
         cartService.addItemToCart(userId, request.getProductId(), request.getSize(), request.getQuantity());
@@ -59,6 +62,7 @@ public class CartController {
     }
 
     @PutMapping("/update")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<String> updateItem(@RequestBody CartItemRequestDTO request, Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
         cartService.updateCartItem(userId, request.getProductId(), request.getSize(), request.getQuantity());
@@ -66,6 +70,7 @@ public class CartController {
     }
 
     @DeleteMapping("/remove")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<String> removeItem(
             @RequestParam Long productId,
             @RequestParam String size,
@@ -76,6 +81,7 @@ public class CartController {
     }
 
     @DeleteMapping("/clear")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<String> clearCart(Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
         cartService.clearCart(userId);

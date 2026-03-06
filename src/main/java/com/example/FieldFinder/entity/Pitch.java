@@ -22,7 +22,6 @@ public class Pitch {
     @Column(name = "PitchId")
     private UUID pitchId;
 
-
     @ManyToOne
     @JoinColumn(name = "ProviderAddressId", nullable = false)
     private ProviderAddress providerAddress;

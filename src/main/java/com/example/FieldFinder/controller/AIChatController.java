@@ -4,6 +4,7 @@ import com.example.FieldFinder.ai.AIChat;
 import com.example.FieldFinder.dto.req.ChatRequestDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import com.example.FieldFinder.ai.AIChat.BookingQuery;
 import java.io.IOException;
@@ -18,6 +19,7 @@ public class AIChatController {
     private final AIChat aiChatService;
 
     @PostMapping("/chat")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<AIChat.BookingQuery> handleChat(
             @RequestBody ChatRequestDTO request) {
 
@@ -41,6 +43,7 @@ public class AIChatController {
     }
 
     @PostMapping("/image")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<BookingQuery> chatWithImage(@RequestBody Map<String, String> payload) {
         String base64Image = payload.get("image");
 

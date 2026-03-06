@@ -3,15 +3,11 @@ package com.example.FieldFinder.service.impl;
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
 import com.example.FieldFinder.dto.res.BookingResponseDTO;
-import com.example.FieldFinder.entity.Booking;
-import com.example.FieldFinder.entity.BookingDetail;
-import com.example.FieldFinder.entity.Pitch;
-import com.example.FieldFinder.entity.User;
-import com.example.FieldFinder.repository.BookingRepository;
-import com.example.FieldFinder.repository.BookingDetailRepository;
-import com.example.FieldFinder.repository.PitchRepository;
-import com.example.FieldFinder.repository.UserRepository;
+import com.example.FieldFinder.dto.res.ProviderBookingResponseDTO;
+import com.example.FieldFinder.entity.*;
+import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.BookingService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +25,10 @@ public class BookingServiceImpl implements BookingService {
     private final PitchRepository pitchRepository;
     private final UserRepository userRepository;
     private final RestTemplate restTemplate;
+
+    @Autowired
+    private ProviderRepository providerRepository;
+
     public BookingServiceImpl(BookingRepository bookingRepository,
                               BookingDetailRepository bookingDetailRepository,
                               PitchRepository pitchRepository,
@@ -51,14 +51,12 @@ public class BookingServiceImpl implements BookingService {
     public List<PitchBookedSlotsDTO> getAllBookedTimeSlots(LocalDate bookingDate) {
         List<BookingDetail> bookingDetails = bookingDetailRepository.findByBooking_BookingDate(bookingDate);
 
-        // Group by pitchId and collect slot lists
         Map<UUID, List<Integer>> grouped = bookingDetails.stream()
                 .collect(Collectors.groupingBy(
                         bd -> bd.getPitch().getPitchId(),
                         Collectors.mapping(BookingDetail::getSlot, Collectors.toList())
                 ));
 
-        // Map to DTO list
         return grouped.entrySet().stream()
                 .map(entry -> new PitchBookedSlotsDTO(entry.getKey(),
                         entry.getValue().stream().distinct().collect(Collectors.toList())))
@@ -143,6 +141,51 @@ public class BookingServiceImpl implements BookingService {
         return ResponseEntity.ok("Payment status updated successfully!");
     }
 
+    @Override
+    public List<ProviderBookingResponseDTO> getBookingsByProviderId(UUID providerId) {
+        List<Booking> bookings = bookingRepository.findByProviderId(providerId);
+
+        return bookings.stream().map(booking -> {
+
+            String paymentMethod = "Chưa thanh toán";
+
+            // Lấy Pitch Name và Slots
+            String pitchName = "Không xác định";
+            List<Integer> slots = new ArrayList<>();
+
+            if (booking.getBookingDetails() != null && !booking.getBookingDetails().isEmpty()) {
+                BookingDetail firstDetail = booking.getBookingDetails().get(0);
+
+                Pitch pitch = pitchRepository.findById(firstDetail.getPitchId()).orElse(null);
+                if (pitch != null) pitchName = pitch.getName();
+
+                slots = booking.getBookingDetails().stream()
+                        .map(BookingDetail::getSlot)
+                        .collect(Collectors.toList());
+            }
+
+            String providerName = "Không xác định";
+            Provider provider = providerRepository.findById(providerId).orElse(null);
+            if (provider != null) {
+                User providerUser = userRepository.findById(provider.getUserId()).orElse(null);
+                if (providerUser != null) providerName = providerUser.getName();
+            }
+
+            return ProviderBookingResponseDTO.builder()
+                    .bookingId(booking.getBookingId())
+                    .bookingDate(booking.getBookingDate())
+                    .status(booking.getStatus().name())
+                    .paymentStatus(booking.getPaymentStatus() != null ? booking.getPaymentStatus().name() : "PENDING")
+                    .totalPrice(booking.getTotalPrice())
+                    .providerId(providerId)
+                    .paymentMethod(paymentMethod)
+                    .providerName(providerName)
+                    .pitchName(pitchName)
+                    .slots(slots)
+                    .build();
+        }).collect(Collectors.toList());
+    }
+
 
     @Override
     @Transactional
@@ -172,7 +215,7 @@ public class BookingServiceImpl implements BookingService {
         List<Booking> bookings = bookingRepository.findByUser(user);
 
         return bookings.stream()
-                .map(BookingResponseDTO::fromEntity)  // convert each booking to DTO
+                .map(BookingResponseDTO::fromEntity)
                 .collect(Collectors.toList());
     }
 

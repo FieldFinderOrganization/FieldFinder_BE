@@ -35,7 +35,6 @@ public class OrderServiceImpl implements OrderService {
     private final DiscountRepository discountRepository;
     private final UserDiscountRepository userDiscountRepository;
 
-    // THÊM: 2 công cụ để xử lý tồn kho và khóa phân tán
     private final ProductVariantRepository productVariantRepository;
     private final RedissonClient redissonClient;
 
@@ -60,11 +59,10 @@ public class OrderServiceImpl implements OrderService {
         double subTotal = 0.0;
         List<OrderItem> orderItemsToSave = new ArrayList<>();
 
-        // QUAN TRỌNG: Vòng lặp xử lý từng sản phẩm với Lock phân tán
+        // Vòng lặp xử lý từng sản phẩm với Lock phân tán
         for (OrderItemRequestDTO itemDTO : request.getItems()) {
 
-            // 1. Tạo ổ khóa duy nhất cho Sản phẩm + Size đó
-            // Ví dụ: lock_product_5_size_M
+            // 1. Tạo ổ khóa duy nhất cho Sản phẩm + Size
             String lockKey = "lock_product_" + itemDTO.getProductId() + "_size_" + itemDTO.getSize();
             RLock lock = redissonClient.getLock(lockKey);
 
@@ -87,7 +85,6 @@ public class OrderServiceImpl implements OrderService {
                     }
 
                     // C. CHỈ GIỮ HÀNG (Khóa tạm thời) chứ chưa trừ hẳn kho
-                    // Cách này để khi Webhook trả về thanh toán thành công, hàm commitStock() trừ kho là vừa đẹp.
                     variant.setLockedQuantity(variant.getLockedQuantity() + itemDTO.getQuantity());
                     productVariantRepository.saveAndFlush(variant);
 
@@ -112,7 +109,7 @@ public class OrderServiceImpl implements OrderService {
                 Thread.currentThread().interrupt();
                 throw new RuntimeException("Lỗi hệ thống khi xử lý tồn kho!");
             } finally {
-                // 3. LUÔN LUÔN TRẢ KHÓA LẠI CHO HỆ THỐNG
+                // 3. TRẢ KHÓA LẠI CHO HỆ THỐNG
                 if (isLocked && lock.isHeldByCurrentThread()) {
                     lock.unlock();
                 }
@@ -122,7 +119,6 @@ public class OrderServiceImpl implements OrderService {
 
         double totalDiscountAmount = 0.0;
 
-        // Đã FIX LỖI: Cú pháp if bị lặp lại 2 lần
         if (request.getDiscountCodes() != null && !request.getDiscountCodes().isEmpty() && user != null) {
             for (String code : request.getDiscountCodes()) {
                 Discount discount = discountRepository.findByCode(code)

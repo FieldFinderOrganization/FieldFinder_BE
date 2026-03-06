@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -22,9 +23,10 @@ import java.util.Map;
 public class PaymentWebhookController {
 
     private final PaymentRepository paymentRepository;
-    private final BookingRepository bookingRepository; // ✅ thêm dòng này
+    private final BookingRepository bookingRepository;
 
     @PostMapping("/webhook")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<String> handleWebhook(@RequestBody WebhookRequestDTO request) {
         String transactionId = request.getData().getTransactionId();
 
@@ -36,14 +38,11 @@ public class PaymentWebhookController {
         Payment payment = paymentRepository.findByTransactionId(transactionId)
                 .orElseThrow(() -> new RuntimeException("Payment not found"));
 
-        // Vì webhook gửi về là đã thanh toán thành công
         Booking.PaymentStatus newStatus = Booking.PaymentStatus.PAID;
 
-        // Cập nhật payment
         payment.setPaymentStatus(newStatus);
         paymentRepository.save(payment);
 
-        // Cập nhật booking nếu có
         Booking booking = payment.getBooking();
         if (booking != null) {
             booking.setPaymentStatus(newStatus);
@@ -58,6 +57,7 @@ public class PaymentWebhookController {
 
 
     @GetMapping("/thanks")
+    @PreAuthorize("isAuthenticated()")
     public String thankYouPage() {
         return "Thank you for your payment!";
     }

@@ -14,6 +14,7 @@ import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
 import com.google.firebase.auth.UserRecord;
 import jakarta.transaction.Transactional;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -35,12 +37,14 @@ public class UserServiceImpl implements UserService {
     private final PasswordResetTokenRepository passwordResetTokenRepository;
 
     private final Map<String, UUID> sessionUserMap = new ConcurrentHashMap<>();
+    private final RedisTemplate<String, Object> redisTemplate;
 
-    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, EmailService emailService, PasswordResetTokenRepository passwordResetTokenRepository) {
+    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, EmailService emailService, PasswordResetTokenRepository passwordResetTokenRepository, RedisTemplate<String, Object> redisTemplate) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
+        this.redisTemplate = redisTemplate;
     }
 
     @Override
@@ -120,11 +124,13 @@ public class UserServiceImpl implements UserService {
         User updatedUser = userRepository.save(user);
         return UserResponseDTO.toDto(updatedUser);
     }
+
     @Override
     public List<UserResponseDTO> getAllUsers() {
         List<User> users = userRepository.findAll();
         return users.stream().map(UserResponseDTO::toDto).collect(Collectors.toList());
     }
+
     @Override
     public UserResponseDTO updateUserStatus(UUID userId, String statusStr) {
         User user = userRepository.findById(userId)
@@ -140,6 +146,7 @@ public class UserServiceImpl implements UserService {
         userRepository.save(user);
         return UserResponseDTO.toDto(user);
     }
+
     @Override
     @Transactional
     public void sendPasswordResetEmail(String email) {
@@ -253,15 +260,14 @@ public class UserServiceImpl implements UserService {
         return UserResponseDTO.toDto(user);
     }
 
+    @Override
+    public void blockUser(String email) {
+        User user = userRepository.findByEmail(email).get();
+        user.setStatus(User.Status.BLOCKED);
+        userRepository.save(user);
 
+        redisTemplate.opsForValue().set("BANNED_USER: " + email, "true");
+    }
 
-//    @Override
-//    public UserResponseDTO loginByEmailForTest(String email) {
-//        User user = userRepository.findByEmail(email)
-//                .orElseThrow(() -> new RuntimeException("Test User not found"));
-//
-//        // 2. Convert sang DTO và trả về
-//        return UserResponseDTO.toDto(user);
-//    }
 }
 

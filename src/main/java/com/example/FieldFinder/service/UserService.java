@@ -28,5 +28,5 @@ public interface UserService {
     void removeUserSession(String sessionId);
     UserResponseDTO getUserById(UUID userId);
 
-//    UserResponseDTO loginByEmailForTest(String email);
+    void blockUser(String email);
 }

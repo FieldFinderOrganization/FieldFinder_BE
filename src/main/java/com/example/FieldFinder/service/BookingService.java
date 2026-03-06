@@ -8,6 +8,7 @@ import java.util.UUID;
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
 import com.example.FieldFinder.dto.res.BookingResponseDTO;
+import com.example.FieldFinder.dto.res.ProviderBookingResponseDTO;
 import com.example.FieldFinder.entity.Booking;
 import org.springframework.http.ResponseEntity;
 
@@ -26,5 +27,6 @@ public interface BookingService {
 
     List<String> getAvailablePitches(LocalDate date, List<Integer> slots, String pitchType );
     ResponseEntity<String> updatePaymentStatus(UUID bookingId, String paymentStatus);
+    List<ProviderBookingResponseDTO> getBookingsByProviderId(UUID providerId);
 
 }

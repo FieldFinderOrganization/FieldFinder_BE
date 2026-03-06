@@ -6,10 +6,12 @@ import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
 import com.example.FieldFinder.dto.res.BookingResponseDTO;
 import com.example.FieldFinder.dto.res.PitchBookingResponse;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
+import com.example.FieldFinder.dto.res.ProviderBookingResponseDTO;
 import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.service.BookingService;
 import com.example.FieldFinder.service.PitchService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
@@ -36,12 +38,14 @@ public class BookingController {
     }
 
     @PostMapping
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Booking> createBooking(@RequestBody BookingRequestDTO bookingRequestDTO) {
         Booking booking = bookingService.createBooking(bookingRequestDTO);
         return ResponseEntity.ok(booking);
     }
 
     @PutMapping("/{bookingId}/payment-status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ResponseEntity<String> updatePaymentStatus(
             @PathVariable UUID bookingId,
             @RequestParam("status") String status) {
@@ -49,6 +53,7 @@ public class BookingController {
     }
 
     @GetMapping("/slots/{pitchId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<Integer>> getBookedSlots(
             @PathVariable UUID pitchId,
             @RequestParam LocalDate date) {
@@ -57,12 +62,14 @@ public class BookingController {
     }
 
     @GetMapping("/slots/all")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ResponseEntity<List<PitchBookedSlotsDTO>> getAllBookedSlots(@RequestParam LocalDate date) {
         List<PitchBookedSlotsDTO> bookedSlots = bookingService.getAllBookedTimeSlots(date);
         return ResponseEntity.ok(bookedSlots);
     }
 
     @GetMapping("/available-pitches")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<String>> getAvailablePitches(
             @RequestParam LocalDate date,
             @RequestParam List<Integer> slots,
@@ -72,19 +79,18 @@ public class BookingController {
     }
 
     @PostMapping("/ai-chat")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> getAvailablePitchFromAI(
             @RequestBody String userInput,
             @RequestHeader(value = "X-Session-Id", required = false) String sessionId) {
 
         try {
-            // Tạo sessionId mới nếu không có từ header
             if (sessionId == null || sessionId.isEmpty()) {
                 sessionId = getSessionId();
             }
 
             AIChat.BookingQuery query = aiChat.parseBookingInput(userInput, sessionId);
 
-            // Thêm sessionId vào response để FE có thể sử dụng
             Map<String, Object> responseHeaders = new HashMap<>();
             responseHeaders.put("X-Session-Id", sessionId);
 
@@ -113,7 +119,6 @@ public class BookingController {
                                 ));
                     }
                 } else if (userInput.contains("sân này")) {
-                    // Xử lý fallback nếu không có sân trong session
                     PitchResponseDTO selectedPitch = (PitchResponseDTO) query.data.get("selectedPitch");
                     if (selectedPitch == null) {
                         selectedPitch = aiChat.findPitchByContext(userInput);
@@ -213,22 +218,8 @@ public class BookingController {
         }
     }
 
-    private String formatPitchType(String pitchType) {
-        switch (pitchType) {
-            case "FIVE_A_SIDE": return "sân 5 người";
-            case "SEVEN_A_SIDE": return "sân 7 người";
-            case "ELEVEN_A_SIDE": return "sân 11 người";
-            default: return "tất cả sân";
-        }
-    }
-
-    private String formatPitchCount(Map<String, Long> pitchCount) {
-        return pitchCount.entrySet().stream()
-                .map(e -> formatPitchType(e.getKey()) + ": " + e.getValue() + " sân")
-                .collect(Collectors.joining(", "));
-    }
-
     @PutMapping("/{bookingId}/status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ResponseEntity<String> updateBookingStatus(
             @PathVariable UUID bookingId,
             @RequestParam("status") String status) {
@@ -236,13 +227,23 @@ public class BookingController {
     }
 
     @GetMapping("/user/{userId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ResponseEntity<List<BookingResponseDTO>> getBookingsByUser(@PathVariable UUID userId) {
         List<BookingResponseDTO> bookings = bookingService.getBookingsByUser(userId);
         return ResponseEntity.ok(bookings);
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ResponseEntity<List<BookingResponseDTO>> getAllBookings() {
         return ResponseEntity.ok(bookingService.getAllBookings());
+    }
+
+    @GetMapping("/provider/{providerId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
+    public ResponseEntity<List<ProviderBookingResponseDTO>> getBookingsByProvider(@PathVariable UUID providerId) {
+
+        List<ProviderBookingResponseDTO> response = bookingService.getBookingsByProviderId(providerId);
+        return ResponseEntity.ok(response);
     }
 }

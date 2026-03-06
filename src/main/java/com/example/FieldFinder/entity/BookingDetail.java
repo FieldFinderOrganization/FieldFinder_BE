@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @Entity
 @Getter
@@ -41,4 +42,8 @@ public class BookingDetail implements Serializable {
     private int slot;
     private String name;
     private BigDecimal priceDetail;
+
+    public UUID getPitchId() {
+        return this.getPitchId();
+    }
 }

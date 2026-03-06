@@ -6,6 +6,7 @@ import com.example.FieldFinder.dto.res.ItemReviewResponseDTO;
 import com.example.FieldFinder.service.ItemReviewService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,16 +21,19 @@ public class ItemReviewController {
     private final ItemReviewService itemReviewService;
 
     @PostMapping
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ItemReviewResponseDTO> createReview(@RequestBody ItemReviewRequestDTO request) {
         return ResponseEntity.ok(itemReviewService.createReview(request));
     }
 
     @GetMapping("/product/{productId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<ItemReviewResponseDTO>> getReviewsByProduct(@PathVariable Long productId) {
         return ResponseEntity.ok(itemReviewService.getReviewsByProduct(productId));
     }
 
     @PutMapping("/{reviewId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ItemReviewResponseDTO> updateReview(
             @PathVariable Long reviewId,
             @RequestBody ItemReviewUpdateRequestDTO request
@@ -38,17 +42,20 @@ public class ItemReviewController {
     }
 
     @DeleteMapping("/{reviewId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Void> deleteReview(@PathVariable Long reviewId) {
         itemReviewService.deleteReview(reviewId);
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/user/{userId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<ItemReviewResponseDTO>> getReviewsByUser(@PathVariable UUID userId) {
         return ResponseEntity.ok(itemReviewService.getReviewsByUser(userId));
     }
 
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<ItemReviewResponseDTO>> getAllItemReviews() {
         return ResponseEntity.ok(itemReviewService.getAllItemReviews());
     }
