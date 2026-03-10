@@ -56,7 +56,6 @@ public class FirebaseTokenFilter extends OncePerRequestFilter {
                             new SimpleGrantedAuthority("ROLE_" + userRole)
                     );
 
-
                     UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                             email,
                             null,

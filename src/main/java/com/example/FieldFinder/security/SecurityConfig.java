@@ -40,6 +40,9 @@ public class SecurityConfig {
                                 "/swagger-ui.html"
                         ).permitAll()
 
+                        .requestMatchers("/ws/**",
+                                "/api/chat/**" ).permitAll()
+
                         .requestMatchers(
                                 "/api/users/register",
                                 "/api/users/login",

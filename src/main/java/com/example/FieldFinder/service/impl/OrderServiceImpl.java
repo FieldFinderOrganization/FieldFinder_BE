@@ -59,36 +59,29 @@ public class OrderServiceImpl implements OrderService {
         double subTotal = 0.0;
         List<OrderItem> orderItemsToSave = new ArrayList<>();
 
-        // Vòng lặp xử lý từng sản phẩm với Lock phân tán
         for (OrderItemRequestDTO itemDTO : request.getItems()) {
 
-            // 1. Tạo ổ khóa duy nhất cho Sản phẩm + Size
             String lockKey = "lock_product_" + itemDTO.getProductId() + "_size_" + itemDTO.getSize();
             RLock lock = redissonClient.getLock(lockKey);
 
             boolean isLocked = false;
             try {
-                // 2. Cố gắng lấy khóa (Chờ tối đa 3 giây, giữ khóa tối đa 10 giây nếu server sập)
                 isLocked = lock.tryLock(3, 10, TimeUnit.SECONDS);
 
                 if (isLocked) {
                     Product product = productRepository.findById(itemDTO.getProductId())
                             .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
 
-                    // A. Đọc tồn kho thực tế TỪ DATABASE
                     ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(itemDTO.getProductId(), itemDTO.getSize())
                             .orElseThrow(() -> new RuntimeException("Không tìm thấy size " + itemDTO.getSize() + " cho sản phẩm " + product.getName()));
 
-                    // B. Kiểm tra cháy hàng
                     if (variant.getAvailableQuantity() < itemDTO.getQuantity()) {
                         throw new RuntimeException("Rất tiếc! Sản phẩm " + product.getName() + " (Size " + itemDTO.getSize() + ") vừa hết hàng hoặc không đủ số lượng.");
                     }
 
-                    // C. CHỈ GIỮ HÀNG (Khóa tạm thời) chứ chưa trừ hẳn kho
                     variant.setLockedQuantity(variant.getLockedQuantity() + itemDTO.getQuantity());
                     productVariantRepository.saveAndFlush(variant);
 
-                    // D. Tính toán tiền và tạo OrderItem
                     double price = product.getEffectivePrice() * itemDTO.getQuantity();
                     subTotal += price;
 

@@ -48,18 +48,15 @@ public class ProductServiceImpl implements ProductService {
         this.aiChat = aiChat;
     }
 
-    // --- HELPER: Lấy danh sách giảm giá công khai (Explicit + Implicit) ---
     private List<Discount> getPublicDiscounts(Product product) {
         List<Discount> publicDiscounts = new ArrayList<>();
 
-        // 1. Explicit (Gắn trực tiếp vào Product)
         if (product.getDiscounts() != null) {
             publicDiscounts.addAll(product.getDiscounts().stream()
                     .map(ProductDiscount::getDiscount)
                     .toList());
         }
 
-        // 2. Implicit (Theo Category)
         if (product.getCategory() != null) {
             List<Long> categoryIds = new ArrayList<>();
             Category current = product.getCategory();
@@ -74,7 +71,6 @@ public class ProductServiceImpl implements ProductService {
                         categoryIds
                 );
 
-                // Merge vào list chính (tránh trùng lặp ID)
                 Set<UUID> existingIds = publicDiscounts.stream()
                         .map(Discount::getDiscountId)
                         .collect(Collectors.toSet());
@@ -89,8 +85,6 @@ public class ProductServiceImpl implements ProductService {
         return publicDiscounts;
     }
 
-    // --- HELPER: Logic tính giá (cho danh sách products) ---
-    // SỬA ĐỔI: Nhận usedDiscountIds thay vì userId để tránh query nhiều lần
     private void calculateAndSetUserPrice(Product product, List<UUID> usedDiscountIds) {
         // 1. Lấy mã công khai
         List<Discount> allDiscounts = getPublicDiscounts(product);
@@ -104,7 +98,6 @@ public class ProductServiceImpl implements ProductService {
         product.calculateSalePriceForUser(allDiscounts);
     }
 
-    // SỬA ĐỔI: Nhận usedDiscountIds
     private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds) {
         if (product == null) return null;
         calculateAndSetUserPrice(product, usedDiscountIds);
@@ -157,7 +150,6 @@ public class ProductServiceImpl implements ProductService {
             new Thread(() -> enrichSingleProduct(product.getProductId(), product.getImageUrl())).start();
         }
 
-        // Khi tạo mới chưa có user context, truyền list rỗng
         return mapToResponse(product, Collections.emptyList());
     }
 
