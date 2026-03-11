@@ -31,4 +31,10 @@ public class ChatMessage {
     @Column(name = "timestamp")
     private Date timestamp;
 
+    @Column(name = "is_read")
+    private Boolean isRead = false;
+
+    @Transient
+    private String type = "CHAT";
+
 }
