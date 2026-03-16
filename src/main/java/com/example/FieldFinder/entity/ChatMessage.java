@@ -34,7 +34,7 @@ public class ChatMessage {
     @Column(name = "is_read")
     private Boolean isRead = false;
 
-    @Transient
-    private String type = "CHAT";
+    @Column(name = "message_type")
+    private String type = "TEXT";
 
 }
