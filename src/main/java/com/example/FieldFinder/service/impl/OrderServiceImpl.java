@@ -2,6 +2,7 @@ package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.Enum.OrderStatus;
 import com.example.FieldFinder.Enum.PaymentMethod;
+import com.example.FieldFinder.config.RabbitMQConfig;
 import com.example.FieldFinder.dto.req.OrderItemRequestDTO;
 import com.example.FieldFinder.dto.req.OrderRequestDTO;
 import com.example.FieldFinder.dto.res.OrderItemResponseDTO;
@@ -12,6 +13,7 @@ import com.example.FieldFinder.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,7 @@ public class OrderServiceImpl implements OrderService {
 
     private final ProductVariantRepository productVariantRepository;
     private final RedissonClient redissonClient;
+    private final RabbitTemplate rabbitTemplate;
 
     @Override
     @Transactional
@@ -161,7 +164,6 @@ public class OrderServiceImpl implements OrderService {
         order.setItems(orderItemsToSave);
 
         orderRepository.save(order);
-
         return mapToResponse(order);
     }
 

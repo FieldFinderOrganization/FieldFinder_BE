@@ -43,6 +43,8 @@ public class SecurityConfig {
                         .requestMatchers("/ws/**",
                                 "/api/chat/**" ).permitAll()
 
+                        .requestMatchers("/api/payment/**").permitAll()
+
                         .requestMatchers(
                                 "/api/users/register",
                                 "/api/users/login",

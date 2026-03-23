@@ -17,7 +17,7 @@ import java.math.BigDecimal;
 public interface BookingService {
     Booking createBooking(BookingRequestDTO bookingRequest);
     ResponseEntity<String> updateBookingStatus(UUID bookingId, String status);
-    List<BookingResponseDTO> getBookingsByUser(UUID userId);
+    List<ProviderBookingResponseDTO> getBookingsByUser(UUID userId);
     Booking getBookingDetails(UUID bookingId);
     void cancelBooking(UUID bookingId);
     BigDecimal calculateTotalPrice(UUID bookingId);

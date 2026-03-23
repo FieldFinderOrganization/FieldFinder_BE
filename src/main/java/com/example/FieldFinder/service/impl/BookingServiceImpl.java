@@ -1,5 +1,6 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.config.RabbitMQConfig;
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
 import com.example.FieldFinder.dto.res.BookingResponseDTO;
@@ -8,6 +9,7 @@ import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.BookingService;
 import com.example.FieldFinder.service.PitchRedisLockService;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,7 @@ public class BookingServiceImpl implements BookingService {
     private final UserRepository userRepository;
     private final RestTemplate restTemplate;
     private final TimeSlotRepository timeSlotRepository;
+    private final RabbitTemplate rabbitTemplate;
 
     @Autowired
     private ProviderRepository providerRepository;
@@ -35,13 +38,15 @@ public class BookingServiceImpl implements BookingService {
                               BookingDetailRepository bookingDetailRepository,
                               PitchRepository pitchRepository,
                               UserRepository userRepository,
-                              TimeSlotRepository timeSlotRepository) {
+                              TimeSlotRepository timeSlotRepository,
+                              RabbitTemplate rabbitTemplate) {
         this.bookingRepository = bookingRepository;
         this.bookingDetailRepository = bookingDetailRepository;
         this.pitchRepository = pitchRepository;
         this.userRepository = userRepository;
         this.timeSlotRepository = timeSlotRepository;
         this.restTemplate = new RestTemplate();
+        this.rabbitTemplate = rabbitTemplate;
     }
 
     private PitchRedisLockService pitchRedisLockService;
@@ -149,7 +154,14 @@ public class BookingServiceImpl implements BookingService {
 
             booking.setBookingDetails(details);
 
-            return bookingRepository.save(booking);
+
+            Booking savedBooking = bookingRepository.save(booking);
+
+            // BẮN MESSAGE SANG RABBITMQ
+            // Gửi ID của đơn đặt sân sang Queue thay vì gửi email trực tiếp để tối ưu thời gian phản hồi
+            rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY, savedBooking.getBookingId().toString());
+
+            return savedBooking;
         } catch (Exception e) {
             for (Integer slotId : requestedSlots) {
                 pitchRedisLockService.unlockSlot(pitchId, bookingDate, slotId, userId);
@@ -181,15 +193,12 @@ public class BookingServiceImpl implements BookingService {
         List<Booking> bookings = bookingRepository.findByProviderId(providerId);
 
         return bookings.stream().map(booking -> {
-
             String paymentMethod = "Chưa thanh toán";
-
             String pitchName = "Không xác định";
             List<Integer> slots = new ArrayList<>();
 
             if (booking.getBookingDetails() != null && !booking.getBookingDetails().isEmpty()) {
                 BookingDetail firstDetail = booking.getBookingDetails().get(0);
-
                 Pitch pitch = pitchRepository.findById(firstDetail.getPitchId()).orElse(null);
                 if (pitch != null) pitchName = pitch.getName();
 
@@ -198,12 +207,9 @@ public class BookingServiceImpl implements BookingService {
                         .collect(Collectors.toList());
             }
 
-            String providerName = "Không xác định";
-            Provider provider = providerRepository.findById(providerId).orElse(null);
-            if (provider != null) {
-                User providerUser = userRepository.findById(provider.getUserId()).orElse(null);
-                if (providerUser != null) providerName = providerUser.getName();
-            }
+            User customer = booking.getUser();
+            String userName = (customer != null) ? customer.getName() : "Khách hàng";
+            UUID customerId = (customer != null) ? customer.getUserId() : null;
 
             return ProviderBookingResponseDTO.builder()
                     .bookingId(booking.getBookingId())
@@ -213,13 +219,13 @@ public class BookingServiceImpl implements BookingService {
                     .totalPrice(booking.getTotalPrice())
                     .providerId(providerId)
                     .paymentMethod(paymentMethod)
-                    .providerName(providerName)
+                    .userId(customerId)
+                    .userName(userName)
                     .pitchName(pitchName)
                     .slots(slots)
                     .build();
         }).collect(Collectors.toList());
     }
-
 
     @Override
     @Transactional
@@ -242,15 +248,39 @@ public class BookingServiceImpl implements BookingService {
 
 
     @Override
-    public List<BookingResponseDTO> getBookingsByUser(UUID userId) {
+    public List<ProviderBookingResponseDTO> getBookingsByUser(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found!"));
 
         List<Booking> bookings = bookingRepository.findByUser(user);
 
-        return bookings.stream()
-                .map(BookingResponseDTO::fromEntity)
-                .collect(Collectors.toList());
+        return bookings.stream().map(booking -> {
+            String pitchName = "Không xác định";
+            List<Integer> slots = new ArrayList<>();
+
+            if (booking.getBookingDetails() != null && !booking.getBookingDetails().isEmpty()) {
+                BookingDetail firstDetail = booking.getBookingDetails().get(0);
+                Pitch pitch = pitchRepository.findById(firstDetail.getPitchId()).orElse(null);
+                if (pitch != null) pitchName = pitch.getName();
+
+                slots = booking.getBookingDetails().stream()
+                        .map(BookingDetail::getSlot)
+                        .collect(Collectors.toList());
+            }
+
+            String providerName = "Không xác định";
+
+            return ProviderBookingResponseDTO.builder()
+                    .bookingId(booking.getBookingId())
+                    .bookingDate(booking.getBookingDate())
+                    .status(booking.getStatus().name())
+                    .paymentStatus(booking.getPaymentStatus() != null ? booking.getPaymentStatus().name() : "PENDING")
+                    .totalPrice(booking.getTotalPrice())
+                    .pitchName(pitchName)
+                    .providerName(providerName) // Backend trả về
+                    .slots(slots)
+                    .build();
+        }).collect(Collectors.toList());
     }
 
     @Override

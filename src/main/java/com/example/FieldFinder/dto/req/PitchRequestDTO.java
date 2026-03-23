@@ -13,7 +13,7 @@ public class PitchRequestDTO {
     private UUID providerAddressId;
     private String name;
     private PitchType type;
-    private PitchEnvironment environment; // ⭐
+    private PitchEnvironment environment;
     private BigDecimal price;
     private String description;
 }

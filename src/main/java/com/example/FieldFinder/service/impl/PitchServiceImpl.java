@@ -24,7 +24,6 @@ public class PitchServiceImpl implements PitchService {
 
     @Override
     public PitchResponseDTO createPitch(PitchRequestDTO dto) {
-        // Tìm providerAddress bên trong method
         ProviderAddress providerAddress = providerAddressRepository.findById(dto.getProviderAddressId())
                 .orElseThrow(() -> new RuntimeException("ProviderAddress not found!"));
 
@@ -38,7 +37,7 @@ public class PitchServiceImpl implements PitchService {
                 .build();
 
         pitch = pitchRepository.save(pitch);
-        return mapToDto(pitch);
+        return PitchResponseDTO.fromEntity(pitch);
     }
 
     @Override
@@ -51,26 +50,16 @@ public class PitchServiceImpl implements PitchService {
         pitch.setPrice(dto.getPrice());
         pitch.setDescription(dto.getDescription());
         pitch = pitchRepository.save(pitch);
-        return mapToDto(pitch);
+        return PitchResponseDTO.fromEntity(pitch);
     }
 
     @Override
     public List<PitchResponseDTO> getPitchesByProviderAddressId(UUID providerAddressId) {
         return pitchRepository.findByProviderAddressProviderAddressId(providerAddressId)
-                .stream().map(this::mapToDto)
+                .stream().map(PitchResponseDTO::fromEntity)
                 .collect(Collectors.toList());
     }
 
-    private PitchResponseDTO mapToDto(Pitch pitch) {
-        PitchResponseDTO dto = new PitchResponseDTO();
-        dto.setPitchId(pitch.getPitchId());
-        dto.setProviderAddressId(pitch.getProviderAddress().getProviderAddressId());
-        dto.setName(pitch.getName());
-        dto.setType(pitch.getType());
-        dto.setPrice(pitch.getPrice());
-        dto.setDescription(pitch.getDescription());
-        return dto;
-    }
     @Override
     public void deletePitch(UUID pitchId) {
         if (!pitchRepository.existsById(pitchId)) {

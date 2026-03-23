@@ -228,8 +228,8 @@ public class BookingController {
 
     @GetMapping("/user/{userId}")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<List<BookingResponseDTO>> getBookingsByUser(@PathVariable UUID userId) {
-        List<BookingResponseDTO> bookings = bookingService.getBookingsByUser(userId);
+    public ResponseEntity<List<ProviderBookingResponseDTO>> getBookingsByUser(@PathVariable UUID userId) {
+        List<ProviderBookingResponseDTO> bookings = bookingService.getBookingsByUser(userId);
         return ResponseEntity.ok(bookings);
     }
 

@@ -2,6 +2,7 @@ package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.Enum.OrderStatus;
 import com.example.FieldFinder.Enum.PaymentMethod;
+import com.example.FieldFinder.config.RabbitMQConfig;
 import com.example.FieldFinder.dto.req.PaymentRequestDTO;
 import com.example.FieldFinder.dto.req.ShopPaymentRequestDTO;
 import com.example.FieldFinder.dto.res.PaymentResponseDTO;
@@ -12,6 +13,7 @@ import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.PaymentService;
 import com.example.FieldFinder.service.ProductService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +41,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PayOSService payOSService;
     private final ProductService productService;
     private final EmailService emailService;
+    private final RabbitTemplate rabbitTemplate;
 
     @Value("${front_end_url}")
     private String frontEndUrl;
@@ -255,7 +258,7 @@ public class PaymentServiceImpl implements PaymentService {
                             }
 
                             System.out.println("📧 Sending confirmation email for Order #" + order.getOrderId());
-                            emailService.sendOrderConfirmation(order);
+                            rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.ORDER_EMAIL_ROUTING_KEY, order.getOrderId().toString());
                         }
                     }
                 }

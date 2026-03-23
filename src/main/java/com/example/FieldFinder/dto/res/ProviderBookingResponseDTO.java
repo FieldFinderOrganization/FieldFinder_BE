@@ -16,6 +16,9 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 public class ProviderBookingResponseDTO {
+    private UUID userId;
+    private String userName;
+
     private UUID bookingId;
     private LocalDate bookingDate;
     private String status;

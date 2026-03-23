@@ -26,7 +26,6 @@ public class PaymentWebhookController {
     private final BookingRepository bookingRepository;
 
     @PostMapping("/webhook")
-    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<String> handleWebhook(@RequestBody WebhookRequestDTO request) {
         String transactionId = request.getData().getTransactionId();
 
@@ -57,7 +56,6 @@ public class PaymentWebhookController {
 
 
     @GetMapping("/thanks")
-    @PreAuthorize("isAuthenticated()")
     public String thankYouPage() {
         return "Thank you for your payment!";
     }
