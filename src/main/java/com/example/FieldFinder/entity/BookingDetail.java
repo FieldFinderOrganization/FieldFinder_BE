@@ -39,11 +39,24 @@ public class BookingDetail implements Serializable {
     @Column(name = "price")
     private Double price;
 
-    private int slot;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "slot_id", nullable = true)
+    private TimeSlot timeSlot;
+
     private String name;
     private BigDecimal priceDetail;
 
     public UUID getPitchId() {
-        return this.getPitchId();
+        if (this.pitch != null) {
+            return this.pitch.getPitchId();
+        }
+        return null;
+    }
+
+    public Integer getSlot() {
+        if (this.timeSlot != null) {
+            return this.timeSlot.getSlotId();
+        }
+        return null;
     }
 }

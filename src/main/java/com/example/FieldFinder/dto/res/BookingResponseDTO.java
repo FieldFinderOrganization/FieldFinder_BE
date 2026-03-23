@@ -37,7 +37,6 @@ public class BookingResponseDTO {
                 .collect(Collectors.toList());
         dto.setBookingDetails(details);
 
-        // Lấy providerId từ bookingDetail đầu tiên (nếu có)
         if (!booking.getBookingDetails().isEmpty()) {
             BookingDetail firstDetail = booking.getBookingDetails().get(0);
             Pitch pitch = firstDetail.getPitch();

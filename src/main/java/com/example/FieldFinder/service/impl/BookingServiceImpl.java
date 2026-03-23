@@ -7,6 +7,7 @@ import com.example.FieldFinder.dto.res.ProviderBookingResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.BookingService;
+import com.example.FieldFinder.service.PitchRedisLockService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,7 @@ public class BookingServiceImpl implements BookingService {
     private final PitchRepository pitchRepository;
     private final UserRepository userRepository;
     private final RestTemplate restTemplate;
+    private final TimeSlotRepository timeSlotRepository;
 
     @Autowired
     private ProviderRepository providerRepository;
@@ -32,21 +34,32 @@ public class BookingServiceImpl implements BookingService {
     public BookingServiceImpl(BookingRepository bookingRepository,
                               BookingDetailRepository bookingDetailRepository,
                               PitchRepository pitchRepository,
-                              UserRepository userRepository) {
+                              UserRepository userRepository,
+                              TimeSlotRepository timeSlotRepository) {
         this.bookingRepository = bookingRepository;
         this.bookingDetailRepository = bookingDetailRepository;
         this.pitchRepository = pitchRepository;
         this.userRepository = userRepository;
+        this.timeSlotRepository = timeSlotRepository;
         this.restTemplate = new RestTemplate();
     }
+
+    private PitchRedisLockService pitchRedisLockService;
+
+    @Autowired
+    public PitchRedisLockService pitchRedisLockService(PitchRedisLockService pitchRedisLockService) {
+        return this.pitchRedisLockService = pitchRedisLockService;
+    }
+
     @Override
     public List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate) {
         List<BookingDetail> bookingDetails = bookingDetailRepository.findByPitch_PitchIdAndBooking_BookingDate(pitchId, bookingDate);
         return bookingDetails.stream()
-                .map(BookingDetail::getSlot)
+                .map(bd -> bd.getTimeSlot().getSlotId()) // SỬA Ở ĐÂY: Trích xuất ID từ Entity TimeSlot
                 .distinct()
                 .collect(Collectors.toList());
     }
+
     @Override
     public List<PitchBookedSlotsDTO> getAllBookedTimeSlots(LocalDate bookingDate) {
         List<BookingDetail> bookingDetails = bookingDetailRepository.findByBooking_BookingDate(bookingDate);
@@ -54,7 +67,7 @@ public class BookingServiceImpl implements BookingService {
         Map<UUID, List<Integer>> grouped = bookingDetails.stream()
                 .collect(Collectors.groupingBy(
                         bd -> bd.getPitch().getPitchId(),
-                        Collectors.mapping(BookingDetail::getSlot, Collectors.toList())
+                        Collectors.mapping(bd -> bd.getTimeSlot().getSlotId(), Collectors.toList()) // SỬA Ở ĐÂY
                 ));
 
         return grouped.entrySet().stream()
@@ -94,33 +107,55 @@ public class BookingServiceImpl implements BookingService {
     @Override
     @Transactional
     public Booking createBooking(BookingRequestDTO bookingRequest) {
+
         User user = userRepository.findById(bookingRequest.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found!"));
         Pitch pitch = pitchRepository.findById(bookingRequest.getPitchId())
                 .orElseThrow(() -> new RuntimeException("Pitch not found!"));
 
-        Booking booking = Booking.builder()
-                .user(user)
-                .bookingDate(bookingRequest.getBookingDate())
-                .status(Booking.BookingStatus.PENDING)
-                .paymentStatus(Booking.PaymentStatus.PENDING)
-                .totalPrice(bookingRequest.getTotalPrice())
-                .bookingDetails(new ArrayList<>())
-                .build();
+        LocalDate bookingDate = bookingRequest.getBookingDate();
+        UUID pitchId = (bookingRequest.getPitchId());
+        String userId = bookingRequest.getUserId().toString();
 
-        List<BookingDetail> details = bookingRequest.getBookingDetails().stream().map(detailDTO -> {
-            BookingDetail detail = new BookingDetail();
-            detail.setBooking(booking);
-            detail.setPitch(pitch);
-            detail.setSlot(detailDTO.getSlot());
-            detail.setName(detailDTO.getName());
-            detail.setPriceDetail(detailDTO.getPriceDetail());
-            return detail;
-        }).collect(Collectors.toList());
+        List<Integer> requestedSlots = bookingRequest.getBookingDetails().stream()
+                .map(detail -> detail.getTimeSlot().getSlotId())
+                .collect(Collectors.toList());
 
-        booking.setBookingDetails(details);
+        boolean isLocked = pitchRedisLockService.lockSlots(pitchId, bookingDate, requestedSlots, userId);
 
-        return bookingRepository.save(booking);
+        if (!isLocked) {
+            throw new RuntimeException("Rất tiếc! Một trong những khung giờ bạn chọn vừa bị người khác đặt mất. Vui lòng chọn giờ khác.");
+        }
+
+        try {
+            Booking booking = Booking.builder()
+                    .user(user)
+                    .bookingDate(bookingRequest.getBookingDate())
+                    .status(Booking.BookingStatus.PENDING)
+                    .paymentStatus(Booking.PaymentStatus.PENDING)
+                    .totalPrice(bookingRequest.getTotalPrice())
+                    .bookingDetails(new ArrayList<>())
+                    .build();
+
+            List<BookingDetail> details = bookingRequest.getBookingDetails().stream().map(detailDTO -> {
+                BookingDetail detail = new BookingDetail();
+                detail.setBooking(booking);
+                detail.setPitch(pitch);
+                detail.setTimeSlot(detailDTO.getTimeSlot());
+                detail.setName(detailDTO.getName());
+                detail.setPriceDetail(detailDTO.getPriceDetail());
+                return detail;
+            }).collect(Collectors.toList());
+
+            booking.setBookingDetails(details);
+
+            return bookingRepository.save(booking);
+        } catch (Exception e) {
+            for (Integer slotId : requestedSlots) {
+                pitchRedisLockService.unlockSlot(pitchId, bookingDate, slotId, userId);
+            }
+            throw e;
+        }
     }
 
     @Transactional
@@ -149,7 +184,6 @@ public class BookingServiceImpl implements BookingService {
 
             String paymentMethod = "Chưa thanh toán";
 
-            // Lấy Pitch Name và Slots
             String pitchName = "Không xác định";
             List<Integer> slots = new ArrayList<>();
 

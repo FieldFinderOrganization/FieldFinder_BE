@@ -227,7 +227,7 @@ public class BookingController {
     }
 
     @GetMapping("/user/{userId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<BookingResponseDTO>> getBookingsByUser(@PathVariable UUID userId) {
         List<BookingResponseDTO> bookings = bookingService.getBookingsByUser(userId);
         return ResponseEntity.ok(bookings);

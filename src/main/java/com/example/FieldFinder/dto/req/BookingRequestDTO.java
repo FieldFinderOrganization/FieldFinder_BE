@@ -1,5 +1,6 @@
 package com.example.FieldFinder.dto.req;
 
+import com.example.FieldFinder.entity.TimeSlot;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -13,7 +14,6 @@ import java.util.UUID;
 @Setter
 @Getter
 public class BookingRequestDTO {
-    // Getters and Setters
     private UUID pitchId;
     private UUID userId;
     private LocalDate bookingDate;
@@ -23,8 +23,7 @@ public class BookingRequestDTO {
     @Setter
     @Getter
     public static class BookingDetailDTO {
-        // Getters and Setters
-        private int slot;
+        private TimeSlot timeSlot;
         private String name;
         private BigDecimal priceDetail;
 
