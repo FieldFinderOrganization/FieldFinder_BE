@@ -15,7 +15,6 @@ public class PitchRedisLockService {
 
     private final StringRedisTemplate redisTemplate;
 
-    // Định dạng Key Redis: lock:pitch:{pitchId}:date:{date}:slot:{slotId}
     private String getLockKey(UUID pitchId, LocalDate date, Integer slotId) {
         return String.format("lock:pitch:%s:date:%s:slot:%d", pitchId, date.toString(), slotId);
     }

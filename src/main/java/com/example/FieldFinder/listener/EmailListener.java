@@ -28,12 +28,13 @@ public class EmailListener {
 
             if (booking != null) {
                 emailService.sendBookingConfirmation(booking);
-                System.out.println("✅ [RabbitMQ] Đã xử lý xong gửi email cho Booking ID: " + bookingId);
+                System.out.println("RabbitMQ Đã xử lý xong gửi email cho Booking ID: " + bookingId);
             } else {
-                System.err.println("❌ [RabbitMQ] Không tìm thấy Booking ID: " + bookingId);
+                System.err.println("RabbitMQ Không tìm thấy Booking ID: " + bookingId);
             }
         } catch (Exception e) {
-            System.err.println("❌ [RabbitMQ] Lỗi khi xử lý message: " + e.getMessage());
+            System.err.println("RabbitMQ Lỗi gửi mail. RabbitMQ sẽ tự động thử lại... Lỗi: " + e.getMessage());
+            throw new RuntimeException("Yêu cầu RabbitMQ Retry");
         }
     }
 
@@ -45,12 +46,13 @@ public class EmailListener {
 
             if (order != null) {
                 emailService.sendOrderConfirmation(order);
-                System.out.println("✅ [RabbitMQ] Đã xử lý xong gửi email cho Order ID: " + orderId);
+                System.out.println("RabbitMQ Đã xử lý xong gửi email cho Order ID: " + orderId);
             } else {
-                System.err.println("❌ [RabbitMQ] Không tìm thấy Order ID: " + orderId);
+                System.err.println("RabbitMQ Không tìm thấy Order ID: " + orderId);
             }
         } catch (Exception e) {
-            System.err.println("❌ [RabbitMQ] Lỗi khi xử lý message order: " + e.getMessage());
+            System.err.println("RabbitMQ Lỗi gửi mail. RabbitMQ sẽ tự động thử lại... Lỗi: " + e.getMessage());
+            throw new RuntimeException("Yêu cầu RabbitMQ Retry");
         }
     }
 }

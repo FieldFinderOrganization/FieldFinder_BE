@@ -109,18 +109,19 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!"));
 
-        // Kiểm tra xem email có bị trùng không (nếu email thay đổi)
         if (!user.getEmail().equals(userUpdateRequestDTO.getEmail()) && userRepository.existsByEmail(userUpdateRequestDTO.getEmail())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists. Please use a different email!");
         }
 
-        // Cập nhật thông tin
         user.setName(userUpdateRequestDTO.getName());
         user.setEmail(userUpdateRequestDTO.getEmail());
         user.setPhone(userUpdateRequestDTO.getPhone());
         user.setStatus(userUpdateRequestDTO.getStatus());
 
-        // Lưu vào database
+        if (userUpdateRequestDTO.getImageUrl() != null) {
+            user.setImageUrl(userUpdateRequestDTO.getImageUrl());
+        }
+
         User updatedUser = userRepository.save(user);
         return UserResponseDTO.toDto(updatedUser);
     }
@@ -142,6 +143,7 @@ public class UserServiceImpl implements UserService {
         } catch (IllegalArgumentException e) {
             throw new RuntimeException("Invalid status. Allowed: ACTIVE, BLOCKED!");
         }
+
 
         userRepository.save(user);
         return UserResponseDTO.toDto(user);
@@ -206,6 +208,7 @@ public class UserServiceImpl implements UserService {
         String uid = decodedToken.getUid();
         String email = decodedToken.getEmail();
         String name = decodedToken.getName();
+        String picture = decodedToken.getPicture();
 
         User user = userRepository.findByFirebaseUid(uid)
                 .orElseGet(() -> {
@@ -217,11 +220,16 @@ public class UserServiceImpl implements UserService {
                             .password("firebase-user")
                             .role(User.Role.USER)
                             .status(User.Status.ACTIVE)
+                            .imageUrl(picture)
                             .build();
-
 
                     return userRepository.save(newUser);
                 });
+
+        if (user.getImageUrl() == null && picture != null) {
+            user.setImageUrl(picture);
+            userRepository.save(user);
+        }
 
         if (user.getStatus() == User.Status.BLOCKED) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your account has been blocked. Please contact admin for more information!");

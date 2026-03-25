@@ -49,5 +49,8 @@ public class User {
     public enum Role {
         USER, ADMIN, PROVIDER
     }
+
+    @Column(name = "ImageUrl", columnDefinition = "TEXT")
+    private String imageUrl;
 }
 

@@ -35,7 +35,7 @@ public class Pitch {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "Environment", nullable = false)
-    private PitchEnvironment environment; // ⭐ NEW
+    private PitchEnvironment environment;
 
     @Column(name = "Price", nullable = false)
     private BigDecimal price;

@@ -16,4 +16,5 @@ public class UserUpdateRequestDTO {
     private String email;
     private String phone;
     private User.Status status;
+    private String imageUrl;
 }
