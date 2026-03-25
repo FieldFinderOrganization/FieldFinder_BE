@@ -37,7 +37,6 @@ public class PitchController {
     }
 
     @GetMapping
-    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<PitchResponseDTO>> getAllPitches() {
         List<PitchResponseDTO> pitches = pitchService.getAllPitches();
         return ResponseEntity.ok(pitches);

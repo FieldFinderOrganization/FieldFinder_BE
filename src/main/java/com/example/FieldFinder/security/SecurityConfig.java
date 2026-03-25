@@ -51,11 +51,11 @@ public class SecurityConfig {
                                 "/api/users/login-social",
                                 "/api/users/forgot-password",
                                 "/api/users/reset-password",
+                                "/api/users",
                                 "/api/auth/**"
                         ).permitAll()
 
-                        .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/pitches/**").permitAll()
 
                         .anyRequest().authenticated()
                 )

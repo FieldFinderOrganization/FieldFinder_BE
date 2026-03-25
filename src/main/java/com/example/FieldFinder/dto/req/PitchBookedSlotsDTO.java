@@ -7,7 +7,6 @@ public class PitchBookedSlotsDTO {
     private UUID pitchId;
     private List<Integer> bookedSlots;
 
-    // Constructors
     public PitchBookedSlotsDTO() {}
 
     public PitchBookedSlotsDTO(UUID pitchId, List<Integer> bookedSlots) {
@@ -15,7 +14,6 @@ public class PitchBookedSlotsDTO {
         this.bookedSlots = bookedSlots;
     }
 
-    // Getters and Setters
     public UUID getPitchId() {
         return pitchId;
     }

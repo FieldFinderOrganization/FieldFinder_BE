@@ -6,6 +6,7 @@ import com.example.FieldFinder.entity.Pitch.PitchType;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -17,6 +18,7 @@ public class PitchResponseDTO {
     private PitchEnvironment environment;
     private BigDecimal price;
     private String description;
+    private List<String> imageUrls;
     public static PitchResponseDTO fromEntity(Pitch pitch) {
         PitchResponseDTO dto = new PitchResponseDTO();
         dto.setPitchId(pitch.getPitchId());
@@ -26,6 +28,7 @@ public class PitchResponseDTO {
         dto.setEnvironment(pitch.getEnvironment());
         dto.setPrice(pitch.getPrice());
         dto.setDescription(pitch.getDescription());
+        dto.setImageUrls(pitch.getImageUrls());
         return dto;
     }
 }

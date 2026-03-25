@@ -6,6 +6,7 @@ import com.example.FieldFinder.entity.Pitch.PitchType;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -16,4 +17,5 @@ public class PitchRequestDTO {
     private PitchEnvironment environment;
     private BigDecimal price;
     private String description;
+    private List<String> imageUrls;
 }

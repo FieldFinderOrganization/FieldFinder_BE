@@ -11,6 +11,7 @@ import com.example.FieldFinder.service.PitchService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -34,6 +35,7 @@ public class PitchServiceImpl implements PitchService {
                 .price(dto.getPrice())
                 .environment(dto.getEnvironment())
                 .description(dto.getDescription())
+                .imageUrls(dto.getImageUrls() != null ? dto.getImageUrls() : new ArrayList<>())
                 .build();
 
         pitch = pitchRepository.save(pitch);
@@ -49,6 +51,7 @@ public class PitchServiceImpl implements PitchService {
         pitch.setEnvironment(dto.getEnvironment());
         pitch.setPrice(dto.getPrice());
         pitch.setDescription(dto.getDescription());
+        pitch.setImageUrls(dto.getImageUrls() != null ? dto.getImageUrls() : new ArrayList<>());
         pitch = pitchRepository.save(pitch);
         return PitchResponseDTO.fromEntity(pitch);
     }
