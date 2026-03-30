@@ -28,32 +28,23 @@ public class BookingServiceImpl implements BookingService {
     private final PitchRepository pitchRepository;
     private final UserRepository userRepository;
     private final RestTemplate restTemplate;
-    private final TimeSlotRepository timeSlotRepository;
     private final RabbitTemplate rabbitTemplate;
-
-    @Autowired
-    private ProviderRepository providerRepository;
+    private final PitchRedisLockService pitchRedisLockService;
 
     public BookingServiceImpl(BookingRepository bookingRepository,
                               BookingDetailRepository bookingDetailRepository,
                               PitchRepository pitchRepository,
                               UserRepository userRepository,
-                              TimeSlotRepository timeSlotRepository,
-                              RabbitTemplate rabbitTemplate) {
+                              RestTemplate restTemplate,
+                              RabbitTemplate rabbitTemplate,
+                              PitchRedisLockService pitchRedisLockService) {
         this.bookingRepository = bookingRepository;
         this.bookingDetailRepository = bookingDetailRepository;
         this.pitchRepository = pitchRepository;
         this.userRepository = userRepository;
-        this.timeSlotRepository = timeSlotRepository;
-        this.restTemplate = new RestTemplate();
+        this.restTemplate = restTemplate;
         this.rabbitTemplate = rabbitTemplate;
-    }
-
-    private PitchRedisLockService pitchRedisLockService;
-
-    @Autowired
-    public PitchRedisLockService pitchRedisLockService(PitchRedisLockService pitchRedisLockService) {
-        return this.pitchRedisLockService = pitchRedisLockService;
+        this.pitchRedisLockService = pitchRedisLockService;
     }
 
     @Override

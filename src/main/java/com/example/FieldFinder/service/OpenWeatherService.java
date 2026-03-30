@@ -21,6 +21,10 @@ public class OpenWeatherService {
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
+    private String cachedDefaultWeather = "Trời quang, nhiệt độ khoảng 28°C";
+    private long lastFetchTime = 0;
+    private static final long CACHE_DURATION_MS = 15 * 60 * 1000;
+
     public String getCurrentWeather(String city) throws IOException {
         String url = String.format("%s?q=%s&appid=%s&units=metric&lang=vi",
                 BASE_URL, city, weatherApiKey);
@@ -42,5 +46,20 @@ public class OpenWeatherService {
                     description.substring(0, 1).toUpperCase() + description.substring(1), // Viết hoa chữ cái đầu
                     temp);
         }
+    }
+
+    // Hàm riêng cho AOP gọi (Sử dụng Cache)
+    public String getCachedDefaultWeather() {
+        long now = System.currentTimeMillis();
+        if (now - lastFetchTime > CACHE_DURATION_MS) {
+            try {
+                // Tạm thời hardcode HCM, sau này có thể lấy từ Profile User
+                cachedDefaultWeather = getCurrentWeather("Ho Chi Minh");
+                lastFetchTime = now;
+            } catch (Exception e) {
+                System.err.println("Lỗi làm mới cache thời tiết: " + e.getMessage());
+            }
+        }
+        return cachedDefaultWeather;
     }
 }

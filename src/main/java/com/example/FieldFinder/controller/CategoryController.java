@@ -24,13 +24,11 @@ public class CategoryController {
     }
 
     @GetMapping
-    @PreAuthorize("isAuthenticated()")
     public List<CategoryResponseDTO> getAll() {
         return categoryService.getAllCategories();
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("isAuthenticated()")
     public CategoryResponseDTO getById(@PathVariable Long id) {
         return categoryService.getCategoryById(id);
     }

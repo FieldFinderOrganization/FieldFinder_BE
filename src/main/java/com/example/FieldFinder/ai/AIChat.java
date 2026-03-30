@@ -8,6 +8,7 @@ import com.example.FieldFinder.service.OpenWeatherService;
 import com.example.FieldFinder.service.PitchService;
 import com.example.FieldFinder.service.ProductService;
 import com.example.FieldFinder.service.UserService;
+import com.example.FieldFinder.service.log.LogPublisherService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,6 +38,7 @@ public class AIChat {
     private final PitchService pitchService;
     private final ProductService productService;
     private final UserService userService;
+    private final LogPublisherService logPublisherService;
 
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 4000;
     private long lastCallTime = 0;
@@ -50,6 +52,13 @@ public class AIChat {
     private final Map<String, String> sessionLastSizes = new HashMap<>();
     private final Map<String, String> sessionLastActivity = new HashMap<>();
 
+    public AIChat(PitchService pitchService, OpenWeatherService openWeatherService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService) {
+        this.pitchService = pitchService;
+        this.productService = productService;
+        this.userService = userService;
+        this.weatherService = weatherService;
+        this.logPublisherService = logPublisherService;
+    }
 
     static {
         Dotenv dotenv = Dotenv.load();
@@ -155,13 +164,6 @@ public class AIChat {
             e.printStackTrace();
             return new ArrayList<>();
         }
-    }
-
-    public AIChat(PitchService pitchService, OpenWeatherService openWeatherService, ProductService productService, UserService userService, OpenWeatherService weatherService) {
-        this.pitchService = pitchService;
-        this.productService = productService;
-        this.userService = userService;
-        this.weatherService = weatherService;
     }
 
     private synchronized void waitIfNeeded() throws InterruptedException {
@@ -347,9 +349,6 @@ public class AIChat {
     private void processSpecialCases(String userInput, String sessionId,
                                      BookingQuery query, List<PitchResponseDTO> allPitches) {
 
-        // --- SỬA LỖI QUAN TRỌNG ---
-        // Chỉ chạy logic tìm "Sân rẻ nhất" nếu câu hỏi thực sự nhắc đến "sân" hoặc "pitch".
-        // Điều này ngăn việc câu hỏi "Sản phẩm rẻ nhất" bị nhận diện nhầm là tìm sân.
         boolean isPitchRequest = userInput.toLowerCase().contains("sân") || userInput.toLowerCase().contains("pitch");
 
         // Xử lý sân rẻ nhất/mắc nhất
@@ -1002,6 +1001,32 @@ public class AIChat {
         }
 
         processSpecialCases(userInput, sessionId, query, allPitches);
+
+        try {
+            String userId = null;
+            if (sessionId != null) {
+                UUID uid = userService.getUserIdBySession(sessionId);
+                if (uid != null) userId = uid.toString();
+            }
+
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("raw_user_input", userInput);
+            if (query.data != null && query.data.containsKey("action")) {
+                metadata.put("intent_action", query.data.get("action"));
+            }
+            if (query.pitchType != null) metadata.put("requested_pitch_type", query.pitchType);
+            if (query.environment != null) metadata.put("requested_environment", query.environment);
+
+            logPublisherService.publishEvent(
+                    userId, sessionId,
+                    "CHAT_INTENT_RESOLVED",
+                    null, null,
+                    metadata, "AI_Chatbot"
+            );
+        } catch (Exception e) {
+            System.err.println("Không thể ghi log AI Chat: " + e.getMessage());
+        }
+
         return query;
     }
 
