@@ -60,6 +60,12 @@ public class RedisService {
         return null;
     }
 
+    public void saveUserRole(String email, String role) {
+        String redisKey = "USER_ROLE:" + email;
+
+        redisTemplate.opsForValue().set(redisKey, role, 1, TimeUnit.HOURS);
+    }
+
     public UUID getUserIdByEmail(String email) {
         String cacheKey = "USER_ID_MAPPING:" + email;
 

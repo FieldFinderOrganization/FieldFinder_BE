@@ -5,7 +5,9 @@ import com.example.FieldFinder.dto.req.ProductRequestDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
+import com.example.FieldFinder.service.CloudinaryService;
 import com.example.FieldFinder.service.ProductService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -15,6 +17,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -28,6 +31,7 @@ public class ProductServiceImpl implements ProductService {
     private final DiscountRepository discountRepository;
     private final UserDiscountRepository userDiscountRepository;
     private final AIChat aiChat;
+    private final CloudinaryService cloudinaryService;
 
     @Autowired
     private org.springframework.data.redis.core.RedisTemplate<String, Object> redisTemplate;
@@ -38,6 +42,7 @@ public class ProductServiceImpl implements ProductService {
             ProductVariantRepository productVariantRepository,
             DiscountRepository discountRepository,
             UserDiscountRepository userDiscountRepository,
+            CloudinaryService cloudinaryService,
             @Lazy AIChat aiChat
     ) {
         this.productRepository = productRepository;
@@ -45,6 +50,7 @@ public class ProductServiceImpl implements ProductService {
         this.productVariantRepository = productVariantRepository;
         this.discountRepository = discountRepository;
         this.userDiscountRepository = userDiscountRepository;
+        this.cloudinaryService = cloudinaryService;
         this.aiChat = aiChat;
     }
 
@@ -114,16 +120,35 @@ public class ProductServiceImpl implements ProductService {
             @CacheEvict(value = "top_selling", allEntries = true),
             @CacheEvict(value = "products_category", allEntries = true)
     })
-    public ProductResponseDTO createProduct(ProductRequestDTO request) {
+    public ProductResponseDTO createProduct(ProductRequestDTO request, MultipartFile imageFile) {
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new RuntimeException("Category not found!"));
 
+        // 1. Upload ảnh lên Cloudinary lấy URL
+        String imageUrl = request.getImageUrl();
+        if (imageFile != null && !imageFile.isEmpty()) {
+            try {
+                // Truyền tên danh mục vào list theo đúng signature của hàm uploadProductImage
+                List<String> categoryNames = List.of(category.getName());
+
+                // Gọi hàm upload của bạn và nhận về Map
+                Map<String, Object> uploadResult = cloudinaryService.uploadProductImage(imageFile, categoryNames);
+
+                // Trích xuất URL từ kết quả
+                imageUrl = (String) uploadResult.get("url");
+
+            } catch (Exception e) {
+                throw new RuntimeException("Lỗi khi upload ảnh lên Cloudinary", e);
+            }
+        }
+
+        // 2. Lưu Product với imageUrl vừa lấy được
         Product product = Product.builder()
                 .category(category)
                 .name(request.getName())
                 .description(request.getDescription())
                 .price(request.getPrice())
-                .imageUrl(request.getImageUrl())
+                .imageUrl(imageUrl)
                 .brand(request.getBrand())
                 .sex(request.getSex())
                 .tags(request.getTags() != null ? request.getTags() : new HashSet<>())
@@ -146,6 +171,7 @@ public class ProductServiceImpl implements ProductService {
             product.setVariants(variants);
         }
 
+        // 3. Gọi tiến trình ngầm AI Enrich dựa trên URL đã có
         if (product.getImageUrl() != null && !product.getImageUrl().isEmpty()) {
             new Thread(() -> enrichSingleProduct(product.getProductId(), product.getImageUrl())).start();
         }

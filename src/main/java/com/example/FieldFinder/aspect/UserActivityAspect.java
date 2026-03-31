@@ -38,7 +38,18 @@ public class UserActivityAspect {
         }
     }
 
-    // 2. NGHE SỰ KIỆN TẠO BOOKING CÓ TRÍCH XUẤT DETAILS
+    // 2. NGHE SỰ KIỆN XEM SẢN PHẨM
+    @AfterReturning(
+            pointcut = "execution(* com.example.FieldFinder.controller.ProductController.getById(..)) && args(productId, ..)",
+            returning = "result",
+            argNames = "productId,result")
+    public void logViewProduct(Long productId, Object result) {
+        if (isSuccessResponse(result)) {
+            publishLog("VIEW_PRODUCT", productId.toString(), "PRODUCT", new HashMap<>());
+        }
+    }
+
+    // 3. NGHE SỰ KIỆN TẠO BOOKING
     @AfterReturning(
             pointcut = "execution(* com.example.FieldFinder.controller.BookingController.create*(..))",
             returning = "result"
@@ -48,24 +59,20 @@ public class UserActivityAspect {
             Map<String, Object> metadata = new HashMap<>();
             String bookingId = extractIdFromResponse(result, "bookingId");
 
-            // Lấy Arguments (chính là @RequestBody BookingRequestDTO mà Client gửi lên)
             Object[] args = joinPoint.getArgs();
             for (Object arg : args) {
                 if (arg != null && arg.getClass().getSimpleName().contains("BookingRequestDTO")) {
                     try {
-                        // Chuyển Object thành JSON Node để bóc tách dễ dàng
                         JsonNode root = mapper.valueToTree(arg);
-
                         metadata.put("requested_pitch_id", root.path("pitchId").asText(null));
                         metadata.put("total_price", root.path("totalPrice").asDouble(0.0));
                         metadata.put("booking_date", root.path("bookingDate").asText(null));
 
-                        // Lấy mảng bookingDetails (các slot người dùng chọn)
                         if (root.has("bookingDetails")) {
                             metadata.put("booking_details", mapper.convertValue(root.path("bookingDetails"), Object.class));
                         }
                     } catch (Exception e) {
-                        System.err.println("Lỗi bóc tách Booking DTO trong AOP: " + e.getMessage());
+                        System.err.println("Lỗi bóc tách Booking DTO: " + e.getMessage());
                     }
                 }
             }
@@ -74,7 +81,7 @@ public class UserActivityAspect {
         }
     }
 
-    // 3. NGHE SỰ KIỆN TẠO ĐƠN HÀNG MUA SẢN PHẨM
+    // 4. NGHE SỰ KIỆN TẠO ĐƠN HÀNG
     @AfterReturning(
             pointcut = "execution(* com.example.FieldFinder.controller.OrderController.create*(..))",
             returning = "result"
@@ -91,13 +98,11 @@ public class UserActivityAspect {
                         JsonNode root = mapper.valueToTree(arg);
                         metadata.put("total_amount", root.path("totalAmount").asDouble(0.0));
                         metadata.put("payment_method", root.path("paymentMethod").asText(null));
-
-                        // Chi tiết sản phẩm mua
-                        if (root.has("items")) {
-                            metadata.put("items", mapper.convertValue(root.path("items"), Object.class));
+                        if (root.has("orderDetails")) {
+                            metadata.put("order_details", mapper.convertValue(root.path("orderDetails"), Object.class));
                         }
                     } catch (Exception e) {
-                        System.err.println("Lỗi bóc tách Order DTO trong AOP: " + e.getMessage());
+                        System.err.println("Lỗi bóc tách Order DTO: " + e.getMessage());
                     }
                 }
             }
@@ -106,8 +111,14 @@ public class UserActivityAspect {
         }
     }
 
+    // --- FIX LỖI THẦM LẶNG Ở ĐÂY ---
     private boolean isSuccessResponse(Object result) {
-        return result instanceof ResponseEntity && ((ResponseEntity<?>) result).getStatusCode().is2xxSuccessful();
+        if (result == null) return false;
+        if (result instanceof ResponseEntity) {
+            return ((ResponseEntity<?>) result).getStatusCode().is2xxSuccessful();
+        }
+        // Trả về Object/DTO bình thường không báo lỗi -> Thành công
+        return true;
     }
 
     private String extractIdFromResponse(Object result, String idFieldName) {
@@ -118,6 +129,9 @@ public class UserActivityAspect {
                     JsonNode root = mapper.valueToTree(body);
                     return root.path(idFieldName).asText(null);
                 }
+            } else {
+                JsonNode root = mapper.valueToTree(result);
+                return root.path(idFieldName).asText(null);
             }
         } catch (Exception ignored) {}
         return null;

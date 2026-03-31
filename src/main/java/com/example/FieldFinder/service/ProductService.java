@@ -2,11 +2,13 @@ package com.example.FieldFinder.service;
 
 import com.example.FieldFinder.dto.req.ProductRequestDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
+import org.springframework.web.multipart.MultipartFile;
+
 import java.util.List;
 import java.util.UUID;
 
 public interface ProductService {
-    ProductResponseDTO createProduct(ProductRequestDTO request);
+    ProductResponseDTO createProduct(ProductRequestDTO request, MultipartFile imageFile);
 
     ProductResponseDTO getProductById(Long id, UUID userId);
     List<ProductResponseDTO> getAllProducts(UUID userId);

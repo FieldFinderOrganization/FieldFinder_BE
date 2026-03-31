@@ -56,7 +56,7 @@ public class PitchController {
     }
 
     @GetMapping("/{pitchId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<PitchResponseDTO> getPitchById(@PathVariable UUID pitchId) {
         PitchResponseDTO pitch = pitchService.getPitchById(pitchId);
         return ResponseEntity.ok(pitch);
