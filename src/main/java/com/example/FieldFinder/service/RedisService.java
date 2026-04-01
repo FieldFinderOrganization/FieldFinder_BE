@@ -1,8 +1,7 @@
 package com.example.FieldFinder.service;
+
 import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.repository.UserRepository;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -17,8 +16,8 @@ public class RedisService {
         USER, ADMIN, PROVIDER
     }
 
-    @Autowired
-    private UserService userService;
+    // @Autowired
+    // private UserService userService;
 
     @Autowired
     private UserRepository userRepository;

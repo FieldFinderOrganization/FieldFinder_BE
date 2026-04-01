@@ -1,6 +1,5 @@
 package com.example.FieldFinder.service;
 
-import com.example.FieldFinder.dto.req.AuthRequestDTO;
 //import com.example.FieldFinder.dto.req.LoginRequestDTO;
 import com.example.FieldFinder.dto.req.UserRequestDTO;
 import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
@@ -12,11 +11,17 @@ import java.util.UUID;
 
 public interface UserService {
     UserResponseDTO createUser(UserRequestDTO userRequestDTO);
+
     UserResponseDTO loginUser(FirebaseToken decodedToken);
+
     UserResponseDTO updateUser(UUID userId, UserUpdateRequestDTO userUpdateRequestDTO);
+
     List<UserResponseDTO> getAllUsers();
+
     UserResponseDTO updateUserStatus(UUID userId, String status);
+
     void sendPasswordResetEmail(String email);
+
     void resetPassword(String token, String newPassword);
 
     UserResponseDTO loginWithFirebase(FirebaseToken decodedToken);
@@ -26,6 +31,7 @@ public interface UserService {
     void registerUserSession(String sessionId, UUID userId);
 
     void removeUserSession(String sessionId);
+
     UserResponseDTO getUserById(UUID userId);
 
     void blockUser(String email);

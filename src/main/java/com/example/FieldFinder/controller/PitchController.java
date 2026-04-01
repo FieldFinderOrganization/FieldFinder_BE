@@ -1,14 +1,10 @@
 package com.example.FieldFinder.controller;
+
 import com.example.FieldFinder.dto.req.PitchRequestDTO;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
-import com.example.FieldFinder.dto.res.UserResponseDTO;
-import com.example.FieldFinder.entity.Pitch;
 import com.example.FieldFinder.service.PitchService;
-import com.example.FieldFinder.service.UserService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;

@@ -1,6 +1,5 @@
 package com.example.FieldFinder;
 
-import com.google.firebase.FirebaseApp;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

@@ -23,7 +23,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -39,7 +38,8 @@ public class UserServiceImpl implements UserService {
     private final Map<String, UUID> sessionUserMap = new ConcurrentHashMap<>();
     private final RedisTemplate<String, Object> redisTemplate;
 
-    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, EmailService emailService, PasswordResetTokenRepository passwordResetTokenRepository, RedisTemplate<String, Object> redisTemplate) {
+    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, EmailService emailService,
+            PasswordResetTokenRepository passwordResetTokenRepository, RedisTemplate<String, Object> redisTemplate) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
@@ -52,8 +52,7 @@ public class UserServiceImpl implements UserService {
     public UserResponseDTO createUser(UserRequestDTO userRequestDTO) {
         if (userRepository.existsByEmail(userRequestDTO.getEmail())) {
             throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN, "Email already exists. Please use a different email!"
-            );
+                    HttpStatus.FORBIDDEN, "Email already exists. Please use a different email!");
         }
 
         try {
@@ -70,8 +69,7 @@ public class UserServiceImpl implements UserService {
             emailService.send(
                     userRequestDTO.getEmail(),
                     "Verify your FieldFinder account",
-                    "Click this link to verify your account: " + link
-            );
+                    "Click this link to verify your account: " + link);
 
             String encodedPassword = passwordEncoder.encode(userRequestDTO.getPassword());
 
@@ -83,8 +81,7 @@ public class UserServiceImpl implements UserService {
         } catch (FirebaseAuthException e) {
             throw new ResponseStatusException(
                     HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to create user in Firebase: " + e.getMessage()
-            );
+                    "Failed to create user in Firebase: " + e.getMessage());
         }
     }
 
@@ -93,15 +90,16 @@ public class UserServiceImpl implements UserService {
         String email = decodedToken.getEmail();
 
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found. Please check your email or register!"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                        "User not found. Please check your email or register!"));
 
         if (user.getStatus() == User.Status.BLOCKED) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your account has been blocked. Please contact admin!");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Your account has been blocked. Please contact admin!");
         }
 
         return UserResponseDTO.toDto(user);
     }
-
 
     @Override
     @Transactional
@@ -109,8 +107,10 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!"));
 
-        if (!user.getEmail().equals(userUpdateRequestDTO.getEmail()) && userRepository.existsByEmail(userUpdateRequestDTO.getEmail())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists. Please use a different email!");
+        if (!user.getEmail().equals(userUpdateRequestDTO.getEmail())
+                && userRepository.existsByEmail(userUpdateRequestDTO.getEmail())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Email already exists. Please use a different email!");
         }
 
         user.setName(userUpdateRequestDTO.getName());
@@ -143,7 +143,6 @@ public class UserServiceImpl implements UserService {
         } catch (IllegalArgumentException e) {
             throw new RuntimeException("Invalid status. Allowed: ACTIVE, BLOCKED!");
         }
-
 
         userRepository.save(user);
         return UserResponseDTO.toDto(user);
@@ -183,8 +182,7 @@ public class UserServiceImpl implements UserService {
         emailService.send(
                 email,
                 "Password Reset",
-                "Click the link below to reset your password:\n" + resetLink
-        );
+                "Click the link below to reset your password:\n" + resetLink);
     }
 
     @Override
@@ -207,7 +205,7 @@ public class UserServiceImpl implements UserService {
     public UserResponseDTO loginWithFirebase(FirebaseToken decodedToken) {
         String uid = decodedToken.getUid();
         String email = decodedToken.getEmail();
-        String name = decodedToken.getName();
+        // String name = decodedToken.getName();
         String picture = decodedToken.getPicture();
 
         User user = userRepository.findByFirebaseUid(uid)
@@ -232,7 +230,8 @@ public class UserServiceImpl implements UserService {
         }
 
         if (user.getStatus() == User.Status.BLOCKED) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your account has been blocked. Please contact admin for more information!");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Your account has been blocked. Please contact admin for more information!");
         }
 
         return UserResponseDTO.toDto(user);
@@ -261,9 +260,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserResponseDTO getUserById(UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() ->
-                        new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found")
-                );
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
         return UserResponseDTO.toDto(user);
     }
@@ -278,4 +275,3 @@ public class UserServiceImpl implements UserService {
     }
 
 }
-

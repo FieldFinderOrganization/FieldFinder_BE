@@ -21,7 +21,7 @@ public class ProviderResponseDTO {
     public static ProviderResponseDTO fromEntity(Provider provider) {
         return new ProviderResponseDTO(
                 provider.getProviderId(),
-                provider.getUserId(),
+                provider.getUser().getUserId(),
                 provider.getBank(),
                 provider.getCardNumber()
         );

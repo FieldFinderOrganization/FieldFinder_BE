@@ -2,9 +2,15 @@ package com.example.FieldFinder.service.impl;
 import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.entity.Order;
 import com.example.FieldFinder.entity.OrderItem;
+import com.example.FieldFinder.repository.BookingRepository;
+import com.example.FieldFinder.repository.OrderRepository;
 import com.example.FieldFinder.service.EmailService;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.transaction.Transactional;
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -19,11 +25,18 @@ import java.util.Locale;
 @Service
 public class EmailServiceImpl implements EmailService {
 
-    @Autowired
     private final JavaMailSender mailSender;
 
-    public EmailServiceImpl(JavaMailSender mailSender) {
+    private final BookingRepository bookingRepository;
+
+    private final OrderRepository orderRepository;
+
+    public EmailServiceImpl(JavaMailSender mailSender,
+                            BookingRepository bookingRepository,
+                            OrderRepository orderRepository) {
         this.mailSender = mailSender;
+        this.bookingRepository = bookingRepository;
+        this.orderRepository = orderRepository;
     }
 
     @Override
@@ -37,15 +50,20 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     @Async
-    public void sendOrderConfirmation(Order order) {
-        if (order.getUser() == null || order.getUser().getEmail() == null) {
-            System.err.println("Cannot send email: User email is missing for Order #" + order.getOrderId());
+    @Transactional
+    public void sendOrderConfirmation(Order detachedOrder) {
+
+        Order liveOrder = orderRepository.findById(detachedOrder.getOrderId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy Order để gửi email"));
+
+        if (liveOrder.getUser() == null || liveOrder.getUser().getEmail() == null) {
+            System.err.println("Cannot send email: User email is missing for Order #" + liveOrder.getOrderId());
             return;
         }
 
-        String to = order.getUser().getEmail();
-        String subject = "Xác nhận đơn hàng #" + order.getOrderId() + " - Thanh toán thành công";
-        String content = buildOrderHtml(order);
+        String to = liveOrder.getUser().getEmail();
+        String subject = "Xác nhận đơn hàng #" + liveOrder.getOrderId() + " - Thanh toán thành công";
+        String content = buildOrderHtml(liveOrder);
 
         try {
             sendHtmlEmail(to, subject, content);
@@ -57,15 +75,20 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     @Async
-    public void sendBookingConfirmation(Booking booking) {
-        if (booking.getUser() == null || booking.getUser().getEmail() == null) {
-            System.err.println("Cannot send email: User email is missing for Booking #" + booking.getBookingId());
+    @Transactional
+    public void sendBookingConfirmation(Booking detachedBooking) {
+
+        Booking liveBooking = bookingRepository.findById(detachedBooking.getBookingId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy Booking để gửi email"));
+
+        if (liveBooking.getUser() == null || liveBooking.getUser().getEmail() == null) {
+            System.err.println("Cannot send email: User email is missing for Booking #" + liveBooking.getBookingId());
             return;
         }
 
-        String to = booking.getUser().getEmail();
-        String subject = "FieldFinder - Xác nhận đặt sân thành công #" + booking.getBookingId().toString().substring(0, 8);
-        String content = buildBookingHtml(booking);
+        String to = liveBooking.getUser().getEmail();
+        String subject = "FieldFinder - Xác nhận đặt sân thành công #" + liveBooking.getBookingId().toString().substring(0, 8);
+        String content = buildBookingHtml(liveBooking);
 
         try {
             sendHtmlEmail(to, subject, content);

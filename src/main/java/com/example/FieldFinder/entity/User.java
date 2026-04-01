@@ -2,12 +2,8 @@ package com.example.FieldFinder.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
-
-import java.util.Collection;
-import java.util.Collections;
 import java.util.UUID;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -42,6 +38,7 @@ public class User {
     public enum Status {
         ACTIVE, BLOCKED
     }
+
     @Enumerated(EnumType.STRING)
     @Column(name = "Role", nullable = false)
     private Role role;
@@ -53,4 +50,3 @@ public class User {
     @Column(name = "ImageUrl", columnDefinition = "TEXT")
     private String imageUrl;
 }
-

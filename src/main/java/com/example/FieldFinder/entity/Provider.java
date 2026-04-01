@@ -12,34 +12,24 @@ import java.util.UUID;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name = "providers")  // Changed to plural for consistency
-@Builder  // Added builder pattern for convenience
+@Table(name = "providers")
+@Builder
 public class Provider {
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)  // Changed to UUID generation
-    @Column(name = "provider_id")  // Added column name with snake_case
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "provider_id")
     private UUID providerId;
 
-    @Column(name = "user_id", nullable = false)  // Added column name
-    private UUID userId;
+    @OneToOne
+    @JoinColumn(name = "user_id")
+    private User user;
 
-    @Column(name = "card_number", nullable = true)  // Explicitly marked as nullable
+    @Column(name = "card_number", nullable = true)
     private String cardNumber;
 
-    @Column(name = "bank", nullable = true)  // Fixed field name to lowercase and marked as nullable
-    private String bank;  // Changed from "Bank" to "bank" for Java naming conventions
+    @Column(name = "bank", nullable = true)
+    private String bank;
 
     @OneToMany(mappedBy = "provider", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProviderAddress> addresses = new ArrayList<>();
-
-    // Helper method for bidirectional relationship
-    public void addAddress(ProviderAddress address) {
-        addresses.add(address);
-        address.setProvider(this);
-    }
-
-    public void removeAddress(ProviderAddress address) {
-        addresses.remove(address);
-        address.setProvider(null);
-    }
 }

@@ -4,7 +4,6 @@ import com.example.FieldFinder.dto.req.DiscountRequestDTO;
 import com.example.FieldFinder.dto.req.UserDiscountRequestDTO;
 import com.example.FieldFinder.dto.res.DiscountResponseDTO;
 import com.example.FieldFinder.dto.res.UserDiscountResponseDTO;
-import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.service.DiscountService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

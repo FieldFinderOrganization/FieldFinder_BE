@@ -5,7 +5,6 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
-import reactor.core.publisher.Mono;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -42,9 +41,11 @@ public class PayOSService {
     @Value("${payos.returnUrl}")
     private String defaultReturnUrl;
 
-    public record PaymentResult(String checkoutUrl, String paymentLinkId) {}
+    public record PaymentResult(String checkoutUrl, String paymentLinkId) {
+    }
 
-    public PaymentResult createPayment(BigDecimal amount, int orderCode, String description, String returnUrl, String cancelUrl) {
+    public PaymentResult createPayment(BigDecimal amount, int orderCode, String description, String returnUrl,
+            String cancelUrl) {
         int amountInt = amount.intValue();
 
         String finalReturnUrl = (returnUrl != null && !returnUrl.isEmpty()) ? returnUrl : defaultReturnUrl;

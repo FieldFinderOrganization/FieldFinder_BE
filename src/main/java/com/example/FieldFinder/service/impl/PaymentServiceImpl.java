@@ -9,7 +9,6 @@ import com.example.FieldFinder.dto.res.PaymentResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.mapper.BankBinMapper;
 import com.example.FieldFinder.repository.*;
-import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.PaymentService;
 import com.example.FieldFinder.service.ProductService;
 import lombok.RequiredArgsConstructor;
@@ -18,10 +17,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal; // Import BigDecimal
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,12 +32,9 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
     private final OrderRepository orderRepository;
-    private final OrderItemRepository orderItemRepository;
-    private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final PayOSService payOSService;
     private final ProductService productService;
-    private final EmailService emailService;
     private final RabbitTemplate rabbitTemplate;
 
     @Value("${front_end_url}")
@@ -73,8 +67,7 @@ public class PaymentServiceImpl implements PaymentService {
                 orderCode,
                 "Thanh toan san",
                 frontEndUrl + "/payment-success",
-                frontEndUrl + "/payment-cancel"
-        );
+                frontEndUrl + "/payment-cancel");
 
         PaymentMethod paymentMethod = parsePaymentMethod(requestDTO.getPaymentMethod());
 
@@ -120,8 +113,7 @@ public class PaymentServiceImpl implements PaymentService {
                     payOsOrderCode,
                     "Thanh toan don #" + order.getOrderId(),
                     returnUrl,
-                    cancelUrl
-            );
+                    cancelUrl);
             checkoutUrl = result.checkoutUrl();
             transactionId = result.paymentLinkId();
         } else {
@@ -178,7 +170,8 @@ public class PaymentServiceImpl implements PaymentService {
 
     private PaymentMethod parsePaymentMethod(String method) {
         try {
-            if (method == null) return PaymentMethod.CASH;
+            if (method == null)
+                return PaymentMethod.CASH;
             return PaymentMethod.valueOf(method.toUpperCase().trim());
         } catch (IllegalArgumentException e) {
             throw new RuntimeException("Invalid payment method: " + method + ". Allowed: BANK, CASH");
@@ -198,7 +191,8 @@ public class PaymentServiceImpl implements PaymentService {
 
         if (data != null) {
             Object linkIdObj = data.get("paymentLinkId");
-            if (linkIdObj != null) transactionId = String.valueOf(linkIdObj);
+            if (linkIdObj != null)
+                transactionId = String.valueOf(linkIdObj);
         }
 
         if (transactionId == null || code == null) {
@@ -233,7 +227,8 @@ public class PaymentServiceImpl implements PaymentService {
                             }
                         } catch (Exception e) {
                             System.err.println("Lỗi parse ngày tháng từ webhook: " + e.getMessage());
-                            if (order != null) order.setPaymentTime(LocalDateTime.now());
+                            if (order != null)
+                                order.setPaymentTime(LocalDateTime.now());
                         }
                     }
 
@@ -248,17 +243,18 @@ public class PaymentServiceImpl implements PaymentService {
                             order.setStatus(OrderStatus.CONFIRMED); // Or PAID
                             if (order.getItems() != null) {
                                 for (OrderItem item : order.getItems()) {
-                                    System.out.println("   - Committing stock for Product: " + item.getProduct().getName() + ", Size: " + item.getSize());
+                                    System.out.println("   - Committing stock for Product: "
+                                            + item.getProduct().getName() + ", Size: " + item.getSize());
                                     productService.commitStock(
                                             item.getProduct().getProductId(),
                                             item.getSize(),
-                                            item.getQuantity()
-                                    );
+                                            item.getQuantity());
                                 }
                             }
 
                             System.out.println("📧 Sending confirmation email for Order #" + order.getOrderId());
-                            rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.ORDER_EMAIL_ROUTING_KEY, order.getOrderId().toString());
+                            rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
+                                    RabbitMQConfig.ORDER_EMAIL_ROUTING_KEY, order.getOrderId().toString());
                         }
                     }
                 }
@@ -276,12 +272,12 @@ public class PaymentServiceImpl implements PaymentService {
                         order.setStatus(OrderStatus.CANCELLED);
                         if (order.getItems() != null) {
                             for (OrderItem item : order.getItems()) {
-                                System.out.println("   - Releasing stock for Product: " + item.getProduct().getName() + ", Size: " + item.getSize());
+                                System.out.println("   - Releasing stock for Product: " + item.getProduct().getName()
+                                        + ", Size: " + item.getSize());
                                 productService.releaseStock(
                                         item.getProduct().getProductId(),
                                         item.getSize(),
-                                        item.getQuantity()
-                                );
+                                        item.getQuantity());
                             }
                         }
                     }
@@ -289,8 +285,10 @@ public class PaymentServiceImpl implements PaymentService {
             }
 
             paymentRepository.save(payment);
-            if (order != null) orderRepository.save(order);
-            if (booking != null) bookingRepository.save(booking);
+            if (order != null)
+                orderRepository.save(order);
+            if (booking != null)
+                bookingRepository.save(booking);
 
             System.out.println("💾 Saved updated Payment/Order/Booking to DB.");
 

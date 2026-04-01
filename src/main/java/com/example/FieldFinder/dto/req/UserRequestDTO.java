@@ -3,8 +3,6 @@ package com.example.FieldFinder.dto.req;
 import com.example.FieldFinder.entity.User;
 import lombok.*;
 
-import java.util.UUID;
-
 @Getter
 @Setter
 @NoArgsConstructor

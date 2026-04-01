@@ -1,5 +1,5 @@
 package com.example.FieldFinder.dto.req;
-import com.example.FieldFinder.entity.Booking;
+
 import lombok.Data;
 
 import java.math.BigDecimal;

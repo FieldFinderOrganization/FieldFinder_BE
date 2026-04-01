@@ -1,7 +1,6 @@
 package com.example.FieldFinder.dto.res;
-import lombok.*;
 
-import java.math.BigDecimal;
+import lombok.*;
 
 @Builder
 @Getter
@@ -14,4 +13,3 @@ public class PaymentResponseDTO {
     private String amount;
     private String status;
 }
-

@@ -2,7 +2,6 @@ package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.Enum.OrderStatus;
 import com.example.FieldFinder.Enum.PaymentMethod;
-import com.example.FieldFinder.config.RabbitMQConfig;
 import com.example.FieldFinder.dto.req.OrderItemRequestDTO;
 import com.example.FieldFinder.dto.req.OrderRequestDTO;
 import com.example.FieldFinder.dto.res.OrderItemResponseDTO;
@@ -13,7 +12,6 @@ import com.example.FieldFinder.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,7 +37,6 @@ public class OrderServiceImpl implements OrderService {
 
     private final ProductVariantRepository productVariantRepository;
     private final RedissonClient redissonClient;
-    private final RabbitTemplate rabbitTemplate;
 
     @Override
     @Transactional
@@ -75,11 +72,14 @@ public class OrderServiceImpl implements OrderService {
                     Product product = productRepository.findById(itemDTO.getProductId())
                             .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
 
-                    ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(itemDTO.getProductId(), itemDTO.getSize())
-                            .orElseThrow(() -> new RuntimeException("Không tìm thấy size " + itemDTO.getSize() + " cho sản phẩm " + product.getName()));
+                    ProductVariant variant = productVariantRepository
+                            .findByProduct_ProductIdAndSize(itemDTO.getProductId(), itemDTO.getSize())
+                            .orElseThrow(() -> new RuntimeException(
+                                    "Không tìm thấy size " + itemDTO.getSize() + " cho sản phẩm " + product.getName()));
 
                     if (variant.getAvailableQuantity() < itemDTO.getQuantity()) {
-                        throw new RuntimeException("Rất tiếc! Sản phẩm " + product.getName() + " (Size " + itemDTO.getSize() + ") vừa hết hàng hoặc không đủ số lượng.");
+                        throw new RuntimeException("Rất tiếc! Sản phẩm " + product.getName() + " (Size "
+                                + itemDTO.getSize() + ") vừa hết hàng hoặc không đủ số lượng.");
                     }
 
                     variant.setLockedQuantity(variant.getLockedQuantity() + itemDTO.getQuantity());
@@ -99,7 +99,8 @@ public class OrderServiceImpl implements OrderService {
                     orderItemsToSave.add(orderItem);
                 } else {
                     // Nếu 3 giây vẫn không lấy được khóa (quá nhiều người mua cùng lúc)
-                    throw new RuntimeException("Hệ thống đang quá tải đối với sản phẩm này, vui lòng thử lại sau giây lát!");
+                    throw new RuntimeException(
+                            "Hệ thống đang quá tải đối với sản phẩm này, vui lòng thử lại sau giây lát!");
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -124,7 +125,7 @@ public class OrderServiceImpl implements OrderService {
                         .orElse(null);
 
                 if (userDiscount == null) {
-                    if(discount.getScope() == Discount.DiscountScope.GLOBAL) {
+                    if (discount.getScope() == Discount.DiscountScope.GLOBAL) {
                         userDiscount = UserDiscount.builder()
                                 .user(user)
                                 .discount(discount)
@@ -172,8 +173,7 @@ public class OrderServiceImpl implements OrderService {
 
         if (discount.getScope() == Discount.DiscountScope.GLOBAL) {
             applicableAmount = orderSubTotal;
-        }
-        else if (discount.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
+        } else if (discount.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
             List<Long> applicableProductIds = discount.getApplicableProducts().stream()
                     .map(Product::getProductId).toList();
 
@@ -182,8 +182,7 @@ public class OrderServiceImpl implements OrderService {
                     applicableAmount += item.getPrice();
                 }
             }
-        }
-        else if (discount.getScope() == Discount.DiscountScope.CATEGORY) {
+        } else if (discount.getScope() == Discount.DiscountScope.CATEGORY) {
             List<Long> applicableCategoryIds = discount.getApplicableCategories().stream()
                     .map(Category::getCategoryId).toList();
 
@@ -195,7 +194,8 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        if (applicableAmount == 0) return 0.0;
+        if (applicableAmount == 0)
+            return 0.0;
 
         double calculatedDiscount = 0.0;
         BigDecimal val = discount.getValue();

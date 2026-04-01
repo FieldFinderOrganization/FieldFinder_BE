@@ -3,8 +3,6 @@ package com.example.FieldFinder.controller;
 import com.example.FieldFinder.dto.req.ProviderAddressRequestDTO;
 import com.example.FieldFinder.dto.res.ProviderAddressResponseDTO;
 import com.example.FieldFinder.service.ProviderAddressService;
-import com.example.FieldFinder.service.ProviderService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,7 +23,8 @@ public class ProviderAddressController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
-    public ResponseEntity<ProviderAddressResponseDTO> addAddress(@RequestBody ProviderAddressRequestDTO addressRequestDTO) {
+    public ResponseEntity<ProviderAddressResponseDTO> addAddress(
+            @RequestBody ProviderAddressRequestDTO addressRequestDTO) {
         ProviderAddressResponseDTO response = providerAddressService.addAddress(addressRequestDTO);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -33,7 +32,7 @@ public class ProviderAddressController {
     @PutMapping("/{addressId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ResponseEntity<ProviderAddressResponseDTO> updateAddress(@PathVariable UUID addressId,
-                                                                    @RequestBody ProviderAddressRequestDTO addressRequestDTO) {
+            @RequestBody ProviderAddressRequestDTO addressRequestDTO) {
         ProviderAddressResponseDTO response = providerAddressService.updateAddress(addressId, addressRequestDTO);
         return ResponseEntity.ok(response);
     }

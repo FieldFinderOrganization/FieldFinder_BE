@@ -4,9 +4,7 @@ import com.example.FieldFinder.dto.req.VerifyOtpRequestDTO;
 import com.example.FieldFinder.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import com.example.FieldFinder.dto.req.VerifyOtpRequestDTO;
 
 @CrossOrigin("*")
 @RestController

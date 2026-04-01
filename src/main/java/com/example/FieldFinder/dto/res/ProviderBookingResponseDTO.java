@@ -1,6 +1,5 @@
 package com.example.FieldFinder.dto.res;
 
-import com.google.type.Decimal;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

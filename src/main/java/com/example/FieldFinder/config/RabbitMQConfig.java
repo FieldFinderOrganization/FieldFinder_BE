@@ -4,15 +4,14 @@ import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
-import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
-import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class RabbitMQConfig {
 
-    // Định nghĩa tên Hàng đợi (Queue), Trạm trung chuyển (Exchange) và Khóa định tuyến (Routing Key)
+    // Định nghĩa tên Hàng đợi (Queue), Trạm trung chuyển (Exchange) và Khóa định
+    // tuyến (Routing Key)
 
     public static final String EMAIL_EXCHANGE = "email_exchange";
     public static final String BOOKING_EMAIL_QUEUE = "email_queue";

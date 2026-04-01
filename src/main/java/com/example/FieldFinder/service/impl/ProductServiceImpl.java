@@ -7,7 +7,6 @@ import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.CloudinaryService;
 import com.example.FieldFinder.service.ProductService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -43,8 +42,7 @@ public class ProductServiceImpl implements ProductService {
             DiscountRepository discountRepository,
             UserDiscountRepository userDiscountRepository,
             CloudinaryService cloudinaryService,
-            @Lazy AIChat aiChat
-    ) {
+            @Lazy AIChat aiChat) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.productVariantRepository = productVariantRepository;
@@ -74,8 +72,7 @@ public class ProductServiceImpl implements ProductService {
             if (!categoryIds.isEmpty()) {
                 List<Discount> implicitDiscounts = discountRepository.findApplicableDiscountsForProduct(
                         product.getProductId(),
-                        categoryIds
-                );
+                        categoryIds);
 
                 Set<UUID> existingIds = publicDiscounts.stream()
                         .map(Discount::getDiscountId)
@@ -105,7 +102,8 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds) {
-        if (product == null) return null;
+        if (product == null)
+            return null;
         calculateAndSetUserPrice(product, usedDiscountIds);
         ProductResponseDTO dto = ProductResponseDTO.fromEntity(product);
         dto.setSalePrice(product.getSalePrice());
@@ -157,15 +155,13 @@ public class ProductServiceImpl implements ProductService {
         productRepository.save(product);
 
         if (request.getVariants() != null) {
-            List<ProductVariant> variants = request.getVariants().stream().map(v ->
-                    ProductVariant.builder()
-                            .product(product)
-                            .size(v.getSize())
-                            .stockQuantity(v.getQuantity())
-                            .lockedQuantity(0)
-                            .soldQuantity(0)
-                            .build()
-            ).collect(Collectors.toList());
+            List<ProductVariant> variants = request.getVariants().stream().map(v -> ProductVariant.builder()
+                    .product(product)
+                    .size(v.getSize())
+                    .stockQuantity(v.getQuantity())
+                    .lockedQuantity(0)
+                    .soldQuantity(0)
+                    .build()).collect(Collectors.toList());
 
             productVariantRepository.saveAll(variants);
             product.setVariants(variants);
@@ -230,13 +226,16 @@ public class ProductServiceImpl implements ProductService {
         product.setSex(request.getSex());
 
         if (request.getTags() != null) {
-            if (product.getTags() == null) product.setTags(new HashSet<>());
-            else product.getTags().clear();
+            if (product.getTags() == null)
+                product.setTags(new HashSet<>());
+            else
+                product.getTags().clear();
             product.getTags().addAll(request.getTags());
         }
 
         if (request.getVariants() != null) {
-            if (product.getVariants() == null) product.setVariants(new ArrayList<>());
+            if (product.getVariants() == null)
+                product.setVariants(new ArrayList<>());
 
             for (ProductRequestDTO.VariantDTO reqVariant : request.getVariants()) {
                 ProductVariant existingVariant = product.getVariants().stream()
@@ -351,7 +350,8 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public List<ProductResponseDTO> findProductsByImage(List<String> keywords, String majorCategory) {
-        if (keywords == null || keywords.isEmpty()) return new ArrayList<>();
+        if (keywords == null || keywords.isEmpty())
+            return new ArrayList<>();
 
         List<String> lowerKeywords = keywords.stream().map(String::toLowerCase).collect(Collectors.toList());
         List<Product> candidates = productRepository.findByKeywords(lowerKeywords);
@@ -359,19 +359,26 @@ public class ProductServiceImpl implements ProductService {
         return candidates.stream()
                 .filter(p -> isValidCategory(p, majorCategory))
                 .sorted((p1, p2) -> Long.compare(calculateScore(p2, lowerKeywords), calculateScore(p1, lowerKeywords)))
-                .map(p -> mapToResponse(p, Collections.emptyList())) // Search ảnh chưa support user specific price để tối ưu tốc độ
+                .map(p -> mapToResponse(p, Collections.emptyList())) // Search ảnh chưa support user specific price để
+                                                                     // tối ưu tốc độ
                 .collect(Collectors.toList());
     }
 
     private boolean isValidCategory(Product p, String aiCategory) {
-        if (aiCategory == null || aiCategory.equals("ALL")) return true;
-        if (p.getCategory() == null) return false;
+        if (aiCategory == null || aiCategory.equals("ALL"))
+            return true;
+        if (p.getCategory() == null)
+            return false;
         String content = (p.getCategory().getName() + " " + p.getName()).toLowerCase();
         switch (aiCategory) {
-            case "FOOTWEAR": return isShoe(content);
-            case "CLOTHING": return isClothing(content);
-            case "ACCESSORY": return isAccessory(content);
-            default: return true;
+            case "FOOTWEAR":
+                return isShoe(content);
+            case "CLOTHING":
+                return isClothing(content);
+            case "ACCESSORY":
+                return isAccessory(content);
+            default:
+                return true;
         }
     }
 
@@ -379,14 +386,17 @@ public class ProductServiceImpl implements ProductService {
         long score = 0;
         String productName = p.getName().toLowerCase();
         for (String keyword : keywords) {
-            if (keyword.length() > 2 && productName.contains(keyword)) score += 30;
+            if (keyword.length() > 2 && productName.contains(keyword))
+                score += 30;
         }
         if (p.getTags() != null) {
             for (String tag : p.getTags()) {
                 String lowerTag = tag.toLowerCase();
                 for (String keyword : keywords) {
-                    if (lowerTag.equals(keyword)) score += 10;
-                    else if (lowerTag.contains(keyword)) score += 3;
+                    if (lowerTag.equals(keyword))
+                        score += 10;
+                    else if (lowerTag.contains(keyword))
+                        score += 3;
                 }
             }
         }
@@ -396,7 +406,8 @@ public class ProductServiceImpl implements ProductService {
     private void enrichSingleProduct(Long productId, String imageUrl) {
         try {
             List<String> aiTags = aiChat.generateTagsForProduct(imageUrl);
-            if (!aiTags.isEmpty()) updateProductTagsInBackGround(productId, aiTags);
+            if (!aiTags.isEmpty())
+                updateProductTagsInBackGround(productId, aiTags);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -406,9 +417,11 @@ public class ProductServiceImpl implements ProductService {
     protected void updateProductTagsInBackGround(Long productId, List<String> newTags) {
         Product p = productRepository.findById(productId).orElse(null);
         if (p != null) {
-            if (p.getTags() == null) p.setTags(new HashSet<>());
+            if (p.getTags() == null)
+                p.setTags(new HashSet<>());
             p.getTags().addAll(newTags);
-            List<String> distinctTags = p.getTags().stream().map(String::toLowerCase).distinct().collect(Collectors.toList());
+            List<String> distinctTags = p.getTags().stream().map(String::toLowerCase).distinct()
+                    .collect(Collectors.toList());
             p.getTags().clear();
             p.getTags().addAll(distinctTags);
             productRepository.save(p);
@@ -427,7 +440,8 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private double cosineSimilarity(double[] vectorA, double[] vectorB) {
-        if (vectorA.length != vectorB.length || vectorA.length == 0) return 0.0;
+        if (vectorA.length != vectorB.length || vectorA.length == 0)
+            return 0.0;
         double dotProduct = 0.0, normA = 0.0, normB = 0.0;
         for (int i = 0; i < vectorA.length; i++) {
             dotProduct += vectorA[i] * vectorB[i];
@@ -441,7 +455,8 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     public List<ProductResponseDTO> findProductsByVector(String descriptionFromImage) {
         List<Double> queryVectorList = aiChat.getEmbedding(descriptionFromImage);
-        if (queryVectorList.isEmpty()) return new ArrayList<>();
+        if (queryVectorList.isEmpty())
+            return new ArrayList<>();
         double[] queryVector = queryVectorList.stream().mapToDouble(d -> d).toArray();
 
         return productRepository.findAll().stream()
@@ -461,17 +476,29 @@ public class ProductServiceImpl implements ProductService {
         return products.isEmpty() ? null : mapToResponse(products.get(0), Collections.emptyList());
     }
 
-    private boolean isShoe(String text) { return text.contains("giày") || text.contains("shoe") || text.contains("sneaker"); }
-    private boolean isClothing(String text) { return text.contains("áo") || text.contains("shirt") || text.contains("quần"); }
-    private boolean isAccessory(String text) { return text.contains("nón") || text.contains("mũ") || text.contains("túi"); }
+    private boolean isShoe(String text) {
+        return text.contains("giày") || text.contains("shoe") || text.contains("sneaker");
+    }
+
+    private boolean isClothing(String text) {
+        return text.contains("áo") || text.contains("shirt") || text.contains("quần");
+    }
+
+    private boolean isAccessory(String text) {
+        return text.contains("nón") || text.contains("mũ") || text.contains("túi");
+    }
 
     @Transactional
     @Override
     public void applyDiscount(Long productId, String discountId) {
-        Product product = productRepository.findById(productId).orElseThrow(() -> new RuntimeException("Product not found"));
-        Discount discount = discountRepository.findById(UUID.fromString(discountId)).orElseThrow(() -> new RuntimeException("Discount not found"));
-        boolean exists = product.getDiscounts().stream().anyMatch(pd -> pd.getDiscount().getDiscountId().equals(discount.getDiscountId()));
-        if (exists) throw new RuntimeException("Discount already applied");
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new RuntimeException("Product not found"));
+        Discount discount = discountRepository.findById(UUID.fromString(discountId))
+                .orElseThrow(() -> new RuntimeException("Discount not found"));
+        boolean exists = product.getDiscounts().stream()
+                .anyMatch(pd -> pd.getDiscount().getDiscountId().equals(discount.getDiscountId()));
+        if (exists)
+            throw new RuntimeException("Discount already applied");
 
         ProductDiscount pd = ProductDiscount.builder().product(product).discount(discount).build();
         product.getDiscounts().add(pd);
@@ -520,15 +547,18 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private boolean isApplicableToProduct(Discount d, Product p) {
-        if (d.getScope() == Discount.DiscountScope.GLOBAL) return true;
+        if (d.getScope() == Discount.DiscountScope.GLOBAL)
+            return true;
 
         if (d.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
             return d.getApplicableProducts().stream().anyMatch(prod -> prod.getProductId().equals(p.getProductId()));
         }
 
         if (d.getScope() == Discount.DiscountScope.CATEGORY) {
-            if (p.getCategory() == null) return false;
-            return d.getApplicableCategories().stream().anyMatch(cat -> cat.getCategoryId().equals(p.getCategory().getCategoryId()));
+            if (p.getCategory() == null)
+                return false;
+            return d.getApplicableCategories().stream()
+                    .anyMatch(cat -> cat.getCategoryId().equals(p.getCategory().getCategoryId()));
         }
 
         return false;

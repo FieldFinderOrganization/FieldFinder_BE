@@ -39,9 +39,15 @@ public class BookingController {
 
     @PostMapping
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Booking> createBooking(@RequestBody BookingRequestDTO bookingRequestDTO) {
+    public ResponseEntity<Map<String, Object>> createBooking(@RequestBody BookingRequestDTO bookingRequestDTO) {
         Booking booking = bookingService.createBooking(bookingRequestDTO);
-        return ResponseEntity.ok(booking);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("bookingId", booking.getBookingId());
+        response.put("status", booking.getStatus());
+        response.put("message", "Đặt sân thành công!");
+
+        return ResponseEntity.ok(response);
     }
 
     @PutMapping("/{bookingId}/payment-status")

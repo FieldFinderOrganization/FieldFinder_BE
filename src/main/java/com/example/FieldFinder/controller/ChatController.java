@@ -13,7 +13,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
 import java.util.Date;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -52,8 +51,7 @@ public class ChatController {
             @RequestParam UUID user1,
             @RequestParam UUID user2,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
-    ) {
+            @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = PageRequest.of(page, size);
         Page<ChatMessage> history = chatMessageRepository.getConversation(user1, user2, pageable);
         return ResponseEntity.ok(history);

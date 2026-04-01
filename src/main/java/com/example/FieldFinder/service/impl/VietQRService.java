@@ -1,7 +1,7 @@
 package com.example.FieldFinder.service.impl;
+
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 import java.math.BigDecimal;
 import java.util.Map;
 
@@ -10,7 +10,8 @@ public class VietQRService {
 
     private final WebClient webClient = WebClient.create("https://api.vietqr.io");
 
-    public String generateQrImage(String accountNo, String accountName, String bankBin, BigDecimal amount, String info) {
+    public String generateQrImage(String accountNo, String accountName, String bankBin, BigDecimal amount,
+            String info) {
         Map<String, Object> requestBody = Map.of(
                 "accountNo", accountNo,
                 "accountName", accountName,
@@ -18,8 +19,7 @@ public class VietQRService {
                 "amount", amount.intValue(),
                 "addInfo", info,
                 "format", "text",
-                "template", "compact"
-        );
+                "template", "compact");
 
         return webClient.post()
                 .uri("/v2/generate")

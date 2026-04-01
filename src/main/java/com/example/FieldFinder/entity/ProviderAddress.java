@@ -14,14 +14,14 @@ import java.util.UUID;
 public class ProviderAddress {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID) // Use UUID generation strategy
-    @Column(name = "provider_address_id", updatable = false, nullable = false) // Explicit column name
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "provider_address_id", updatable = false, nullable = false)
     private UUID providerAddressId;
 
-    @Column(name = "address", nullable = false) // Define address column
+    @Column(name = "address", nullable = false)
     private String address;
 
     @ManyToOne
-    @JoinColumn(name = "provider_id", referencedColumnName = "provider_id", nullable = false) // Foreign key mapping
+    @JoinColumn(name = "provider_id", referencedColumnName = "provider_id", nullable = false)
     private Provider provider;
 }
