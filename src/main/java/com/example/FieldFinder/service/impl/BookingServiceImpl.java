@@ -193,6 +193,9 @@ public class BookingServiceImpl implements BookingService {
     public List<ProviderBookingResponseDTO> getBookingsByProviderId(UUID providerId) {
         List<Booking> bookings = bookingRepository.findByProviderId(providerId);
 
+        Provider provider = providerRepository.findById(providerId).orElse(null);
+        UUID providerUserId = (provider != null && provider.getUser() != null) ? provider.getUser().getUserId() : null;
+
         return bookings.stream().map(booking -> {
             String paymentMethod = "Chưa thanh toán";
             String pitchName = "Không xác định";
@@ -220,6 +223,7 @@ public class BookingServiceImpl implements BookingService {
                     .paymentStatus(booking.getPaymentStatus() != null ? booking.getPaymentStatus().name() : "PENDING")
                     .totalPrice(booking.getTotalPrice())
                     .providerId(providerId)
+                    .providerUserId(providerUserId)
                     .paymentMethod(paymentMethod)
                     .userId(customerId)
                     .userName(userName)
@@ -258,23 +262,21 @@ public class BookingServiceImpl implements BookingService {
 
         if (bookings.isEmpty()) return new ArrayList<>();
 
-        // 3. TỐI ƯU: Lấy toàn bộ Payment của các booking này trong 1 lần gọi DB duy nhất
         List<UUID> bookingIds = bookings.stream().map(Booking::getBookingId).toList();
         List<Payment> allPayments = paymentRepository.findAllByBookingIds(bookingIds);
 
-        // Chuyển danh sách payment thành Map để tra cứu cực nhanh trong RAM
         Map<UUID, String> paymentMap = allPayments.stream()
                 .collect(Collectors.toMap(
                         p -> p.getBooking().getBookingId(),
                         p -> p.getPaymentMethod() != null ? p.getPaymentMethod().name() : "PENDING",
-                        (existing, replacement) -> existing // Nếu 1 booking có nhiều payment, lấy cái đầu
+                        (existing, replacement) -> existing
                 ));
 
-        // 4. Mapping sang DTO (Lúc này không còn câu Query nào chạy trong vòng lặp nữa)
         return bookings.stream().map(booking -> {
             String pitchName = "Không xác định";
             String providerName = "Không xác định";
             UUID providerId = null;
+            UUID providerUserId = null;
             List<Integer> slots = new ArrayList<>();
 
             if (booking.getBookingDetails() != null && !booking.getBookingDetails().isEmpty()) {
@@ -286,16 +288,15 @@ public class BookingServiceImpl implements BookingService {
                     if (provider != null) {
                         providerId = provider.getProviderId();
                         providerName = (provider.getUser() != null) ? provider.getUser().getName() : "Không xác định";
+                        providerUserId = provider.getUser().getUserId();
                     }
                 }
-                // Lấy danh sách slot
                 slots = booking.getBookingDetails().stream()
                         .map(BookingDetail::getSlot)
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
             }
 
-            // Lấy từ Map thay vì gọi Repository
             String paymentMethod = paymentMap.getOrDefault(booking.getBookingId(), "PENDING");
 
             return ProviderBookingResponseDTO.builder()
@@ -307,6 +308,7 @@ public class BookingServiceImpl implements BookingService {
                     .pitchName(pitchName)
                     .providerName(providerName)
                     .providerId(providerId)
+                    .providerUserId(providerUserId)
                     .paymentMethod(paymentMethod)
                     .userId(user.getUserId())
                     .userName(user.getName())

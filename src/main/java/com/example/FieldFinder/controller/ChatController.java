@@ -30,7 +30,7 @@ public class ChatController {
         chatMessage.setTimestamp(new Date());
 
         if ("TYPING".equals(chatMessage.getType())) {
-            String destination = "/topic/messages/" + chatMessage.getReceiverId().toString();
+            String destination = "/topic/messages." + chatMessage.getReceiverId().toString();
             messagingTemplate.convertAndSend(destination, chatMessage);
             return;
         }
@@ -38,7 +38,7 @@ public class ChatController {
         chatMessage.setIsRead(false);
         try {
             ChatMessage savedMsg = chatMessageRepository.save(chatMessage);
-            String destination = "/topic/messages/" + chatMessage.getReceiverId().toString();
+            String destination = "/topic/messages." + chatMessage.getReceiverId().toString();
             messagingTemplate.convertAndSend(destination, savedMsg);
         } catch (Exception e) {
             System.err.println("❌ LỖI RỒI: Không thể xử lý tin nhắn!");

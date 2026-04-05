@@ -14,5 +14,4 @@ import java.util.UUID;
 @Repository
 public interface ProviderRepository extends JpaRepository<Provider, UUID> {
     Optional<Provider> findByUser_UserId(UUID userId);
-
 }
