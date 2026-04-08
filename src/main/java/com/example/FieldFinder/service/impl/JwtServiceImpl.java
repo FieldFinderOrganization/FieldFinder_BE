@@ -54,8 +54,8 @@ public class JwtServiceImpl implements JwtService {
         Date exp = new Date(nowMillis + accessTokenTtlSeconds * 1000L);
 
         return Jwts.builder()
-                .id(UUID.randomUUID().toString())           // jti — dùng cho blacklist
-                .subject(user.getEmail())                   // sub
+                .id(UUID.randomUUID().toString())
+                .subject(user.getEmail())
                 .claim("userId", user.getUserId().toString())
                 .claim("role", user.getRole().name())
                 .issuedAt(now)
@@ -65,8 +65,10 @@ public class JwtServiceImpl implements JwtService {
     }
 
     @Override
-    @Transactional
     public String generateRefreshToken(User user) {
+        // Xóa token cũ của user trước khi tạo mới — tránh tích lũy nhiều hàng
+        refreshTokenRepository.deleteByUser(user);
+
         String rawToken = UUID.randomUUID().toString();
         String tokenHash = sha256(rawToken);
 
@@ -85,6 +87,7 @@ public class JwtServiceImpl implements JwtService {
     }
 
     @Override
+    @Transactional
     public AuthTokenResponseDTO generateTokenPair(User user) {
         String accessToken = generateAccessToken(user);
         String refreshToken = generateRefreshToken(user);
