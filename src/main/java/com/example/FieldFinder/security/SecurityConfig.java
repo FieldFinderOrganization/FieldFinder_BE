@@ -52,7 +52,9 @@ public class SecurityConfig {
                                 "/api/users",
                                 "/api/auth/send-otp",
                                 "/api/auth/verify-otp",
-                                "/api/auth/refresh-token"
+                                "/api/auth/refresh-token",
+                                "/api/auth/google",
+                                "api/auth/facebook"
                         ).permitAll()
 
                         .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/pitches/**", "/api/categories/**").permitAll()
