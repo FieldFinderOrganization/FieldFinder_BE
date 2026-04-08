@@ -1,4 +1,5 @@
 package com.example.FieldFinder.repository;
+
 import com.example.FieldFinder.entity.User;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -13,8 +14,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByEmail(String email);
 
     boolean existsByEmail(String email);
-
-    Optional<User> findByFirebaseUid(String uid);
 
     Optional<User> findByUserId(UUID userId);
 

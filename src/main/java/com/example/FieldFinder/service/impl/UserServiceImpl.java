@@ -5,7 +5,10 @@ import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
 import com.example.FieldFinder.dto.res.UserResponseDTO;
 import com.example.FieldFinder.entity.PasswordResetToken;
 import com.example.FieldFinder.entity.User;
+import com.example.FieldFinder.entity.UserProvider;
+import com.example.FieldFinder.entity.UserProvider.ProviderName;
 import com.example.FieldFinder.repository.PasswordResetTokenRepository;
+import com.example.FieldFinder.repository.UserProviderRepository;
 import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.UserService;
@@ -34,17 +37,22 @@ public class UserServiceImpl implements UserService {
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
+    private final UserProviderRepository userProviderRepository;
+    private final SocialLoginService socialLoginService;
 
     private final Map<String, UUID> sessionUserMap = new ConcurrentHashMap<>();
     private final RedisTemplate<String, Object> redisTemplate;
 
     public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, EmailService emailService,
-            PasswordResetTokenRepository passwordResetTokenRepository, RedisTemplate<String, Object> redisTemplate) {
+                           PasswordResetTokenRepository passwordResetTokenRepository, RedisTemplate<String, Object> redisTemplate,
+                           SocialLoginService socialLoginService, UserProviderRepository userProviderRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.redisTemplate = redisTemplate;
+        this.socialLoginService = socialLoginService;
+        this.userProviderRepository = userProviderRepository;
     }
 
     @Override
@@ -73,8 +81,15 @@ public class UserServiceImpl implements UserService {
 
             String encodedPassword = passwordEncoder.encode(userRequestDTO.getPassword());
 
-            User user = userRequestDTO.toEntity(firebaseUser.getUid(), encodedPassword);
+            User user = userRequestDTO.toEntity(encodedPassword);
             User savedUser = userRepository.save(user);
+
+            userProviderRepository.save(UserProvider.builder()
+                    .user(savedUser)
+                    .providerName(ProviderName.FIREBASE)
+                    .providerUid(firebaseUser.getUid())
+                    .linkedAt(java.time.LocalDateTime.now())
+                    .build());
 
             return UserResponseDTO.toDto(savedUser);
 
@@ -203,36 +218,17 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserResponseDTO loginWithFirebase(FirebaseToken decodedToken) {
-        String uid = decodedToken.getUid();
-        String email = decodedToken.getEmail();
-        // String name = decodedToken.getName();
-        String picture = decodedToken.getPicture();
+        // email_verified từ Firebase — gần như luôn true với Google, dùng cho Account Linking guard
+        boolean emailVerified = Boolean.TRUE.equals(decodedToken.getClaims().get("email_verified"));
 
-        User user = userRepository.findByFirebaseUid(uid)
-                .orElseGet(() -> {
-                    User newUser = User.builder()
-                            .firebaseUid(uid)
-                            .email(email)
-                            .name(decodedToken.getName() != null ? decodedToken.getName() : "")
-                            .phone(null)
-                            .password("firebase-user")
-                            .role(User.Role.USER)
-                            .status(User.Status.ACTIVE)
-                            .imageUrl(picture)
-                            .build();
-
-                    return userRepository.save(newUser);
-                });
-
-        if (user.getImageUrl() == null && picture != null) {
-            user.setImageUrl(picture);
-            userRepository.save(user);
-        }
-
-        if (user.getStatus() == User.Status.BLOCKED) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Your account has been blocked. Please contact admin for more information!");
-        }
+        User user = socialLoginService.findOrCreateUser(
+                ProviderName.FIREBASE,
+                decodedToken.getUid(),
+                decodedToken.getEmail(),
+                emailVerified,
+                decodedToken.getName(),
+                decodedToken.getPicture()
+        );
 
         return UserResponseDTO.toDto(user);
     }

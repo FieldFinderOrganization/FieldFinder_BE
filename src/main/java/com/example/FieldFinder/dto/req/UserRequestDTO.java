@@ -16,7 +16,7 @@ public class UserRequestDTO {
     private User.Status status;
     private String imageUrl;
 
-    public User toEntity(String firebaseUid, String encodedPassword) {
+    public User toEntity(String encodedPassword) {
         return User.builder()
                 .name(this.getName())
                 .email(this.getEmail())
@@ -24,7 +24,6 @@ public class UserRequestDTO {
                 .password(encodedPassword)
                 .status(this.getStatus())
                 .role(this.getRole())
-                .firebaseUid(firebaseUid)
                 .imageUrl(this.getImageUrl())
                 .build();
     }
