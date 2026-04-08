@@ -16,9 +16,6 @@ public class RedisService {
         USER, ADMIN, PROVIDER
     }
 
-    // @Autowired
-    // private UserService userService;
-
     @Autowired
     private UserRepository userRepository;
 
@@ -84,5 +81,15 @@ public class RedisService {
         }
 
         return null;
+    }
+
+    public void blacklistJwt(String jti, long ttlSeconds) {
+        if (ttlSeconds > 0) {
+            redisTemplate.opsForValue().set("JWT_BLACKLIST" + jti, "1", ttlSeconds, TimeUnit.SECONDS);
+        }
+    }
+
+    public boolean isJwtBlacklisted(String jti) {
+        return redisTemplate.hasKey("JWT_BLACKLIST" + jti);
     }
 }

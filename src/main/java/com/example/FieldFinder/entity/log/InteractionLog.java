@@ -24,7 +24,7 @@ public class InteractionLog {
 
     private Instant timestamp;
     private int dayOfWeek;       // 1 = Monday, 7 = Sunday
-    private int hourOfDay;       // 0 - 23
+    private int hourOfDay;       // 5 - 23
     private boolean isWeekend;
 
     private Map<String, Object> context; // Chứa Weather, User-Agent, Device...
@@ -33,5 +33,5 @@ public class InteractionLog {
     private String itemId;       // PitchId hoặc ProductId
     private String itemType;     // PITCH, PRODUCT
 
-    private Map<String, Object> eventMetadata; // Dữ liệu linh hoạt theo từng event
+    private Map<String, Object> eventMetadata;
 }

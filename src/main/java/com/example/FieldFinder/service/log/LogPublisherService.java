@@ -31,7 +31,6 @@ public class LogPublisherService {
         Map<String, Object> context = new HashMap<>();
         context.put("device_info", userAgent);
 
-        // Gọi hàm dùng Cache (chỉ 15 phút mới gọi API 1 lần)
         context.put("weather", openWeatherService.getCachedDefaultWeather());
 
         InteractionLog log = InteractionLog.builder()

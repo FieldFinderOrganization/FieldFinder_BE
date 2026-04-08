@@ -14,10 +14,10 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    private final FirebaseTokenFilter firebaseTokenFilter;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    public SecurityConfig(FirebaseTokenFilter firebaseTokenFilter) {
-        this.firebaseTokenFilter = firebaseTokenFilter;
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
     @Bean
@@ -36,11 +36,10 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
-                                "/error" // FIX: Mở public endpoint /error để tránh lỗi ngầm thành 403
+                                "/error"
                         ).permitAll()
 
-                        .requestMatchers("/ws/**",
-                                "/api/chat/**" ).permitAll()
+                        .requestMatchers("/ws/**", "/api/chat/**").permitAll()
 
                         .requestMatchers("/api/payment/**").permitAll()
 
@@ -51,7 +50,9 @@ public class SecurityConfig {
                                 "/api/users/forgot-password",
                                 "/api/users/reset-password",
                                 "/api/users",
-                                "/api/auth/**"
+                                "/api/auth/send-otp",
+                                "/api/auth/verify-otp",
+                                "/api/auth/refresh-token"
                         ).permitAll()
 
                         .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/pitches/**", "/api/categories/**").permitAll()
@@ -59,7 +60,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
 
-                .addFilterBefore(firebaseTokenFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

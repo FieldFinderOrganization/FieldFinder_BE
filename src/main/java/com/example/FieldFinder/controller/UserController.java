@@ -2,7 +2,11 @@ package com.example.FieldFinder.controller;
 
 import com.example.FieldFinder.dto.req.UserRequestDTO;
 import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
+import com.example.FieldFinder.dto.res.AuthTokenResponseDTO;
 import com.example.FieldFinder.dto.res.UserResponseDTO;
+import com.example.FieldFinder.entity.User;
+import com.example.FieldFinder.repository.UserRepository;
+import com.example.FieldFinder.service.JwtService;
 import com.example.FieldFinder.service.UserService;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
@@ -13,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -24,9 +29,13 @@ import java.util.UUID;
 public class UserController {
 
     private final UserService userService;
+    private final JwtService jwtService;
+    private final UserRepository userRepository;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, JwtService jwtService, UserRepository userRepository) {
         this.userService = userService;
+        this.jwtService = jwtService;
+        this.userRepository = userRepository;
     }
 
     @PostMapping("/register")
@@ -41,10 +50,13 @@ public class UserController {
         try {
             FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
             UserResponseDTO loggedInUser = userService.loginUser(decodedToken);
-            return ResponseEntity.ok(Map.of(
-                    "message", "Đăng nhập thành công",
-                    "user", loggedInUser
-            ));
+
+            User user = userRepository.findByEmail(loggedInUser.getEmail())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+
+            AuthTokenResponseDTO tokenResponse = jwtService.generateTokenPair(user);
+            return ResponseEntity.ok(tokenResponse);
+
         } catch (FirebaseAuthException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Firebase ID token không hợp lệ", "details", e.getMessage()));
@@ -57,10 +69,13 @@ public class UserController {
         try {
             FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
             UserResponseDTO loggedInUser = userService.loginWithFirebase(decodedToken);
-            return ResponseEntity.ok(Map.of(
-                    "message", "Đăng nhập mạng xã hội thành công",
-                    "user", loggedInUser
-            ));
+
+            User user = userRepository.findByEmail(loggedInUser.getEmail())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+
+            AuthTokenResponseDTO tokenResponse = jwtService.generateTokenPair(user);
+            return ResponseEntity.ok(tokenResponse);
+
         } catch (FirebaseAuthException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Firebase ID token không hợp lệ", "details", e.getMessage()));
@@ -80,7 +95,6 @@ public class UserController {
         userService.resetPassword(token, newPassword);
         return ResponseEntity.ok("Cập nhật mật khẩu thành công.");
     }
-
 
     @PutMapping("/{userId}")
     @PreAuthorize("hasRole('ADMIN') or @securityChecker.isOwner(#userId, authentication.name)")

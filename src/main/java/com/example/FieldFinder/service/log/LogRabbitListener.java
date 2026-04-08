@@ -19,9 +19,9 @@ public class LogRabbitListener {
     public void consumeLogEvent(InteractionLog interactionLog) {
         try {
             logRepository.save(interactionLog);
-            log.info("✅ Đã ghi Log thành công: Event={}, User={}", interactionLog.getEventType(), interactionLog.getUserId());
+            log.info(" Đã ghi Log thành công: Event={}, User={}", interactionLog.getEventType(), interactionLog.getUserId());
         } catch (Exception e) {
-            log.error("❌ Lỗi khi ghi log vào MongoDB: ", e);
+            log.error(" Lỗi khi ghi log vào MongoDB: ", e);
         }
     }
 }
