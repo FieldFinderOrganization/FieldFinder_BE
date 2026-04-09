@@ -54,8 +54,16 @@ public class SecurityConfig {
                                 "/api/auth/verify-otp",
                                 "/api/auth/refresh-token",
                                 "/api/auth/google",
-                                "api/auth/facebook"
+                                "/api/auth/facebook",
+                                // PassKey login — public (chưa có token)
+                                "/api/auth/passkey/login/start",
+                                "/api/auth/passkey/login/finish"
+                                // PassKey register — PROTECTED (cần token, không permit ở đây)
                         ).permitAll()
+
+                        // .well-known cho Android (Digital Asset Links) và iOS (AASA)
+                        // Cần khi deploy production để mobile verify RP ID
+                        .requestMatchers("/.well-known/**").permitAll()
 
                         .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/pitches/**", "/api/categories/**").permitAll()
 
