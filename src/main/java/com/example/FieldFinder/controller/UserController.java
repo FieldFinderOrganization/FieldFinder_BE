@@ -6,8 +6,10 @@ import com.example.FieldFinder.dto.res.AuthTokenResponseDTO;
 import com.example.FieldFinder.dto.res.UserResponseDTO;
 import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.repository.UserRepository;
+import com.example.FieldFinder.service.AuthService;
 import com.example.FieldFinder.service.JwtService;
 import com.example.FieldFinder.service.UserService;
+import com.example.FieldFinder.service.impl.AuthServiceImpl;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
@@ -31,11 +33,13 @@ public class UserController {
     private final UserService userService;
     private final JwtService jwtService;
     private final UserRepository userRepository;
+    private final AuthService authService;
 
-    public UserController(UserService userService, JwtService jwtService, UserRepository userRepository) {
+    public UserController(UserService userService, JwtService jwtService, UserRepository userRepository, AuthService authService) {
         this.userService = userService;
         this.jwtService = jwtService;
         this.userRepository = userRepository;
+        this.authService = authService;
     }
 
     @PostMapping("/register")
@@ -86,6 +90,18 @@ public class UserController {
     public ResponseEntity<String> forgotPassword(@RequestParam String email) {
         userService.sendPasswordResetEmail(email);
         return ResponseEntity.ok("Email khôi phục mật khẩu đã được gửi.");
+    }
+
+    @PostMapping("/forgot-password-otp")
+    public ResponseEntity<String> forgotPasswordOtp(@RequestParam String email) {
+        userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Email không tồn tại trong hệ thống."));
+
+        if (authService instanceof AuthServiceImpl) {
+            ((AuthServiceImpl) authService).sendResetPasswordOtp(email);
+        }
+
+        return ResponseEntity.ok("Mã OTP đặt lại mật khẩu đã được gửi.");
     }
 
     @PostMapping("/reset-password")

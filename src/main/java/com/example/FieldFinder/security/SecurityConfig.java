@@ -61,11 +61,11 @@ public class SecurityConfig {
                                 "/api/auth/facebook",
                                 "/api/auth/passkey/login/start",
                                 "/api/auth/passkey/login/finish"
-                                // PassKey register — PROTECTED (cần token, không permit ở đây)
+                                // PassKey register — PROTECTED (cần token, ko permit ở đây)
                         ).permitAll()
 
                         // .well-known cho Android (Digital Asset Links) và iOS (AASA)
-                        // Cần khi deploy production để mobile verify RP ID
+                        // Cần khi deploy production để verify RP ID
                         .requestMatchers("/.well-known/**").permitAll()
 
                         .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/pitches/**", "/api/categories/**").permitAll()

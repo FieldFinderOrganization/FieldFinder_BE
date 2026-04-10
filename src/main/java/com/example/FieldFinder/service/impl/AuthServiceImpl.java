@@ -19,52 +19,58 @@ public class AuthServiceImpl implements AuthService {
 
     private final RedisTemplate<String, Object> redisTemplate;
 
-    private static final String OTP_PREFIX = "login_otp:";
+    private static final String LOGIN_OTP_PREFIX = "login_otp:";
+    private static final String RESET_PASSWORD_OTP_PREFIX = "reset_otp:";
 
     @Override
     public void sendLoginOtp(String email) {
+        generateAndSendOtp(email, LOGIN_OTP_PREFIX, "Mã xác thực đăng nhập FieldFinder", "Mã OTP đăng nhập");
+    }
 
+    // Thêm phương thức mới cho Reset Password
+    public void sendResetPasswordOtp(String email) {
+        generateAndSendOtp(email, RESET_PASSWORD_OTP_PREFIX, "[FieldFinder] Mã đặt lại mật khẩu", "Mã OTP để đặt lại mật khẩu");
+    }
+
+    private void generateAndSendOtp(String email, String prefix, String subject, String purpose) {
         String otp = String.format("%06d", new Random().nextInt(999999));
-
-        String redisKey = OTP_PREFIX + email;
-
+        String redisKey = prefix + email;
 
         redisTemplate.opsForValue().set(redisKey, otp, 5, TimeUnit.MINUTES);
 
-        String subject = "Mã xác thực đăng nhập FieldFinder";
         String body = String.format("""
         Xin chào,
 
-        Mã OTP đăng nhập của bạn là: %s
+        %s của bạn là: %s
         Mã có hiệu lực trong 5 phút.
+
+        Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email này.
 
         Trân trọng,
         Đội ngũ FieldFinder
-        """, otp);
+        """, purpose, otp);
 
         emailService.send(email, subject, body);
     }
 
-
     @Override
     public boolean verifyOtp(String email, String code) {
-        String redisKey = OTP_PREFIX + email;
+        // Mặc định kiểm tra cả hai prefix hoặc bạn có thể truyền thêm tham số type vào đây
+        // Ở đây mình ưu tiên kiểm tra login trước, nếu không thấy thì kiểm tra reset
+        if (checkAndVerify(email, code, LOGIN_OTP_PREFIX)) return true;
+        if (checkAndVerify(email, code, RESET_PASSWORD_OTP_PREFIX)) return true;
 
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mã OTP không chính xác hoặc đã hết hạn");
+    }
+
+    private boolean checkAndVerify(String email, String code, String prefix) {
+        String redisKey = prefix + email;
         Object savedOtpObj = redisTemplate.opsForValue().get(redisKey);
-
-        if (savedOtpObj == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP is expired or not found");
+        if (savedOtpObj != null && String.valueOf(savedOtpObj).equals(code)) {
+            redisTemplate.delete(redisKey);
+            return true;
         }
-
-        String savedOtp = String.valueOf(savedOtpObj);
-
-        if (!savedOtp.equals(code)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP is not correct");
-        }
-
-        redisTemplate.delete(redisKey);
-
-        return true;
+        return false;
     }
 
     @Override
