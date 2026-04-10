@@ -196,8 +196,22 @@ public class UserServiceImpl implements UserService {
 
         emailService.send(
                 email,
-                "Password Reset",
-                "Click the link below to reset your password:\n" + resetLink);
+                "[FieldFinder] Yêu cầu đặt lại mật khẩu",
+                String.format("""
+                        Xin chào,
+
+                        Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản FieldFinder của bạn.
+
+                        Nhấn vào liên kết bên dưới để đặt lại mật khẩu:
+                        %s
+
+                        Liên kết này có hiệu lực trong 30 phút.
+
+                        Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email này. Tài khoản của bạn vẫn an toàn.
+
+                        Trân trọng,
+                        Đội ngũ FieldFinder
+                        """, resetLink));
     }
 
     @Override

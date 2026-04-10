@@ -52,12 +52,13 @@ public class SecurityConfig {
                                 "/api/users/reset-password-otp",
                                 "/api/auth/send-activation-email",
                                 "/api/users",
+                                "/api/auth/register",
+                                "/api/auth/login",
                                 "/api/auth/send-otp",
                                 "/api/auth/verify-otp",
                                 "/api/auth/refresh-token",
                                 "/api/auth/google",
                                 "/api/auth/facebook",
-                                // PassKey login — public (chưa có token)
                                 "/api/auth/passkey/login/start",
                                 "/api/auth/passkey/login/finish"
                                 // PassKey register — PROTECTED (cần token, không permit ở đây)
