@@ -66,4 +66,19 @@ public class AuthServiceImpl implements AuthService {
 
         return true;
     }
+
+    @Override
+    public void sendActivationEmail(String email) {
+        String subject = "Chào mừng đến với FieldFinder!";
+        String body = """
+                Xin chào,
+
+                Tài khoản FieldFinder của bạn đã được tạo thành công!
+                Bạn có thể đăng nhập ngay bây giờ và bắt đầu khám phá.
+
+                Trân trọng,
+                Đội ngũ FieldFinder
+                """;
+        emailService.send(email, subject, body);
+    }
 }

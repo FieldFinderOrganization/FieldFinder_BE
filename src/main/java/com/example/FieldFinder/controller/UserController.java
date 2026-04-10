@@ -96,6 +96,14 @@ public class UserController {
         return ResponseEntity.ok("Cập nhật mật khẩu thành công.");
     }
 
+    @PostMapping("/reset-password-otp")
+    public ResponseEntity<String> resetPasswordWithOtp(
+            @RequestParam String email,
+            @RequestParam String newPassword) {
+        userService.resetPasswordWithOtp(email, newPassword);
+        return ResponseEntity.ok("Cập nhật mật khẩu thành công.");
+    }
+
     @PutMapping("/{userId}")
     @PreAuthorize("hasRole('ADMIN') or @securityChecker.isOwner(#userId, authentication.name)")
     public ResponseEntity<UserResponseDTO> updateUser(

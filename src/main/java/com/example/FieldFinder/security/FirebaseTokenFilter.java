@@ -1,6 +1,7 @@
 package com.example.FieldFinder.security;
 
 import com.example.FieldFinder.service.RedisService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
@@ -18,14 +19,28 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
 public class FirebaseTokenFilter extends OncePerRequestFilter {
 
     private final RedisService redisService;
+
+    private boolean looksLikeFirebaseToken(String token) {
+        String[] parts = token.split("\\.");
+        if (parts.length != 3) return false;
+        try {
+            byte[] headerBytes = Base64.getUrlDecoder().decode(parts[0]);
+            Map<?, ?> header = new ObjectMapper().readValue(headerBytes, Map.class);
+            return header.containsKey("kid");
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -45,6 +60,11 @@ public class FirebaseTokenFilter extends OncePerRequestFilter {
             // 3. ĐỀ PHÒNG 2: Nếu user copy từ F12 bị dính dấu nháy kép ("") ở 2 đầu -> Xóa nháy kép
             if (idToken.startsWith("\"") && idToken.endsWith("\"")) {
                 idToken = idToken.substring(1, idToken.length() - 1).trim();
+            }
+
+            if (!looksLikeFirebaseToken(idToken)) {
+                filterChain.doFilter(request, response);
+                return;
             }
 
             try {

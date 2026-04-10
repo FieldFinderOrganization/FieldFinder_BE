@@ -270,4 +270,12 @@ public class UserServiceImpl implements UserService {
         redisTemplate.opsForValue().set("BANNED_USER: " + email, "true");
     }
 
+    @Override
+    public void resetPasswordWithOtp(String email, String newPassword) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Email không tồn tại."));
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+    }
+
 }

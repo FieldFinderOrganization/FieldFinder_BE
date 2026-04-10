@@ -35,4 +35,6 @@ public interface UserService {
     UserResponseDTO getUserById(UUID userId);
 
     void blockUser(String email);
+
+    void resetPasswordWithOtp(String email, String newPassword);
 }

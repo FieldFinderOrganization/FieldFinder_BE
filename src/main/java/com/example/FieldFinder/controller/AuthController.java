@@ -47,6 +47,12 @@ public class AuthController {
         return ResponseEntity.ok("OTP sent successfully");
     }
 
+    @PostMapping("/send-activation-email")
+    public ResponseEntity<String> sendActivationEmail(@RequestParam String email) {
+        authService.sendActivationEmail(email);
+        return ResponseEntity.ok("Activation email sent");
+    }
+
     @PostMapping("/verify-otp")
     public ResponseEntity<String> verifyOtp(@RequestBody VerifyOtpRequestDTO req) {
         authService.verifyOtp(req.getEmail(), req.getCode());
@@ -148,11 +154,6 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("accessToken", newAccessToken));
     }
 
-    /**
-     * Logout: thu hồi Access Token (blacklist Redis) + xóa Refresh Token khỏi DB.
-     * Header: Authorization: Bearer {accessToken}
-     * Body:   { "refreshToken": "..." }
-     */
     @PostMapping("/logout")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<String> logout(

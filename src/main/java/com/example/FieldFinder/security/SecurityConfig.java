@@ -49,6 +49,8 @@ public class SecurityConfig {
                                 "/api/users/login-social",
                                 "/api/users/forgot-password",
                                 "/api/users/reset-password",
+                                "/api/users/reset-password-otp",
+                                "/api/auth/send-activation-email",
                                 "/api/users",
                                 "/api/auth/send-otp",
                                 "/api/auth/verify-otp",
