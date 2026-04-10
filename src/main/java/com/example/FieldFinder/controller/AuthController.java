@@ -1,11 +1,15 @@
 package com.example.FieldFinder.controller;
 
+import com.example.FieldFinder.dto.req.AuthRequestDTO;
 import com.example.FieldFinder.dto.req.FacebookLoginRequestDTO;
 import com.example.FieldFinder.dto.req.GoogleLoginRequestDTO;
 import com.example.FieldFinder.dto.req.LogoutRequestDTO;
 import com.example.FieldFinder.dto.req.RefreshTokenRequestDTO;
+import com.example.FieldFinder.dto.req.UserRequestDTO;
 import com.example.FieldFinder.dto.req.VerifyOtpRequestDTO;
 import com.example.FieldFinder.dto.res.AuthTokenResponseDTO;
+import com.example.FieldFinder.entity.User;
+import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.AuthService;
 import com.example.FieldFinder.service.JwtService;
 import com.example.FieldFinder.service.RedisService;
@@ -13,9 +17,12 @@ import com.example.FieldFinder.service.impl.FacebookAuthService;
 import com.example.FieldFinder.service.impl.GoogleAuthService;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.Map;
@@ -31,6 +38,8 @@ public class AuthController {
     private final RedisService redisService;
     private final GoogleAuthService googleAuthService;
     private final FacebookAuthService facebookAuthService;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @PostMapping("/send-otp")
     public ResponseEntity<String> sendOtp(@RequestParam String email) {
@@ -69,6 +78,59 @@ public class AuthController {
     @PostMapping("/facebook")
     public ResponseEntity<AuthTokenResponseDTO> loginWithFacebook(@RequestBody FacebookLoginRequestDTO req) {
         AuthTokenResponseDTO tokenResponse = facebookAuthService.login(req.getAccessToken());
+        return ResponseEntity.ok(tokenResponse);
+    }
+
+    // -------------------------------------------------------
+    // Email / Password Auth
+    // -------------------------------------------------------
+
+    /**
+     * Đăng ký tài khoản bằng email & mật khẩu (không qua Firebase).
+     * Body: { "name": "...", "email": "...", "phone": "...", "password": "..." }
+     */
+    @PostMapping("/register")
+    public ResponseEntity<AuthTokenResponseDTO> register(@RequestBody UserRequestDTO req) {
+        if (userRepository.existsByEmail(req.getEmail())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Email đã tồn tại. Vui lòng dùng email khác.");
+        }
+
+        User user = User.builder()
+                .name(req.getName())
+                .email(req.getEmail())
+                .phone(req.getPhone())
+                .password(passwordEncoder.encode(req.getPassword()))
+                .role(req.getRole() != null ? req.getRole() : User.Role.USER)
+                .status(User.Status.ACTIVE)
+                .build();
+
+        userRepository.save(user);
+        AuthTokenResponseDTO tokenResponse = jwtService.generateTokenPair(user);
+        return ResponseEntity.ok(tokenResponse);
+    }
+
+    /**
+     * Đăng nhập bằng email & mật khẩu.
+     * Body: { "email": "...", "password": "..." }
+     */
+    @PostMapping("/login")
+    public ResponseEntity<AuthTokenResponseDTO> loginWithEmail(@RequestBody AuthRequestDTO req) {
+        User user = userRepository.findByEmail(req.getEmail())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                        "Email hoặc mật khẩu không đúng."));
+
+        if (user.getPassword() == null || !passwordEncoder.matches(req.getPassword(), user.getPassword())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                    "Email hoặc mật khẩu không đúng.");
+        }
+
+        if (user.getStatus() == User.Status.BLOCKED) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Tài khoản của bạn đã bị khóa.");
+        }
+
+        AuthTokenResponseDTO tokenResponse = jwtService.generateTokenPair(user);
         return ResponseEntity.ok(tokenResponse);
     }
 
