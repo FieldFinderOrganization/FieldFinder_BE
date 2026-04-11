@@ -224,6 +224,9 @@ public class UserServiceImpl implements UserService {
         }
 
         User user = resetToken.getUser();
+        if (user.getPassword() != null && passwordEncoder.matches(newPassword, user.getPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu mới không được trùng với mật khẩu cũ.");
+        }
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
 
@@ -288,6 +291,9 @@ public class UserServiceImpl implements UserService {
     public void resetPasswordWithOtp(String email, String newPassword) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Email không tồn tại."));
+        if (user.getPassword() != null && passwordEncoder.matches(newPassword, user.getPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Mật khẩu mới không được trùng với mật khẩu cũ.");
+        }
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
     }
