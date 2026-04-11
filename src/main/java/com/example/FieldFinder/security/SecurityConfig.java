@@ -60,7 +60,9 @@ public class SecurityConfig {
                                 "/api/auth/google",
                                 "/api/auth/facebook",
                                 "/api/auth/passkey/login/start",
-                                "/api/auth/passkey/login/finish"
+                                "/api/auth/passkey/login/finish",
+                                "/api/users/forgot-password-otp"
+
                                 // PassKey register — PROTECTED (cần token, ko permit ở đây)
                         ).permitAll()
 
