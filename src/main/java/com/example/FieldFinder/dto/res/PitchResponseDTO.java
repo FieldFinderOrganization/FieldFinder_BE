@@ -19,6 +19,8 @@ public class PitchResponseDTO {
     private BigDecimal price;
     private String description;
     private List<String> imageUrls;
+    private String address;
+
     public static PitchResponseDTO fromEntity(Pitch pitch) {
         PitchResponseDTO dto = new PitchResponseDTO();
         dto.setPitchId(pitch.getPitchId());
@@ -29,6 +31,7 @@ public class PitchResponseDTO {
         dto.setPrice(pitch.getPrice());
         dto.setDescription(pitch.getDescription());
         dto.setImageUrls(pitch.getImageUrls());
+        dto.setAddress(pitch.getProviderAddress().getAddress());
         return dto;
     }
 }

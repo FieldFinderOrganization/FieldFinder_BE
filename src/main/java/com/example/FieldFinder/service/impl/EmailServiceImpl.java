@@ -110,7 +110,7 @@ public class EmailServiceImpl implements EmailService {
     }
 
     private String buildBookingHtml(Booking booking) {
-        NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(new Locale("vi", "VN"));
+        NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.of("vi", "VN"));
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
         StringBuilder html = new StringBuilder();
@@ -118,13 +118,21 @@ public class EmailServiceImpl implements EmailService {
 
         html.append("<div style='background-color: #188862; color: white; padding: 20px; text-align: center;'>");
         html.append("<h1>Đặt sân thành công!</h1>");
-        html.append("<p>Mã đặt chỗ: " + booking.getBookingId() + "</p>");
+        html.append("<p>Mã đặt chỗ: ")
+                .append(booking.getBookingId())
+                .append("</p>");
         html.append("</div>");
 
         html.append("<div style='padding: 20px;'>");
-        html.append("<p><strong>Khách hàng:</strong> " + booking.getUser().getName() + "</p>");
-        html.append("<p><strong>Ngày đá:</strong> " + booking.getBookingDate().format(dateFormatter) + "</p>");
-        html.append("<p><strong>Trạng thái thanh toán:</strong> " + booking.getPaymentStatus() + "</p>");
+        html.append("<p><strong>Khách hàng:</strong> ")
+                .append(booking.getUser().getName())
+                .append("</p>");
+        html.append("<p><strong>Ngày đá:</strong> ")
+                .append(booking.getBookingDate().format(dateFormatter))
+                .append("</p>");
+        html.append("<p><strong>Trạng thái thanh toán:</strong> ")
+                .append(booking.getPaymentStatus())
+                .append("</p>");
 
         html.append("<table style='width: 100%; border-collapse: collapse; margin-top: 20px;'>");
         html.append("<tr style='background-color: #f2f2f2;'>");
@@ -137,20 +145,28 @@ public class EmailServiceImpl implements EmailService {
             for (BookingDetail item : booking.getBookingDetails()) {
                 html.append("<tr>");
                 String pitchName = item.getPitch() != null ? item.getPitch().getName() : item.getName();
-                html.append("<td style='padding: 12px; border: 1px solid #ddd;'>" + pitchName + "</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd;'>")
+                        .append(pitchName)
+                        .append("</td>");
 
                 String timeStr = item.getTimeSlot() != null
                         ? item.getTimeSlot().getStartTime() + " - " + item.getTimeSlot().getEndTime()
                         : "N/A";
-                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: center;'>" + timeStr + "</td>");
-                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right;'>" + currencyFormatter.format(item.getPriceDetail()) + "</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: center;'>")
+                        .append(timeStr)
+                        .append("</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right;'>")
+                        .append(currencyFormatter.format(item.getPriceDetail()))
+                        .append("</td>");
                 html.append("</tr>");
             }
         }
 
         html.append("<tr>");
         html.append("<td colspan='2' style='padding: 12px; border: 1px solid #ddd; text-align: right;'><strong>Tổng cộng:</strong></td>");
-        html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right; color: #d32f2f; font-weight: bold;'>" + currencyFormatter.format(booking.getTotalPrice()) + "</td>");
+        html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right; color: #d32f2f; font-weight: bold;'>")
+                .append(currencyFormatter.format(booking.getTotalPrice()))
+                .append("</td>");
         html.append("</tr>");
         html.append("</table>");
 
@@ -163,7 +179,7 @@ public class EmailServiceImpl implements EmailService {
     }
 
     private String buildOrderHtml(Order order) {
-        NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(new Locale("vi", "VN"));
+        NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.of("vi", "VN"));
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
         StringBuilder html = new StringBuilder();
@@ -171,13 +187,21 @@ public class EmailServiceImpl implements EmailService {
 
         html.append("<div style='background-color: #4CAF50; color: white; padding: 20px; text-align: center;'>");
         html.append("<h1>Cảm ơn bạn đã đặt hàng!</h1>");
-        html.append("<p>Đơn hàng #" + order.getOrderId() + " đã được thanh toán thành công.</p>");
+        html.append("<p>Đơn hàng #")
+                .append(order.getOrderId())
+                .append(" đã được thanh toán thành công.</p>");
         html.append("</div>");
 
         html.append("<div style='padding: 20px;'>");
-        html.append("<p><strong>Khách hàng:</strong> " + order.getUser().getName() + "</p>");
-        html.append("<p><strong>Ngày đặt:</strong> " + order.getCreatedAt().format(dateFormatter) + "</p>");
-        html.append("<p><strong>Phương thức thanh toán:</strong> " + order.getPaymentMethod() + "</p>");
+        html.append("<p><strong>Khách hàng:</strong> ")
+                .append(order.getUser().getName())
+                .append("</p>");
+        html.append("<p><strong>Ngày đặt:</strong> ")
+                .append(order.getCreatedAt().format(dateFormatter))
+                .append("</p>");
+        html.append("<p><strong>Phương thức thanh toán:</strong> ")
+                .append(order.getPaymentMethod())
+                .append("</p>");
 
         // Table Items
         html.append("<table style='width: 100%; border-collapse: collapse; margin-top: 20px;'>");
@@ -191,10 +215,17 @@ public class EmailServiceImpl implements EmailService {
         if (order.getItems() != null) {
             for (OrderItem item : order.getItems()) {
                 html.append("<tr>");
-                html.append("<td style='padding: 12px; border: 1px solid #ddd;'>" + item.getProduct().getName() + "</td>");
-                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: center;'>" + item.getSize() + "</td>");
-                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: center;'>" + item.getQuantity() + "</td>");
-                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right;'>" + currencyFormatter.format(item.getPrice()) + "</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd;'>")
+                        .append(item.getProduct().getName())
+                        .append("</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: center;'>")
+                        .append(item.getSize())
+                        .append("</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: center;'>")
+                        .append(item.getQuantity())
+                        .append("</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right;'>")
+                        .append(currencyFormatter.format(item.getPrice())).append("</td>");
                 html.append("</tr>");
             }
         }
@@ -202,7 +233,9 @@ public class EmailServiceImpl implements EmailService {
         // Total
         html.append("<tr>");
         html.append("<td colspan='3' style='padding: 12px; border: 1px solid #ddd; text-align: right;'><strong>Tổng cộng:</strong></td>");
-        html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right; color: #d32f2f; font-weight: bold;'>" + currencyFormatter.format(order.getTotalAmount()) + "</td>");
+        html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right; color: #d32f2f; font-weight: bold;'>")
+                .append(currencyFormatter.format(order.getTotalAmount()))
+                .append("</td>");
         html.append("</tr>");
         html.append("</table>");
 

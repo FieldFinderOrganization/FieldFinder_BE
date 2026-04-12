@@ -61,7 +61,8 @@ public class SecurityConfig {
                                 "/api/auth/facebook",
                                 "/api/auth/passkey/login/start",
                                 "/api/auth/passkey/login/finish",
-                                "/api/users/forgot-password-otp"
+                                "/api/users/forgot-password-otp",
+                                "/api/bookings/slots/**"
 
                                 // PassKey register — PROTECTED (cần token, ko permit ở đây)
                         ).permitAll()

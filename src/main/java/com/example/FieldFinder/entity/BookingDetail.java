@@ -30,16 +30,6 @@ public class BookingDetail implements Serializable {
     private Pitch pitch;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "product_id", nullable = true)
-    private Product product;
-
-    @Column(name = "quantity")
-    private Integer quantity;
-
-    @Column(name = "price")
-    private Double price;
-
-    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "slot_id", nullable = true)
     private TimeSlot timeSlot;
 

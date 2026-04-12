@@ -23,7 +23,6 @@ import com.webauthn4j.data.RegistrationParameters;
 import com.webauthn4j.data.RegistrationRequest;
 import com.webauthn4j.data.attestation.authenticator.AAGUID;
 import com.webauthn4j.data.attestation.authenticator.AttestedCredentialData;
-import com.webauthn4j.data.attestation.statement.COSEAlgorithmIdentifier;
 import com.webauthn4j.data.client.Origin;
 import com.webauthn4j.data.client.challenge.DefaultChallenge;
 import com.webauthn4j.server.ServerProperty;
@@ -134,7 +133,7 @@ public class PasskeyServiceImpl implements PasskeyService {
                 attestationObjectBytes, clientDataJSONBytes);
         RegistrationParameters registrationParameters = new RegistrationParameters(
                 serverProperty,
-                null,   // pubKeyCredParams — null = chấp nhận mọi algorithm
+                null,
                 false,  // userVerificationRequired
                 false   // userPresenceRequired
         );
@@ -150,11 +149,14 @@ public class PasskeyServiceImpl implements PasskeyService {
         }
 
         // Trích xuất credential data từ authData
+        assert registrationData
+                .getAttestationObject() != null;
         AttestedCredentialData credData = registrationData
                 .getAttestationObject()
                 .getAuthenticatorData()
                 .getAttestedCredentialData();
 
+        assert credData != null;
         byte[] credentialIdBytes = credData.getCredentialId();
         String credentialIdBase64 = encodeBase64Url(credentialIdBytes);
         long signCount = registrationData.getAttestationObject()
@@ -164,7 +166,6 @@ public class PasskeyServiceImpl implements PasskeyService {
         byte[] coseKeyBytes = objectConverter.getCborConverter()
                 .writeValueAsBytes(credData.getCOSEKey());
 
-        // Kiểm tra credentialId chưa tồn tại (duplicate registration)
         if (passkeyCredentialRepository.existsByCredentialId(credentialIdBase64)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "PassKey này đã được đăng ký. Vui lòng dùng thiết bị khác.");
@@ -242,7 +243,6 @@ public class PasskeyServiceImpl implements PasskeyService {
         byte[] signatureBytes        = decodeBase64Url(dto.getSignature());
         byte[] challengeBytes        = decodeBase64Url(challengeBase64);
 
-        // Deserialize stored COSE public key
         com.webauthn4j.data.attestation.authenticator.COSEKey storedCOSEKey;
         try {
             storedCOSEKey = objectConverter.getCborConverter()
@@ -255,6 +255,7 @@ public class PasskeyServiceImpl implements PasskeyService {
         }
 
         // Build authenticator từ stored credential
+        assert storedCOSEKey != null;
         AttestedCredentialData attestedCredentialData = new AttestedCredentialData(
                 AAGUID.ZERO, credentialIdBytes, storedCOSEKey);
         AuthenticatorImpl authenticator = new AuthenticatorImpl(
@@ -285,6 +286,7 @@ public class PasskeyServiceImpl implements PasskeyService {
         // Cập nhật signCount (chống replay attack)
         // Nếu signCount giảm → log cảnh báo thay vì block ngay
         // (iCloud Keychain / Google Password Manager có thể sync lệch signCount)
+        assert authData.getAuthenticatorData() != null;
         long newSignCount = authData.getAuthenticatorData().getSignCount();
         if (newSignCount != 0 && newSignCount <= stored.getSignCount()) {
             log.warn("⚠️ PassKey signCount anomaly — có thể thiết bị bị clone. " +
@@ -326,7 +328,6 @@ public class PasskeyServiceImpl implements PasskeyService {
         return Base64.getUrlDecoder().decode(normalized);
     }
 
-    /** Chuyển UUID → byte[16] (big-endian) cho WebAuthn user.id */
     private byte[] uuidToBytes(UUID uuid) {
         ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
         bb.putLong(uuid.getMostSignificantBits());

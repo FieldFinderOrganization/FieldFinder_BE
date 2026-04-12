@@ -78,6 +78,8 @@ public class ReviewServiceImpl implements ReviewService {
                 .rating(review.getRating())
                 .comment(review.getComment())
                 .createdAt(review.getCreatedAt().toString())
+                .userName(review.getUser().getName())
+                .userImageUrl(review.getUser().getImageUrl())
                 .build();
     }
 }

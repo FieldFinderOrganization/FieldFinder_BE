@@ -7,13 +7,13 @@ import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.CloudinaryService;
 import com.example.FieldFinder.service.ProductService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -31,9 +31,7 @@ public class ProductServiceImpl implements ProductService {
     private final UserDiscountRepository userDiscountRepository;
     private final AIChat aiChat;
     private final CloudinaryService cloudinaryService;
-
-    @Autowired
-    private org.springframework.data.redis.core.RedisTemplate<String, Object> redisTemplate;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     public ProductServiceImpl(
             ProductRepository productRepository,
@@ -42,7 +40,8 @@ public class ProductServiceImpl implements ProductService {
             DiscountRepository discountRepository,
             UserDiscountRepository userDiscountRepository,
             CloudinaryService cloudinaryService,
-            @Lazy AIChat aiChat) {
+            @Lazy AIChat aiChat,
+            RedisTemplate<String, Object> redisTemplate) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.productVariantRepository = productVariantRepository;
@@ -50,6 +49,7 @@ public class ProductServiceImpl implements ProductService {
         this.userDiscountRepository = userDiscountRepository;
         this.cloudinaryService = cloudinaryService;
         this.aiChat = aiChat;
+        this.redisTemplate = redisTemplate;
     }
 
     private List<Discount> getPublicDiscounts(Product product) {
@@ -370,16 +370,12 @@ public class ProductServiceImpl implements ProductService {
         if (p.getCategory() == null)
             return false;
         String content = (p.getCategory().getName() + " " + p.getName()).toLowerCase();
-        switch (aiCategory) {
-            case "FOOTWEAR":
-                return isShoe(content);
-            case "CLOTHING":
-                return isClothing(content);
-            case "ACCESSORY":
-                return isAccessory(content);
-            default:
-                return true;
-        }
+        return switch (aiCategory) {
+            case "FOOTWEAR" -> isShoe(content);
+            case "CLOTHING" -> isClothing(content);
+            case "ACCESSORY" -> isAccessory(content);
+            default -> true;
+        };
     }
 
     private long calculateScore(Product p, List<String> keywords) {
@@ -421,7 +417,7 @@ public class ProductServiceImpl implements ProductService {
                 p.setTags(new HashSet<>());
             p.getTags().addAll(newTags);
             List<String> distinctTags = p.getTags().stream().map(String::toLowerCase).distinct()
-                    .collect(Collectors.toList());
+                    .toList();
             p.getTags().clear();
             p.getTags().addAll(distinctTags);
             productRepository.save(p);
@@ -473,7 +469,7 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     public ProductResponseDTO getProductByName(String productName) {
         List<Product> products = productRepository.findByKeywords(List.of(productName.toLowerCase()));
-        return products.isEmpty() ? null : mapToResponse(products.get(0), Collections.emptyList());
+        return products.isEmpty() ? null : mapToResponse(products.getFirst(), Collections.emptyList());
     }
 
     private boolean isShoe(String text) {

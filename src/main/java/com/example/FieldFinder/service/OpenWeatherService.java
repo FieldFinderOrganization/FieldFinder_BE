@@ -16,7 +16,10 @@ public class OpenWeatherService {
     @Value("${weather_api_key}")
     private String weatherApiKey;
 
-    private static final String BASE_URL = "http://api.openweathermap.org/data/2.5/weather";
+    @Value("${OPEN_WEATHER_URL}")
+    private static String openWeatherUrl;
+
+    private static final String BASE_URL = openWeatherUrl;
 
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
@@ -36,6 +39,7 @@ public class OpenWeatherService {
                 throw new IOException("Không tìm thấy dữ liệu thời tiết cho thành phố này: " + city);
             }
 
+            assert response.body() != null;
             String json = response.body().string();
             JsonNode root = mapper.readTree(json);
 

@@ -59,7 +59,6 @@ public class BookingController {
     }
 
     @GetMapping("/slots/{pitchId}")
-    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<Integer>> getBookedSlots(
             @PathVariable UUID pitchId,
             @RequestParam LocalDate date) {

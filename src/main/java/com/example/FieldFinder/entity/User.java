@@ -27,7 +27,6 @@ public class User {
     @Column(name = "Phone", nullable = true)
     private String phone;
 
-    // nullable: user đăng nhập bằng social provider không có password
     @Column(name = "Password", nullable = true)
     private String password;
 

@@ -60,7 +60,7 @@ public class PayOSService {
 
         StringBuilder rawData = new StringBuilder();
         for (Map.Entry<String, Object> entry : params.entrySet()) {
-            if (rawData.length() > 0) {
+            if (!rawData.isEmpty()) {
                 rawData.append("&");
             }
             rawData.append(entry.getKey()).append("=").append(entry.getValue());
@@ -88,23 +88,26 @@ public class PayOSService {
                     .retrieve()
                     .bodyToMono(Map.class)
                     .doOnNext(res -> System.out.println("PayOS response: " + res))
-                    .map(res -> {
+                    .<PaymentResult>handle((res, sink) -> {
                         if (!"00".equals(res.get("code"))) {
-                            throw new IllegalStateException("PayOS error: " + res.get("desc"));
+                            sink.error(new IllegalStateException("PayOS error: " + res.get("desc")));
+                            return;
                         }
                         Map<?, ?> data = (Map<?, ?>) res.get("data");
                         if (data == null) {
-                            throw new IllegalStateException("Missing data in PayOS response");
+                            sink.error(new IllegalStateException("Missing data in PayOS response"));
+                            return;
                         }
 
                         String checkoutUrl = (String) data.get("checkoutUrl");
                         String transactionId = (String) data.get("paymentLinkId");
 
                         if (checkoutUrl == null || transactionId == null) {
-                            throw new IllegalStateException("Missing checkoutUrl or paymentLinkId in PayOS response");
+                            sink.error(new IllegalStateException("Missing checkoutUrl or paymentLinkId in PayOS response"));
+                            return;
                         }
 
-                        return new PaymentResult(checkoutUrl, transactionId);
+                        sink.next(new PaymentResult(checkoutUrl, transactionId));
                     })
                     .block();
         } catch (WebClientResponseException e) {
