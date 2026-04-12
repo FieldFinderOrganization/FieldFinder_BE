@@ -15,4 +15,5 @@ public interface PaymentService {
     List<PaymentResponseDTO> getAllPayments();
     void processWebhook(Map<String, Object> payload);
     PaymentResponseDTO createShopPayment(ShopPaymentRequestDTO requestDTO);
+    PaymentResponseDTO getPaymentStatusByBookingId(UUID bookingId);
 }

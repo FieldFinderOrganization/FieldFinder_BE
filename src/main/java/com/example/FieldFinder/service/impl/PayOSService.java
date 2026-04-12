@@ -41,11 +41,11 @@ public class PayOSService {
     @Value("${payos.returnUrl}")
     private String defaultReturnUrl;
 
-    public record PaymentResult(String checkoutUrl, String paymentLinkId) {
+    public record PaymentResult(String checkoutUrl, String paymentLinkId, String qrCode) {
     }
 
     public PaymentResult createPayment(BigDecimal amount, int orderCode, String description, String returnUrl,
-            String cancelUrl) {
+                                       String cancelUrl) {
         int amountInt = amount.intValue();
 
         String finalReturnUrl = (returnUrl != null && !returnUrl.isEmpty()) ? returnUrl : defaultReturnUrl;
@@ -101,13 +101,14 @@ public class PayOSService {
 
                         String checkoutUrl = (String) data.get("checkoutUrl");
                         String transactionId = (String) data.get("paymentLinkId");
+                        String qrCode = (String) data.get("qrCode");
 
                         if (checkoutUrl == null || transactionId == null) {
                             sink.error(new IllegalStateException("Missing checkoutUrl or paymentLinkId in PayOS response"));
                             return;
                         }
 
-                        sink.next(new PaymentResult(checkoutUrl, transactionId));
+                        sink.next(new PaymentResult(checkoutUrl, transactionId, qrCode));
                     })
                     .block();
         } catch (WebClientResponseException e) {

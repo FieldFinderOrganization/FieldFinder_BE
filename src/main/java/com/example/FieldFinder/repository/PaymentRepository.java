@@ -15,7 +15,7 @@ import java.util.UUID;
 @Repository
 public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     List<Payment> findByUser_UserId(UUID userId);
-//    List<Payment> findByPaymentStatus(Booking.PaymentStatus status);
+    //    List<Payment> findByPaymentStatus(Booking.PaymentStatus status);
     Optional<Payment> findByTransactionId(String transactionId);
 
     @Query("SELECT p.paymentMethod FROM Payment p WHERE p.booking.bookingId = :id")
@@ -23,4 +23,6 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     @Query("SELECT p FROM Payment p WHERE p.booking.bookingId IN :ids")
     List<Payment> findAllByBookingIds(@Param("ids") List<UUID> ids);
+
+    Optional<Payment> findFirstByBooking_BookingIdOrderByCreatedAtDesc(UUID bookingId);
 }

@@ -49,6 +49,18 @@ public class Payment {
     @Column(name = "TransactionId")
     private String transactionId;
 
+    @Column(name = "qrCode", length = 2000)
+    private String qrCode;
+
+    @Column(name = "ownerName")
+    private String ownerName;
+
+    @Column(name = "ownerCardNumber")
+    private String ownerCardNumber;
+
+    @Column(name = "ownerBank")
+    private String ownerBank;
+
     @Column(name = "CreatedAt")
     private LocalDateTime createdAt = LocalDateTime.now();
 

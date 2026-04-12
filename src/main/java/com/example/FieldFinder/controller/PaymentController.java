@@ -47,9 +47,14 @@ public class PaymentController {
     }
 
     @PostMapping("/webhook")
-    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<String> webhook(@RequestBody Map<String, Object> payload) {
         paymentService.processWebhook(payload);
         return ResponseEntity.ok("Webhook received");
+    }
+
+    @GetMapping("/status-by-booking/{bookingId}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<PaymentResponseDTO> getPaymentStatusByBookingId(@PathVariable UUID bookingId) {
+        return ResponseEntity.ok(paymentService.getPaymentStatusByBookingId(bookingId));
     }
 }

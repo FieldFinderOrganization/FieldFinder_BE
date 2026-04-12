@@ -79,10 +79,20 @@ public class PaymentServiceImpl implements PaymentService {
                 .paymentStatus(Booking.PaymentStatus.PENDING)
                 .checkoutUrl(result.checkoutUrl())
                 .transactionId(result.paymentLinkId())
+                .qrCode(result.qrCode())
+                .ownerName(provider.getUser() != null ? provider.getUser().getName() : "Chủ sân")
+                .ownerCardNumber(provider.getCardNumber())
+                .ownerBank(provider.getBank())
                 .build();
 
         paymentRepository.save(payment);
-        return convertToDTO(payment);
+        PaymentResponseDTO responseDTO = convertToDTO(payment);
+        responseDTO.setQrCode(result.qrCode());
+        responseDTO.setOwnerName(provider.getUser() != null ? provider.getUser().getName() : "Chủ sân");
+        responseDTO.setOwnerCardNumber(provider.getCardNumber());
+        responseDTO.setOwnerBank(provider.getBank());
+
+        return responseDTO;
     }
 
     @Override
@@ -160,6 +170,10 @@ public class PaymentServiceImpl implements PaymentService {
                 .checkoutUrl(payment.getCheckoutUrl())
                 .amount(payment.getAmount().toPlainString())
                 .status(payment.getPaymentStatus().name())
+                .qrCode(payment.getQrCode())
+                .ownerName(payment.getOwnerName())
+                .ownerCardNumber(payment.getOwnerCardNumber())
+                .ownerBank(payment.getOwnerBank())
                 .build();
     }
 
@@ -291,9 +305,15 @@ public class PaymentServiceImpl implements PaymentService {
                 bookingRepository.save(booking);
 
             System.out.println("💾 Saved updated Payment/Order/Booking to DB.");
-
         } else {
             System.out.println("❌ Payment not found in DB for transactionId: " + transactionId);
         }
+    }
+
+    @Override
+    public PaymentResponseDTO getPaymentStatusByBookingId(UUID bookingId) {
+        Payment payment = paymentRepository.findFirstByBooking_BookingIdOrderByCreatedAtDesc(bookingId)
+                .orElseThrow(() -> new RuntimeException("Payment not found for booking: " + bookingId));
+        return convertToDTO(payment);
     }
 }
