@@ -10,4 +10,5 @@ public interface EmailService {
 
     void sendBookingConfirmation(Booking booking);
     void sendBookingCancellation(Booking booking);
+    void sendBookingPaymentReminder(Booking booking);
 }

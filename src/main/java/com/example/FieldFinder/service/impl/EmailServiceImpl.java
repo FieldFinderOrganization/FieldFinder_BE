@@ -21,8 +21,10 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.text.NumberFormat;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.Objects;
 
 @Service
 public class EmailServiceImpl implements EmailService {
@@ -172,6 +174,30 @@ public class EmailServiceImpl implements EmailService {
         }
     }
 
+    @Override
+    @Async
+    @Transactional
+    public void sendBookingPaymentReminder(Booking detachedBooking) {
+        Booking liveBooking = bookingRepository.findById(detachedBooking.getBookingId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy Booking để gửi email nhắc nhở"));
+
+        if (liveBooking.getUser() == null || liveBooking.getUser().getEmail() == null) {
+            System.err.println("Cannot send email: User email is missing for Booking #" + liveBooking.getBookingId());
+            return;
+        }
+
+        String to = liveBooking.getUser().getEmail();
+        String subject = "FieldFinder - Nhắc nhở thanh toán đơn đặt sân #" + liveBooking.getBookingId().toString().substring(0, 8);
+        String content = buildBookingReminderHtml(liveBooking);
+
+        try {
+            sendHtmlEmail(to, subject, content);
+            System.out.println("📧 Booking Reminder Email sent successfully to " + to);
+        } catch (MessagingException e) {
+            System.err.println("❌ Failed to send booking reminder email: " + e.getMessage());
+        }
+    }
+
     private void sendHtmlEmail(String to, String subject, String htmlBody) throws MessagingException {
         MimeMessage message = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
@@ -203,7 +229,7 @@ public class EmailServiceImpl implements EmailService {
         } else if (method == PaymentMethod.BANK) {
             headerTitle = "Đã nhận đơn đặt sân!";
             headerColor = "#f39c12"; // Orange
-            instruction = "Bạn đã đặt sân thành công. Vui lòng hoàn tất thanh toán qua ứng dụng tối thiểu 10 phút trước thời điểm bắt đầu trận đấu để chính thức xác nhận lịch đặt.";
+            instruction = "Bạn đã đặt sân thành công. Vui lòng hoàn tất thanh toán qua ứng dụng tối thiểu 5 phút trước thời điểm bắt đầu trận đấu để chính thức xác nhận lịch đặt.";
         } else if (method == PaymentMethod.CASH) {
             headerTitle = "Đặt sân thành công!";
             headerColor = "#188862"; // Green
@@ -377,6 +403,79 @@ public class EmailServiceImpl implements EmailService {
         html.append("<p>Cảm ơn bạn đã quan tâm.</p>");
         html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
         html.append("</div></body></html>");
+        return html.toString();
+    }
+
+    private String buildBookingReminderHtml(Booking booking) {
+        NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.of("vi", "VN"));
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+        // Find earliest slot start time
+        String startTimeStr = booking.getBookingDetails().stream()
+                .map(bd -> bd.getTimeSlot() != null ? bd.getTimeSlot().getStartTime() : null)
+                .filter(Objects::nonNull)
+                .min(LocalTime::compareTo)
+                .map(LocalTime::toString)
+                .orElse("N/A");
+
+        StringBuilder html = new StringBuilder();
+        html.append("<html><body style='font-family: Arial, sans-serif; color: #333;'>");
+
+        html.append("<div style='background-color: #f39c12; color: white; padding: 20px; text-align: center;'>");
+        html.append("<h1>Nhắc nhở thanh toán</h1>");
+        html.append("<p>Mã đặt chỗ: ")
+                .append(booking.getBookingId().toString().substring(0, 8))
+                .append("</p>");
+        html.append("</div>");
+
+        html.append("<div style='padding: 20px;'>");
+        html.append("<p>Chào <strong>").append(booking.getUser().getName()).append("</strong>,</p>");
+        html.append("<p>Bạn có đơn đặt sân vào lúc <strong>").append(startTimeStr).append("</strong> ngày <strong>")
+                .append(booking.getBookingDate().format(dateFormatter)).append("</strong>.</p>");
+        html.append("<p style='color: #d32f2f; font-weight: bold;'>Lưu ý: Chỉ còn 5 phút để hoàn tất thanh toán nếu không muốn lịch đặt bị tự động hủy.</p>");
+
+        html.append("<h3 style='margin-top: 20px;'>Thông tin đơn đặt:</h3>");
+        html.append("<table style='width: 100%; border-collapse: collapse;'>");
+        html.append("<tr style='background-color: #f2f2f2;'>");
+        html.append("<th style='padding: 12px; border: 1px solid #ddd; text-align: left;'>Sân bóng</th>");
+        html.append("<th style='padding: 12px; border: 1px solid #ddd; text-align: center;'>Khung giờ</th>");
+        html.append("<th style='padding: 12px; border: 1px solid #ddd; text-align: right;'>Thành tiền</th>");
+        html.append("</tr>");
+
+        if (booking.getBookingDetails() != null) {
+            for (BookingDetail item : booking.getBookingDetails()) {
+                html.append("<tr>");
+                String pitchName = item.getPitch() != null ? item.getPitch().getName() : item.getName();
+                html.append("<td style='padding: 12px; border: 1px solid #ddd;'>")
+                        .append(pitchName)
+                        .append("</td>");
+
+                String timeStr = item.getTimeSlot() != null
+                        ? item.getTimeSlot().getStartTime() + " - " + item.getTimeSlot().getEndTime()
+                        : "N/A";
+                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: center;'>")
+                        .append(timeStr)
+                        .append("</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right;'>")
+                        .append(currencyFormatter.format(item.getPriceDetail()))
+                        .append("</td>");
+                html.append("</tr>");
+            }
+        }
+
+        html.append("<tr>");
+        html.append("<td colspan='2' style='padding: 12px; border: 1px solid #ddd; text-align: right;'><strong>Tổng cộng:</strong></td>");
+        html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right; color: #d32f2f; font-weight: bold;'>")
+                .append(currencyFormatter.format(booking.getTotalPrice()))
+                .append("</td>");
+        html.append("</tr>");
+        html.append("</table>");
+
+        html.append("<p style='margin-top: 20px;'>Vui lòng truy cập ứng dụng để thực hiện thanh toán ngay.</p>");
+        html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
+        html.append("</div>");
+        html.append("</body></html>");
+
         return html.toString();
     }
 }

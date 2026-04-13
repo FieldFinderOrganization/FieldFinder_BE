@@ -406,7 +406,7 @@ public class BookingServiceImpl implements BookingService {
                 // 2. Reminder Email at T-10m
                 if (minutesUntilStart <= 10 && minutesUntilStart > 5) {
                     System.out.println("📧 Sending reminder for Booking #" + booking.getBookingId());
-                    rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY,
+                    rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_REMINDER_EMAIL_ROUTING_KEY,
                             booking.getBookingId().toString());
                 }
 

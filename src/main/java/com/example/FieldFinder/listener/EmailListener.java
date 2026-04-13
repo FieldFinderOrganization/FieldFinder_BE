@@ -55,4 +55,22 @@ public class EmailListener {
             throw new RuntimeException("Yêu cầu RabbitMQ Retry");
         }
     }
+
+    @RabbitListener(queues = RabbitMQConfig.BOOKING_REMINDER_EMAIL_QUEUE)
+    public void handleBookingReminderEmail(String bookingIdStr) {
+        try {
+            UUID bookingId = UUID.fromString(bookingIdStr);
+            Booking booking = bookingRepository.findById(bookingId).orElse(null);
+
+            if (booking != null) {
+                emailService.sendBookingPaymentReminder(booking);
+                System.out.println("RabbitMQ Đã xử lý xong gửi email nhắc nhở cho Booking ID: " + bookingId);
+            } else {
+                System.err.println("RabbitMQ Không tìm thấy Booking ID để gửi nhắc nhở: " + bookingId);
+            }
+        } catch (Exception e) {
+            System.err.println("RabbitMQ Lỗi gửi mail nhắc nhở. RabbitMQ sẽ tự động thử lại... Lỗi: " + e.getMessage());
+            throw new RuntimeException("Yêu cầu RabbitMQ Retry nhắc nhở");
+        }
+    }
 }
