@@ -61,7 +61,14 @@ public class Payment {
     @Column(name = "ownerBank")
     private String ownerBank;
 
+    @Builder.Default
     @Column(name = "CreatedAt")
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Column(name = "processed_at")
+    private LocalDateTime processedAt;
+
+    @Column(name = "paid_at")
+    private LocalDateTime paidAt;
 
 }

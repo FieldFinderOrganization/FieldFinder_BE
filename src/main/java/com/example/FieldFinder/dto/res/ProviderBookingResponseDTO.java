@@ -7,8 +7,10 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+
 
 @Data
 @Builder
@@ -30,5 +32,10 @@ public class ProviderBookingResponseDTO {
     private String paymentMethod;
     private String providerName;
     private String pitchName;
+
+    private String pitchImageUrl;
     private List<Integer> slots;
+
+    private LocalDateTime createdAt;
+    private LocalDateTime paidAt;
 }

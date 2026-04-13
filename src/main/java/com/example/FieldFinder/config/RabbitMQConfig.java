@@ -10,9 +10,6 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class RabbitMQConfig {
 
-    // Định nghĩa tên Hàng đợi (Queue), Trạm trung chuyển (Exchange) và Khóa định
-    // tuyến (Routing Key)
-
     public static final String EMAIL_EXCHANGE = "email_exchange";
     public static final String BOOKING_EMAIL_QUEUE = "email_queue";
     public static final String BOOKING_EMAIL_ROUTING_KEY = "email_routing_key";

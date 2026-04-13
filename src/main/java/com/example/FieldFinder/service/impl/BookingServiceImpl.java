@@ -18,6 +18,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -35,12 +36,12 @@ public class BookingServiceImpl implements BookingService {
     private final ProviderRepository providerRepository;
 
     public BookingServiceImpl(BookingRepository bookingRepository,
-            BookingDetailRepository bookingDetailRepository,
-            PitchRepository pitchRepository,
-            UserRepository userRepository,
-            RestTemplate restTemplate,
-            RabbitTemplate rabbitTemplate,
-            PitchRedisLockService pitchRedisLockService,
+                              BookingDetailRepository bookingDetailRepository,
+                              PitchRepository pitchRepository,
+                              UserRepository userRepository,
+                              RestTemplate restTemplate,
+                              RabbitTemplate rabbitTemplate,
+                              PitchRedisLockService pitchRedisLockService,
                               EntityManager entityManager,
                               PaymentRepository paymentRepository,
                               ProviderRepository providerRepository) {
@@ -136,11 +137,13 @@ public class BookingServiceImpl implements BookingService {
             Booking booking = Booking.builder()
                     .user(user)
                     .bookingDate(bookingRequest.getBookingDate())
+                    .createdAt(LocalDateTime.now())
                     .status(Booking.BookingStatus.PENDING)
                     .paymentStatus(Booking.PaymentStatus.PENDING)
                     .totalPrice(bookingRequest.getTotalPrice())
                     .bookingDetails(new ArrayList<>())
                     .build();
+
 
             List<BookingDetail> details = bookingRequest.getBookingDetails().stream().map(detailDTO -> {
                 BookingDetail detail = new BookingDetail();
@@ -266,6 +269,7 @@ public class BookingServiceImpl implements BookingService {
         List<Payment> allPayments = paymentRepository.findAllByBookingIds(bookingIds);
 
         Map<UUID, String> paymentMap = allPayments.stream()
+                .filter(p -> p.getBooking() != null)
                 .collect(Collectors.toMap(
                         p -> p.getBooking().getBookingId(),
                         p -> p.getPaymentMethod() != null ? p.getPaymentMethod().name() : "PENDING",
@@ -275,6 +279,7 @@ public class BookingServiceImpl implements BookingService {
         return bookings.stream().map(booking -> {
             String pitchName = "Không xác định";
             String providerName = "Không xác định";
+            String pitchImageUrl = null;
             UUID providerId = null;
             UUID providerUserId = null;
             List<Integer> slots = new ArrayList<>();
@@ -284,11 +289,18 @@ public class BookingServiceImpl implements BookingService {
                 Pitch pitch = firstDetail.getPitch();
                 if (pitch != null) {
                     pitchName = pitch.getName();
-                    var provider = pitch.getProviderAddress().getProvider();
-                    if (provider != null) {
+                    if (pitch.getImageUrls() != null && !pitch.getImageUrls().isEmpty()) {
+                        pitchImageUrl = pitch.getImageUrls().get(0);
+                    }
+                    if (pitch.getProviderAddress() != null && pitch.getProviderAddress().getProvider() != null) {
+                        var provider = pitch.getProviderAddress().getProvider();
                         providerId = provider.getProviderId();
-                        providerName = (provider.getUser() != null) ? provider.getUser().getName() : "Không xác định";
-                        providerUserId = provider.getUser().getUserId();
+                        if (provider.getUser() != null) {
+                            providerName = provider.getUser().getName();
+                            providerUserId = provider.getUser().getUserId();
+                        } else {
+                            providerName = "Không xác định";
+                        }
                     }
                 }
                 slots = booking.getBookingDetails().stream()
@@ -299,13 +311,23 @@ public class BookingServiceImpl implements BookingService {
 
             String paymentMethod = paymentMap.getOrDefault(booking.getBookingId(), "PENDING");
 
+            // Get paidAt from payment record
+            LocalDateTime paidAt = allPayments.stream()
+                    .filter(p -> p.getBooking() != null && p.getBooking().getBookingId().equals(booking.getBookingId()))
+                    .filter(p -> p.getPaymentStatus() == Booking.PaymentStatus.PAID)
+                    .map(Payment::getPaidAt)
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+
             return ProviderBookingResponseDTO.builder()
                     .bookingId(booking.getBookingId())
                     .bookingDate(booking.getBookingDate())
-                    .status(booking.getStatus().name())
+                    .status(booking.getStatus() != null ? booking.getStatus().name() : "PENDING")
                     .paymentStatus(booking.getPaymentStatus() != null ? booking.getPaymentStatus().name() : "PENDING")
                     .totalPrice(booking.getTotalPrice())
                     .pitchName(pitchName)
+                    .pitchImageUrl(pitchImageUrl)
                     .providerName(providerName)
                     .providerId(providerId)
                     .providerUserId(providerUserId)
@@ -313,7 +335,10 @@ public class BookingServiceImpl implements BookingService {
                     .userId(user.getUserId())
                     .userName(user.getName())
                     .slots(slots)
+                    .createdAt(booking.getCreatedAt())
+                    .paidAt(paidAt)
                     .build();
+
         }).collect(Collectors.toList());
     }
 

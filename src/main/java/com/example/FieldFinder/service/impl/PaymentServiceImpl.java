@@ -83,7 +83,9 @@ public class PaymentServiceImpl implements PaymentService {
                 .ownerName(provider.getUser() != null ? provider.getUser().getName() : "Chủ sân")
                 .ownerCardNumber(provider.getCardNumber())
                 .ownerBank(provider.getBank())
+                .createdAt(LocalDateTime.now())
                 .build();
+
 
         paymentRepository.save(payment);
         PaymentResponseDTO responseDTO = convertToDTO(payment);
@@ -226,24 +228,25 @@ public class PaymentServiceImpl implements PaymentService {
             boolean isSuccess = "00".equals(code) || "success".equalsIgnoreCase(desc);
 
             if (isSuccess) {
+                payment.setProcessedAt(LocalDateTime.now());
                 if (!isAlreadyPaid) {
                     System.out.println("✅ Payment Success for TxID: " + transactionId);
                     payment.setPaymentStatus(Booking.PaymentStatus.PAID);
 
+                    LocalDateTime paidTime = LocalDateTime.now();
                     if (data != null && data.containsKey("transactionDateTime")) {
                         String transTimeStr = (String) data.get("transactionDateTime");
                         try {
                             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-                            LocalDateTime paidAt = LocalDateTime.parse(transTimeStr, formatter);
-
-                            if (order != null) {
-                                order.setPaymentTime(paidAt);
-                            }
+                            paidTime = LocalDateTime.parse(transTimeStr, formatter);
                         } catch (Exception e) {
                             System.err.println("Lỗi parse ngày tháng từ webhook: " + e.getMessage());
-                            if (order != null)
-                                order.setPaymentTime(LocalDateTime.now());
                         }
+                    }
+                    payment.setPaidAt(paidTime);
+
+                    if (order != null) {
+                        order.setPaymentTime(paidTime);
                     }
 
                     // A. Update Booking
@@ -251,6 +254,7 @@ public class PaymentServiceImpl implements PaymentService {
                         booking.setPaymentStatus(Booking.PaymentStatus.PAID);
                         booking.setStatus(Booking.BookingStatus.CONFIRMED);
                     }
+
 
                     if (order != null) {
                         if (order.getStatus() == OrderStatus.PENDING) {

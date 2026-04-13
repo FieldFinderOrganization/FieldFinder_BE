@@ -24,6 +24,7 @@ public class GlobalExceptionHandler {
     // 1. Xử lý lỗi RuntimeException chung (Ví dụ: throw new RuntimeException("Sản phẩm không tồn tại"))
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Object> handleRuntimeException(RuntimeException ex, HttpServletRequest request) {
+        ex.printStackTrace();
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), request.getRequestURI());
     }
 
