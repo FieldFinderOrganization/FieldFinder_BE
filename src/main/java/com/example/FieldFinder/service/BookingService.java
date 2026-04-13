@@ -28,5 +28,6 @@ public interface BookingService {
     List<String> getAvailablePitches(LocalDate date, List<Integer> slots, String pitchType );
     ResponseEntity<String> updatePaymentStatus(UUID bookingId, String paymentStatus);
     List<ProviderBookingResponseDTO> getBookingsByProviderId(UUID providerId);
+    List<BookingResponseDTO> getBookingsByProvider(UUID providerId);
 
 }

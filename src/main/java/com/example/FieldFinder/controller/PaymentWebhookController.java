@@ -1,6 +1,8 @@
 package com.example.FieldFinder.controller;
 
 import com.example.FieldFinder.dto.req.WebhookRequestDTO;
+import com.example.FieldFinder.Enum.BookingStatus;
+import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.entity.Payment;
 import com.example.FieldFinder.repository.BookingRepository;
@@ -32,7 +34,7 @@ public class PaymentWebhookController {
         Payment payment = paymentRepository.findByTransactionId(transactionId)
                 .orElseThrow(() -> new RuntimeException("Payment not found"));
 
-        Booking.PaymentStatus newStatus = Booking.PaymentStatus.PAID;
+        PaymentStatus newStatus = PaymentStatus.PAID;
 
         payment.setPaymentStatus(newStatus);
         paymentRepository.save(payment);
@@ -40,8 +42,8 @@ public class PaymentWebhookController {
         Booking booking = payment.getBooking();
         if (booking != null) {
             booking.setPaymentStatus(newStatus);
-            if (newStatus == Booking.PaymentStatus.PAID) {
-                booking.setStatus(Booking.BookingStatus.CONFIRMED);
+            if (newStatus == PaymentStatus.PAID) {
+                booking.setStatus(BookingStatus.CONFIRMED);
             }
             bookingRepository.save(booking);
         }
@@ -53,5 +55,4 @@ public class PaymentWebhookController {
     public String thankYouPage() {
         return "Thank you for your payment!";
     }
-
 }

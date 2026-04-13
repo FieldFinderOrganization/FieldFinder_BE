@@ -8,10 +8,13 @@ import com.example.FieldFinder.dto.res.OrderItemResponseDTO;
 import com.example.FieldFinder.dto.res.OrderResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
+import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.OrderService;
+import com.example.FieldFinder.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +40,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final ProductVariantRepository productVariantRepository;
     private final RedissonClient redissonClient;
+    private final ProductService productService;
+    private final EmailService emailService;
 
     @Override
     @Transactional
@@ -281,5 +286,45 @@ public class OrderServiceImpl implements OrderService {
                 .createdAt(order.getCreatedAt())
                 .items(items)
                 .build();
+    }
+
+    @Scheduled(fixedRate = 3600000) // 1h
+    @Transactional
+    public void processAutomatedOrderManagement() {
+        System.out.println("🧹 Starting Automated Order Management (Cleaning stale PENDING orders)...");
+        List<Order> pendingOrders = orderRepository.findAllByStatus(OrderStatus.PENDING);
+        LocalDateTime threshold = LocalDateTime.now().minusHours(24);
+
+        int count = 0;
+        for (Order order : pendingOrders) {
+            if (order.getCreatedAt().isBefore(threshold)) {
+                System.out.println("⚠️ Cancelling stale Order #" + order.getOrderId());
+                order.setStatus(OrderStatus.CANCELED);
+
+                // Release stock
+                if (order.getItems() != null) {
+                    for (OrderItem item : order.getItems()) {
+                        productService.releaseStock(
+                                item.getProduct().getProductId(),
+                                item.getSize(),
+                                item.getQuantity()
+                        );
+                    }
+                }
+
+                orderRepository.save(order);
+                count++;
+
+                // Send email
+                try {
+                    emailService.sendOrderCancellation(order);
+                } catch (Exception e) {
+                    System.err.println("❌ Lỗi gửi email hủy đơn hàng #" + order.getOrderId() + ": " + e.getMessage());
+                }
+            }
+        }
+        if (count > 0) {
+            System.out.println("✅ Processed and cancelled " + count + " stale orders.");
+        }
     }
 }

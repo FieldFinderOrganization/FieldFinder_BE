@@ -1,5 +1,8 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.Enum.BookingStatus;
+import com.example.FieldFinder.Enum.PaymentMethod;
+import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.config.RabbitMQConfig;
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
@@ -8,10 +11,13 @@ import com.example.FieldFinder.dto.res.ProviderBookingResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.BookingService;
+import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.PitchRedisLockService;
 import jakarta.persistence.EntityManager;
+import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -19,10 +25,13 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class BookingServiceImpl implements BookingService {
     private final BookingRepository bookingRepository;
     private final BookingDetailRepository bookingDetailRepository;
@@ -34,28 +43,7 @@ public class BookingServiceImpl implements BookingService {
     private final EntityManager entityManager;
     private final PaymentRepository paymentRepository;
     private final ProviderRepository providerRepository;
-
-    public BookingServiceImpl(BookingRepository bookingRepository,
-                              BookingDetailRepository bookingDetailRepository,
-                              PitchRepository pitchRepository,
-                              UserRepository userRepository,
-                              RestTemplate restTemplate,
-                              RabbitTemplate rabbitTemplate,
-                              PitchRedisLockService pitchRedisLockService,
-                              EntityManager entityManager,
-                              PaymentRepository paymentRepository,
-                              ProviderRepository providerRepository) {
-        this.bookingRepository = bookingRepository;
-        this.bookingDetailRepository = bookingDetailRepository;
-        this.pitchRepository = pitchRepository;
-        this.userRepository = userRepository;
-        this.restTemplate = restTemplate;
-        this.rabbitTemplate = rabbitTemplate;
-        this.pitchRedisLockService = pitchRedisLockService;
-        this.entityManager = entityManager;
-        this.paymentRepository = paymentRepository;
-        this.providerRepository = providerRepository;
-    }
+    private final EmailService emailService;
 
     @Override
     public List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate) {
@@ -74,7 +62,7 @@ public class BookingServiceImpl implements BookingService {
         Map<UUID, List<Integer>> grouped = bookingDetails.stream()
                 .collect(Collectors.groupingBy(
                         bd -> bd.getPitch().getPitchId(),
-                        Collectors.mapping(bd -> bd.getTimeSlot().getSlotId(), Collectors.toList()) // SỬA Ở ĐÂY
+                        Collectors.mapping(bd -> bd.getTimeSlot().getSlotId(), Collectors.toList())
                 ));
 
         return grouped.entrySet().stream()
@@ -85,25 +73,21 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public List<String> getAvailablePitches(LocalDate bookingDate, List<Integer> requestedSlots, String pitchType) {
-        // 1. Gọi API nội bộ để lấy danh sách pitch đã được đặt slot trong ngày đó
         String url = "http://localhost:8080/api/bookings/slots/all?date=" + bookingDate;
         ResponseEntity<PitchBookedSlotsDTO[]> response = restTemplate.getForEntity(url, PitchBookedSlotsDTO[].class);
         PitchBookedSlotsDTO[] bookedSlots = response.getBody();
 
-        // 2. Lấy danh sách tất cả pitchId từ DB, có lọc theo pitchType nếu được chỉ định
         List<String> allPitchIds = pitchRepository.findAll().stream()
                 .filter(p -> pitchType == null || pitchType.isBlank() ||
                         p.getType().name().equalsIgnoreCase(pitchType))
                 .map(p -> p.getPitchId().toString())
                 .collect(Collectors.toList());
 
-        // 3. Lọc ra pitch có slot trùng với requestedSlots
         Set<String> bookedPitches = Arrays.stream(bookedSlots)
                 .filter(p -> p.getBookedSlots().stream().anyMatch(requestedSlots::contains))
                 .map(p -> p.getPitchId().toString())
                 .collect(Collectors.toSet());
 
-        // 4. Trả về danh sách sân còn trống (không bị trùng slot và đúng loại sân)
         return allPitchIds.stream()
                 .filter(pitchId -> !bookedPitches.contains(pitchId))
                 .collect(Collectors.toList());
@@ -138,12 +122,16 @@ public class BookingServiceImpl implements BookingService {
                     .user(user)
                     .bookingDate(bookingRequest.getBookingDate())
                     .createdAt(LocalDateTime.now())
-                    .status(Booking.BookingStatus.PENDING)
-                    .paymentStatus(Booking.PaymentStatus.PENDING)
+                    .status(BookingStatus.PENDING)
+                    .paymentStatus(PaymentStatus.PENDING)
                     .totalPrice(bookingRequest.getTotalPrice())
-                    .bookingDetails(new ArrayList<>())
                     .build();
 
+            if (bookingRequest.getPaymentMethod() != null &&
+                    bookingRequest.getPaymentMethod().equalsIgnoreCase("CASH")) {
+                booking.setStatus(BookingStatus.CONFIRMED);
+                booking.setPaymentStatus(PaymentStatus.PAID);
+            }
 
             List<BookingDetail> details = bookingRequest.getBookingDetails().stream().map(detailDTO -> {
                 BookingDetail detail = new BookingDetail();
@@ -162,8 +150,24 @@ public class BookingServiceImpl implements BookingService {
 
             Booking savedBooking = bookingRepository.save(booking);
 
-            rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY,
-                    savedBooking.getBookingId().toString());
+            if (bookingRequest.getPaymentMethod() != null &&
+                    bookingRequest.getPaymentMethod().equalsIgnoreCase("CASH")) {
+                Payment payment = Payment.builder()
+                        .booking(savedBooking)
+                        .user(user)
+                        .amount(bookingRequest.getTotalPrice())
+                        .paymentMethod(PaymentMethod.CASH)
+                        .paymentStatus(PaymentStatus.PAID)
+                        .createdAt(LocalDateTime.now())
+                        .paidAt(LocalDateTime.now())
+                        .build();
+                paymentRepository.save(payment);
+            }
+
+            if (savedBooking.getPaymentStatus() == PaymentStatus.PENDING) {
+                rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY,
+                        savedBooking.getBookingId().toString());
+            }
 
             return savedBooking;
         } catch (Exception e) {
@@ -179,9 +183,9 @@ public class BookingServiceImpl implements BookingService {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new RuntimeException("Booking not found!"));
 
-        Booking.PaymentStatus newStatus;
+        PaymentStatus newStatus;
         try {
-            newStatus = Booking.PaymentStatus.valueOf(status.toUpperCase());
+            newStatus = PaymentStatus.valueOf(status.toUpperCase());
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body("Invalid payment status. Allowed values: PENDING, PAID, REFUNDED!");
         }
@@ -200,7 +204,6 @@ public class BookingServiceImpl implements BookingService {
         UUID providerUserId = (provider != null && provider.getUser() != null) ? provider.getUser().getUserId() : null;
 
         return bookings.stream().map(booking -> {
-            String paymentMethod = "Chưa thanh toán";
             String pitchName = "Không xác định";
             List<Integer> slots = new ArrayList<>();
 
@@ -227,7 +230,6 @@ public class BookingServiceImpl implements BookingService {
                     .totalPrice(booking.getTotalPrice())
                     .providerId(providerId)
                     .providerUserId(providerUserId)
-                    .paymentMethod(paymentMethod)
                     .userId(customerId)
                     .userName(userName)
                     .pitchName(pitchName)
@@ -242,9 +244,9 @@ public class BookingServiceImpl implements BookingService {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new RuntimeException("Booking not found!"));
 
-        Booking.BookingStatus newStatus;
+        BookingStatus newStatus;
         try {
-            newStatus = Booking.BookingStatus.valueOf(status.toUpperCase());
+            newStatus = BookingStatus.valueOf(status.toUpperCase());
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest()
                     .body("Invalid booking status. Allowed values: PENDING, CONFIRMED, CANCELED!");
@@ -311,10 +313,9 @@ public class BookingServiceImpl implements BookingService {
 
             String paymentMethod = paymentMap.getOrDefault(booking.getBookingId(), "PENDING");
 
-            // Get paidAt from payment record
             LocalDateTime paidAt = allPayments.stream()
                     .filter(p -> p.getBooking() != null && p.getBooking().getBookingId().equals(booking.getBookingId()))
-                    .filter(p -> p.getPaymentStatus() == Booking.PaymentStatus.PAID)
+                    .filter(p -> p.getPaymentStatus() == PaymentStatus.PAID)
                     .map(Payment::getPaidAt)
                     .filter(Objects::nonNull)
                     .findFirst()
@@ -357,11 +358,87 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public void cancelBooking(UUID bookingId) {
-
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new RuntimeException("Booking not found!"));
+        cancelBooking(booking, "User requested cancellation");
     }
 
     @Override
     public BigDecimal calculateTotalPrice(UUID bookingId) {
         return null;
+    }
+
+    @Override
+    public List<BookingResponseDTO> getBookingsByProvider(UUID providerId) {
+        return List.of();
+    }
+
+    /**
+     * Tác vụ tự động mỗi phút để xử lý các đơn hàng PENDING:
+     * 1. Gửi nhắc nhở trước 10 phút.
+     * 2. Tự động hủy nếu chưa thanh toán trước 5 phút.
+     * 3. Dọn dẹp các đơn hàng cũ (ngày quá khứ).
+     */
+    @Scheduled(fixedRate = 600000)
+    @Transactional
+    public void processAutomatedBookingManagement() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = LocalDate.now();
+        LocalTime currentTime = LocalTime.now();
+
+        List<Booking> pendingBookings = bookingRepository.findAllByStatus(BookingStatus.PENDING);
+
+        for (Booking booking : pendingBookings) {
+            // 1. Data Cleanup: Canceled old pending records
+            if (booking.getBookingDate().isBefore(today)) {
+                cancelBooking(booking, "Data Cleanup: Booking date passed");
+                continue;
+            }
+
+            // Find earliest slot start time
+            Optional<LocalTime> earliestSlotStart = booking.getBookingDetails().stream()
+                    .map(bd -> bd.getTimeSlot() != null ? bd.getTimeSlot().getStartTime() : null)
+                    .filter(Objects::nonNull)
+                    .min(LocalTime::compareTo);
+
+            if (earliestSlotStart.isPresent() && booking.getBookingDate().equals(today)) {
+                LocalTime startTime = earliestSlotStart.get();
+                long minutesUntilStart = ChronoUnit.MINUTES.between(currentTime, startTime);
+
+                // 2. Reminder Email at T-10m
+                if (minutesUntilStart <= 10 && minutesUntilStart > 5) {
+                    System.out.println("📧 Sending reminder for Booking #" + booking.getBookingId());
+                    rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY,
+                            booking.getBookingId().toString());
+                }
+
+                // 3. Auto-Cancellation at T-5m
+                if (minutesUntilStart <= 5 && minutesUntilStart > -60) {
+                    cancelBooking(booking, "Auto-Cancel: Unpaid 5m before start");
+                }
+            }
+        }
+    }
+
+    private void cancelBooking(Booking booking, String reason) {
+        System.out.println("🚫 " + reason + " for Booking #" + booking.getBookingId());
+        booking.setStatus(BookingStatus.CANCELED);
+        bookingRepository.save(booking);
+
+        List<Payment> payments = paymentRepository.findAllByBookingIds(Collections.singletonList(booking.getBookingId()));
+        if (payments != null) {
+            for (Payment p : payments) {
+                if (p.getPaymentStatus() == PaymentStatus.PENDING) {
+                    p.setPaymentStatus(PaymentStatus.CANCELED);
+                    paymentRepository.save(p);
+                }
+            }
+        }
+
+        try {
+            emailService.sendBookingCancellation(booking);
+        } catch (Exception e) {
+            System.err.println("❌ Lỗi gửi email hủy đặt sân: " + e.getMessage());
+        }
     }
 }

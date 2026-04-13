@@ -297,9 +297,13 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public void commitStock(Long productId, String size, int quantity) {
-        ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size)
-                .orElseThrow(() -> new RuntimeException("Variant not found"));
+        Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size);
+        if (optionalVariant.isEmpty()) {
+            System.err.println("⚠️ Warning: Cannot commit stock. Variant not found for Product ID: " + productId + ", Size: " + size);
+            return;
+        }
 
+        ProductVariant variant = optionalVariant.get();
         variant.setStockQuantity(variant.getStockQuantity() - quantity);
         variant.setLockedQuantity(variant.getLockedQuantity() - quantity);
         variant.setSoldQuantity(variant.getSoldQuantity() + quantity);
@@ -309,9 +313,13 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public void releaseStock(Long productId, String size, int quantity) {
-        ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size)
-                .orElseThrow(() -> new RuntimeException("Variant not found"));
+        Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size);
+        if (optionalVariant.isEmpty()) {
+            System.err.println("⚠️ Warning: Cannot release stock. Variant not found for Product ID: " + productId + ", Size: " + size);
+            return;
+        }
 
+        ProductVariant variant = optionalVariant.get();
         int newLocked = variant.getLockedQuantity() - quantity;
         variant.setLockedQuantity(Math.max(newLocked, 0));
         productVariantRepository.save(variant);
@@ -360,7 +368,7 @@ public class ProductServiceImpl implements ProductService {
                 .filter(p -> isValidCategory(p, majorCategory))
                 .sorted((p1, p2) -> Long.compare(calculateScore(p2, lowerKeywords), calculateScore(p1, lowerKeywords)))
                 .map(p -> mapToResponse(p, Collections.emptyList())) // Search ảnh chưa support user specific price để
-                                                                     // tối ưu tốc độ
+                // tối ưu tốc độ
                 .collect(Collectors.toList());
     }
 

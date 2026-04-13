@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 @SpringBootApplication
 @EnableCaching
 @EnableAsync
+@org.springframework.scheduling.annotation.EnableScheduling
 public class FieldFinderApplication {
 
 	public static void main(String[] args) {
@@ -19,5 +20,4 @@ public class FieldFinderApplication {
 
 		SpringApplication.run(FieldFinderApplication.class, args);
 	}
-
 }

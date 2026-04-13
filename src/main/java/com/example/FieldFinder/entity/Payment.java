@@ -1,6 +1,6 @@
 package com.example.FieldFinder.entity;
 
-import com.example.FieldFinder.entity.Booking.PaymentStatus;
+import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.Enum.PaymentMethod;
 import jakarta.persistence.*;
 import lombok.*;

@@ -1,7 +1,9 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.Enum.BookingStatus;
 import com.example.FieldFinder.Enum.OrderStatus;
 import com.example.FieldFinder.Enum.PaymentMethod;
+import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.config.RabbitMQConfig;
 import com.example.FieldFinder.dto.req.PaymentRequestDTO;
 import com.example.FieldFinder.dto.req.ShopPaymentRequestDTO;
@@ -76,7 +78,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .user(booking.getUser())
                 .amount(requestDTO.getAmount())
                 .paymentMethod(paymentMethod)
-                .paymentStatus(Booking.PaymentStatus.PENDING)
+                .paymentStatus(PaymentStatus.PENDING)
                 .checkoutUrl(result.checkoutUrl())
                 .transactionId(result.paymentLinkId())
                 .qrCode(result.qrCode())
@@ -138,7 +140,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .user(user)
                 .amount(requestDTO.getAmount())
                 .paymentMethod(parsePaymentMethod(requestDTO.getPaymentMethod()))
-                .paymentStatus(Booking.PaymentStatus.PENDING)
+                .paymentStatus(PaymentStatus.PENDING)
                 .checkoutUrl(checkoutUrl)
                 .transactionId(transactionId)
                 .build();
@@ -220,7 +222,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         if (optionalPayment.isPresent()) {
             Payment payment = optionalPayment.get();
-            boolean isAlreadyPaid = payment.getPaymentStatus() == Booking.PaymentStatus.PAID;
+            boolean isAlreadyPaid = payment.getPaymentStatus() == PaymentStatus.PAID;
 
             Booking booking = payment.getBooking();
             Order order = payment.getOrder();
@@ -231,7 +233,7 @@ public class PaymentServiceImpl implements PaymentService {
                 payment.setProcessedAt(LocalDateTime.now());
                 if (!isAlreadyPaid) {
                     System.out.println("✅ Payment Success for TxID: " + transactionId);
-                    payment.setPaymentStatus(Booking.PaymentStatus.PAID);
+                    payment.setPaymentStatus(PaymentStatus.PAID);
 
                     LocalDateTime paidTime = LocalDateTime.now();
                     if (data != null && data.containsKey("transactionDateTime")) {
@@ -251,8 +253,8 @@ public class PaymentServiceImpl implements PaymentService {
 
                     // A. Update Booking
                     if (booking != null) {
-                        booking.setPaymentStatus(Booking.PaymentStatus.PAID);
-                        booking.setStatus(Booking.BookingStatus.CONFIRMED);
+                        booking.setPaymentStatus(PaymentStatus.PAID);
+                        booking.setStatus(BookingStatus.CONFIRMED);
                     }
 
 
@@ -280,14 +282,14 @@ public class PaymentServiceImpl implements PaymentService {
                 System.out.println("❌ Payment Failed/Cancelled for TxID: " + transactionId);
 
                 if (!isAlreadyPaid) {
-                    payment.setPaymentStatus(Booking.PaymentStatus.PENDING);
+                    payment.setPaymentStatus(PaymentStatus.PENDING);
 
                     if (booking != null) {
-                        booking.setPaymentStatus(Booking.PaymentStatus.PENDING);
+                        booking.setPaymentStatus(PaymentStatus.PENDING);
                     }
 
                     if (order != null && order.getStatus() == OrderStatus.PENDING) {
-                        order.setStatus(OrderStatus.CANCELLED);
+                        order.setStatus(OrderStatus.CANCELED);
                         if (order.getItems() != null) {
                             for (OrderItem item : order.getItems()) {
                                 System.out.println("   - Releasing stock for Product: " + item.getProduct().getName()

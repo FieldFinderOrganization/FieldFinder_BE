@@ -76,6 +76,54 @@ public class EmailServiceImpl implements EmailService {
     @Override
     @Async
     @Transactional
+    public void sendOrderCancellation(Order detachedOrder) {
+        Order liveOrder = orderRepository.findById(detachedOrder.getOrderId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy Order để gửi email hủy"));
+
+        if (liveOrder.getUser() == null || liveOrder.getUser().getEmail() == null) {
+            System.err.println("Cannot send email: User email is missing for Cancelled Order #" + liveOrder.getOrderId());
+            return;
+        }
+
+        String to = liveOrder.getUser().getEmail();
+        String subject = "Thông báo hủy đơn hàng #" + liveOrder.getOrderId();
+        String content = buildOrderCancellationHtml(liveOrder);
+
+        try {
+            sendHtmlEmail(to, subject, content);
+            System.out.println("📧 Cancellation Email sent to " + to);
+        } catch (MessagingException e) {
+            System.err.println("❌ Failed to send cancellation email: " + e.getMessage());
+        }
+    }
+
+    @Override
+    @Async
+    @Transactional
+    public void sendBookingCancellation(Booking detachedBooking) {
+        Booking liveBooking = bookingRepository.findById(detachedBooking.getBookingId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy Booking để gửi email hủy"));
+
+        if (liveBooking.getUser() == null || liveBooking.getUser().getEmail() == null) {
+            System.err.println("Cannot send email: User email is missing for Cancelled Booking #" + liveBooking.getBookingId());
+            return;
+        }
+
+        String to = liveBooking.getUser().getEmail();
+        String subject = "FieldFinder - Thông báo hủy đặt sân #" + liveBooking.getBookingId().toString().substring(0, 8);
+        String content = buildBookingCancellationHtml(liveBooking);
+
+        try {
+            sendHtmlEmail(to, subject, content);
+            System.out.println("📧 Booking Cancellation Email sent to " + to);
+        } catch (MessagingException e) {
+            System.err.println("❌ Failed to send booking cancellation email: " + e.getMessage());
+        }
+    }
+
+    @Override
+    @Async
+    @Transactional
     public void sendBookingConfirmation(Booking detachedBooking) {
 
         Booking liveBooking = bookingRepository.findById(detachedBooking.getBookingId())
@@ -244,6 +292,42 @@ public class EmailServiceImpl implements EmailService {
         html.append("</div>");
         html.append("</body></html>");
 
+        return html.toString();
+    }
+
+    private String buildBookingCancellationHtml(Booking booking) {
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+        StringBuilder html = new StringBuilder();
+        html.append("<html><body style='font-family: Arial, sans-serif; color: #333;'>");
+        html.append("<div style='background-color: #d32f2f; color: white; padding: 20px; text-align: center;'>");
+        html.append("<h1>Thông báo hủy đặt sân</h1>");
+        html.append("<p>Đơn đặt sân #").append(booking.getBookingId().toString().substring(0, 8)).append(" đã bị hủy.</p>");
+        html.append("</div>");
+        html.append("<div style='padding: 20px;'>");
+        html.append("<p>Chào <strong>").append(booking.getUser().getName()).append("</strong>,</p>");
+        html.append("<p>Chúng tôi rất tiếc phải thông báo rằng đơn đặt sân của bạn vào ngày <strong>")
+                .append(booking.getBookingDate().format(dateFormatter))
+                .append("</strong> đã bị hủy do chưa hoàn tất thanh toán hoặc theo yêu cầu.</p>");
+        html.append("<p>Nếu bạn đã thanh toán, vui lòng liên hệ bộ phận hỗ trợ để được xử lý.</p>");
+        html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
+        html.append("</div></body></html>");
+        return html.toString();
+    }
+
+    private String buildOrderCancellationHtml(Order order) {
+        StringBuilder html = new StringBuilder();
+        html.append("<html><body style='font-family: Arial, sans-serif; color: #333;'>");
+        html.append("<div style='background-color: #d32f2f; color: white; padding: 20px; text-align: center;'>");
+        html.append("<h1>Thông báo hủy đơn hàng</h1>");
+        html.append("<p>Đơn hàng #").append(order.getOrderId()).append(" đã bị hủy.</p>");
+        html.append("</div>");
+        html.append("<div style='padding: 20px;'>");
+        html.append("<p>Chào <strong>").append(order.getUser().getName()).append("</strong>,</p>");
+        html.append("<p>Đơn hàng Shop của bạn đã bị hủy tự động do chưa hoàn tất thanh toán trong vòng 24 giờ.</p>");
+        html.append("<p>Các sản phẩm trong đơn hàng đã được trả lại kho cho các khách hàng khác.</p>");
+        html.append("<p>Cảm ơn bạn đã quan tâm.</p>");
+        html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
+        html.append("</div></body></html>");
         return html.toString();
     }
 }

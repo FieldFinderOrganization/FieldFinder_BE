@@ -1,5 +1,7 @@
 package com.example.FieldFinder.entity;
 
+import com.example.FieldFinder.Enum.BookingStatus;
+import com.example.FieldFinder.Enum.PaymentStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
@@ -26,6 +28,7 @@ public class Booking {
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
 
+
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL)
     private List<BookingDetail> bookingDetails = new ArrayList<>();
 
@@ -46,12 +49,4 @@ public class Booking {
 
     @Column(name = "total_price", nullable = false)
     private BigDecimal totalPrice;
-
-    public enum BookingStatus {
-        PENDING, CONFIRMED, CANCELED
-    }
-
-    public enum PaymentStatus {
-        PENDING, PAID, REFUNDED
-    }
 }

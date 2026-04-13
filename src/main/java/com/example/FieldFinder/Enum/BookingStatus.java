@@ -1,9 +1,7 @@
 package com.example.FieldFinder.Enum;
 
-public enum OrderStatus {
+public enum BookingStatus {
     PENDING,
-    PAID,
     CONFIRMED,
-    CANCELED,
-    DELIVERED,
+    CANCELED
 }
