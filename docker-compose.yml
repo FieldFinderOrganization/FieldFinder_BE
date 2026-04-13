@@ -4,12 +4,46 @@ services:
     container_name: fieldfinder_be
     ports:
       - "8080:8080"
+    depends_on:
+      - redis
+      - rabbitmq
+      - mongo
+    env_file:
+      - .env
     volumes:
       - ./.env:/app/.env
     environment:
-      SPRING_DATASOURCE_URL: ${DB_URL}
-      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME}
-      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      # Use service names defined below for internal Docker networking
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      # By default, use Atlas from .env. Uncomment below to use local Mongo container:
+      # - SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/FieldFinder
+
+  redis:
+    image: redis:alpine
+    container_name: fieldfinder_redis
+    ports:
+      - "6379:6379"
+    restart: always
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: fieldfinder_rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "61613:61613" # STOMP port
+    command: /bin/sh -c "rabbitmq-plugins enable --offline rabbitmq_stomp && rabbitmq-server"
+    restart: always
+
+  mongo:
+    image: mongo:latest
+    container_name: fieldfinder_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: always
 
 volumes:
-  db_data:
+  mongo_data:
