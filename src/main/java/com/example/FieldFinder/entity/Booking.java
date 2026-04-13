@@ -40,11 +40,11 @@ public class Booking {
     private LocalDate bookingDate;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false)
+    @Column(name = "status", nullable = false, length = 20)
     private BookingStatus status;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "payment_status", nullable = false)
+    @Column(name = "payment_status", nullable = false, length = 20)
     private PaymentStatus paymentStatus;
 
     @Column(name = "total_price", nullable = false)

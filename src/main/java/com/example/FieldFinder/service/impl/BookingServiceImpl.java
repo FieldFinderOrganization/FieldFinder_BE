@@ -164,10 +164,8 @@ public class BookingServiceImpl implements BookingService {
                 paymentRepository.save(payment);
             }
 
-            if (savedBooking.getPaymentStatus() == PaymentStatus.PENDING) {
-                rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY,
-                        savedBooking.getBookingId().toString());
-            }
+            rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY,
+                    savedBooking.getBookingId().toString());
 
             return savedBooking;
         } catch (Exception e) {

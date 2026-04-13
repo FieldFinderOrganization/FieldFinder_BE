@@ -40,7 +40,7 @@ public class Payment {
     private PaymentMethod paymentMethod;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "PaymentStatus", nullable = false)
+    @Column(name = "PaymentStatus", nullable = false, length = 20)
     private PaymentStatus paymentStatus;
 
     @Column(name = "CheckoutUrl")
@@ -70,5 +70,6 @@ public class Payment {
 
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
+
 
 }

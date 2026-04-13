@@ -1,9 +1,11 @@
 package com.example.FieldFinder.service.impl;
-import com.example.FieldFinder.entity.Booking;
-import com.example.FieldFinder.entity.Order;
-import com.example.FieldFinder.entity.OrderItem;
+import com.example.FieldFinder.Enum.BookingStatus;
+import com.example.FieldFinder.Enum.PaymentMethod;
+import com.example.FieldFinder.Enum.PaymentStatus;
+import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.BookingRepository;
 import com.example.FieldFinder.repository.OrderRepository;
+import com.example.FieldFinder.repository.PaymentRepository;
 import com.example.FieldFinder.service.EmailService;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -17,7 +19,7 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import com.example.FieldFinder.entity.BookingDetail;
+
 import java.text.NumberFormat;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -31,12 +33,16 @@ public class EmailServiceImpl implements EmailService {
 
     private final OrderRepository orderRepository;
 
+    private final PaymentRepository paymentRepository;
+
     public EmailServiceImpl(JavaMailSender mailSender,
                             BookingRepository bookingRepository,
-                            OrderRepository orderRepository) {
+                            OrderRepository orderRepository,
+                            PaymentRepository paymentRepository) {
         this.mailSender = mailSender;
         this.bookingRepository = bookingRepository;
         this.orderRepository = orderRepository;
+        this.paymentRepository = paymentRepository;
     }
 
     @Override
@@ -135,8 +141,28 @@ public class EmailServiceImpl implements EmailService {
         }
 
         String to = liveBooking.getUser().getEmail();
-        String subject = "FieldFinder - Xác nhận đặt sân thành công #" + liveBooking.getBookingId().toString().substring(0, 8);
-        String content = buildBookingHtml(liveBooking);
+
+        // Dynamic Subject
+        String subject;
+        String bookingIdShort = liveBooking.getBookingId().toString().substring(0, 8);
+
+        // Lấy phương thức thanh toán từ PaymentRepository
+        PaymentMethod method = paymentRepository.findFirstPaymentMethodByBookingId(liveBooking.getBookingId())
+                .orElse(PaymentMethod.BANK);
+
+        if (liveBooking.getPaymentStatus() == PaymentStatus.PAID) {
+            subject = "FieldFinder - Xác nhận thanh toán & đặt sân thành công #" + bookingIdShort;
+        } else if (liveBooking.getStatus() == BookingStatus.CANCELED) {
+            subject = "FieldFinder - Thông báo hủy đặt sân #" + bookingIdShort;
+        } else {
+            if (method == PaymentMethod.CASH) {
+                subject = "FieldFinder - Xác nhận đặt sân thành công #" + bookingIdShort;
+            } else {
+                subject = "FieldFinder - Thông báo đã nhận đơn đặt sân #" + bookingIdShort;
+            }
+        }
+
+        String content = buildBookingHtml(liveBooking, method);
 
         try {
             sendHtmlEmail(to, subject, content);
@@ -157,15 +183,38 @@ public class EmailServiceImpl implements EmailService {
         mailSender.send(message);
     }
 
-    private String buildBookingHtml(Booking booking) {
+    private String buildBookingHtml(Booking booking, PaymentMethod method) {
         NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.of("vi", "VN"));
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+        // Determine Header and Instruction based on status
+        String headerTitle = "Đặt sân thành công!";
+        String instruction = "Chúc bạn có một trận đấu vui vẻ.";
+        String headerColor = "#188862"; // Green
+
+        if (booking.getStatus() == BookingStatus.CANCELED) {
+            headerTitle = "Đơn đặt sân đã bị hủy";
+            headerColor = "#d32f2f"; // Red
+            instruction = "Đơn đặt sân của bạn đã bị hủy. Nếu đây là một sự nhầm lẫn, vui lòng liên hệ hỗ trợ.";
+        } else if (booking.getPaymentStatus() == PaymentStatus.PAID) {
+            headerTitle = "Thanh toán thành công!";
+            headerColor = "#188862"; // Green
+            instruction = "Bạn đã thanh toán thành công. Lịch đặt sân của bạn đã được xác nhận chính thức.";
+        } else if (method == PaymentMethod.BANK) {
+            headerTitle = "Đã nhận đơn đặt sân!";
+            headerColor = "#f39c12"; // Orange
+            instruction = "Bạn đã đặt sân thành công. Vui lòng hoàn tất thanh toán qua ứng dụng tối thiểu 30 phút trước thời điểm bắt đầu trận đấu để chính thức xác nhận lịch đặt.";
+        } else if (method == PaymentMethod.CASH) {
+            headerTitle = "Đặt sân thành công!";
+            headerColor = "#188862"; // Green
+            instruction = "Bạn đã đặt sân thành công. Vui lòng thanh toán trực tiếp tại sân khi đến nhận lịch.";
+        }
 
         StringBuilder html = new StringBuilder();
         html.append("<html><body style='font-family: Arial, sans-serif; color: #333;'>");
 
-        html.append("<div style='background-color: #188862; color: white; padding: 20px; text-align: center;'>");
-        html.append("<h1>Đặt sân thành công!</h1>");
+        html.append("<div style='background-color: ").append(headerColor).append("; color: white; padding: 20px; text-align: center;'>");
+        html.append("<h1>").append(headerTitle).append("</h1>");
         html.append("<p>Mã đặt chỗ: ")
                 .append(booking.getBookingId())
                 .append("</p>");
@@ -218,7 +267,7 @@ public class EmailServiceImpl implements EmailService {
         html.append("</tr>");
         html.append("</table>");
 
-        html.append("<p style='margin-top: 20px;'>Cảm ơn bạn đã sử dụng FieldFinder! Chúc bạn có một trận đấu vui vẻ.</p>");
+        html.append("<p style='margin-top: 20px;'>").append(instruction).append("</p>");
         html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
         html.append("</div>");
         html.append("</body></html>");

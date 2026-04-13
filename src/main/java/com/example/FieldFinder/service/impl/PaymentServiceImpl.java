@@ -255,6 +255,9 @@ public class PaymentServiceImpl implements PaymentService {
                     if (booking != null) {
                         booking.setPaymentStatus(PaymentStatus.PAID);
                         booking.setStatus(BookingStatus.CONFIRMED);
+
+                        rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
+                                RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY, booking.getBookingId().toString());
                     }
 
 
