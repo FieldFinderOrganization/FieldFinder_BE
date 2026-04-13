@@ -49,4 +49,8 @@ public class Booking {
 
     @Column(name = "total_price", nullable = false)
     private BigDecimal totalPrice;
+
+    @Builder.Default
+    @Column(name = "is_reminder_sent")
+    private Boolean isReminderSent = false;
 }

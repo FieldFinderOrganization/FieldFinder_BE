@@ -377,7 +377,7 @@ public class BookingServiceImpl implements BookingService {
      * 2. Tự động hủy nếu chưa thanh toán trước 5 phút.
      * 3. Dọn dẹp các đơn hàng cũ (ngày quá khứ).
      */
-    @Scheduled(fixedRate = 600000)
+    @Scheduled(fixedRate = 300000)
     @Transactional
     public void processAutomatedBookingManagement() {
 //        LocalDateTime now = LocalDateTime.now();
@@ -404,15 +404,17 @@ public class BookingServiceImpl implements BookingService {
                 long minutesUntilStart = ChronoUnit.MINUTES.between(currentTime, startTime);
 
                 // 2. Reminder Email at T-10m
-                if (minutesUntilStart <= 10 && minutesUntilStart > 5) {
+                if (!Boolean.TRUE.equals(booking.getIsReminderSent()) && minutesUntilStart <= 10 && minutesUntilStart > 5) {
                     System.out.println("📧 Sending reminder for Booking #" + booking.getBookingId());
                     rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_REMINDER_EMAIL_ROUTING_KEY,
                             booking.getBookingId().toString());
+                    booking.setIsReminderSent(true);
+                    bookingRepository.save(booking);
                 }
 
                 // 3. Auto-Cancellation at T-5m
-                if (minutesUntilStart <= 5 && minutesUntilStart > -60) {
-                    cancelBooking(booking, "Auto-Cancel: Unpaid 5m before start");
+                if (minutesUntilStart <= 5) {
+                    cancelBooking(booking, "Auto-Cancel: Unpaid 5m before start or time passed");
                 }
             }
         }

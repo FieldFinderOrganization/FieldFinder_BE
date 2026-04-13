@@ -32,4 +32,10 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             "LEFT JOIN FETCH pr.user pu " +
             "WHERE b.user = :user")
     List<Booking> findByUserWithDetails(@Param("user") User user);
+
+    @Query("SELECT DISTINCT b FROM Booking b " +
+            "LEFT JOIN FETCH b.bookingDetails bd " +
+            "LEFT JOIN FETCH bd.timeSlot ts " +
+            "WHERE b.status = com.example.FieldFinder.Enum.BookingStatus.PENDING")
+    List<Booking> findAllPendingWithDetails();
 }
