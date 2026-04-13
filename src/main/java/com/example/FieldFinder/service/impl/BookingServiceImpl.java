@@ -81,7 +81,7 @@ public class BookingServiceImpl implements BookingService {
                 .filter(p -> pitchType == null || pitchType.isBlank() ||
                         p.getType().name().equalsIgnoreCase(pitchType))
                 .map(p -> p.getPitchId().toString())
-                .collect(Collectors.toList());
+                .toList();
 
         Set<String> bookedPitches = Arrays.stream(bookedSlots)
                 .filter(p -> p.getBookedSlots().stream().anyMatch(requestedSlots::contains))
@@ -290,7 +290,7 @@ public class BookingServiceImpl implements BookingService {
                 if (pitch != null) {
                     pitchName = pitch.getName();
                     if (pitch.getImageUrls() != null && !pitch.getImageUrls().isEmpty()) {
-                        pitchImageUrl = pitch.getImageUrls().get(0);
+                        pitchImageUrl = pitch.getImageUrls().getFirst();
                     }
                     if (pitch.getProviderAddress() != null && pitch.getProviderAddress().getProvider() != null) {
                         var provider = pitch.getProviderAddress().getProvider();
@@ -380,7 +380,7 @@ public class BookingServiceImpl implements BookingService {
     @Scheduled(fixedRate = 600000)
     @Transactional
     public void processAutomatedBookingManagement() {
-        LocalDateTime now = LocalDateTime.now();
+//        LocalDateTime now = LocalDateTime.now();
         LocalDate today = LocalDate.now();
         LocalTime currentTime = LocalTime.now();
 

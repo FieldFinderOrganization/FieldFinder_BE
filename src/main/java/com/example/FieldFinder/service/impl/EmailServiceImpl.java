@@ -203,7 +203,7 @@ public class EmailServiceImpl implements EmailService {
         } else if (method == PaymentMethod.BANK) {
             headerTitle = "Đã nhận đơn đặt sân!";
             headerColor = "#f39c12"; // Orange
-            instruction = "Bạn đã đặt sân thành công. Vui lòng hoàn tất thanh toán qua ứng dụng tối thiểu 30 phút trước thời điểm bắt đầu trận đấu để chính thức xác nhận lịch đặt.";
+            instruction = "Bạn đã đặt sân thành công. Vui lòng hoàn tất thanh toán qua ứng dụng tối thiểu 10 phút trước thời điểm bắt đầu trận đấu để chính thức xác nhận lịch đặt.";
         } else if (method == PaymentMethod.CASH) {
             headerTitle = "Đặt sân thành công!";
             headerColor = "#188862"; // Green
