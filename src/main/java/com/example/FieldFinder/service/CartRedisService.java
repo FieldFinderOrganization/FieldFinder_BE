@@ -144,6 +144,8 @@ public class CartRedisService {
                         .productId(productInfo.getId())
                         .productName(productInfo.getName())
                         .imageUrl(productInfo.getImageUrl())
+                        .brand(productInfo.getBrand())
+                        .sex(productInfo.getSex())
                         .size(redisItem.getSize())
                         .originalPrice(productInfo.getPrice())
                         .unitPrice(unitPrice)

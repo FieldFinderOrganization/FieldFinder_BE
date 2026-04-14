@@ -21,6 +21,8 @@ public class CartResponseDTO {
         private Long productId;
         private String productName;
         private String imageUrl;
+        private String brand;
+        private String sex;
         private String size;
 
         private Double originalPrice;
