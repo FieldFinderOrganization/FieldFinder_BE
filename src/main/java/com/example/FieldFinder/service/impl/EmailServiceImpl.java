@@ -433,7 +433,7 @@ public class EmailServiceImpl implements EmailService {
         html.append("<p>Chào <strong>").append(booking.getUser().getName()).append("</strong>,</p>");
         html.append("<p>Bạn có đơn đặt sân vào lúc <strong>").append(startTimeStr).append("</strong> ngày <strong>")
                 .append(booking.getBookingDate().format(dateFormatter)).append("</strong>.</p>");
-        html.append("<p style='color: #d32f2f; font-weight: bold;'>Lưu ý: Chỉ còn 5 phút để hoàn tất thanh toán nếu không muốn lịch đặt bị tự động hủy.</p>");
+        html.append("<p style='color: #d32f2f; font-weight: bold;'>Lưu ý: Chỉ còn 10 phút để hoàn tất thanh toán nếu không muốn lịch đặt bị tự động hủy.</p>");
 
         html.append("<h3 style='margin-top: 20px;'>Thông tin đơn đặt:</h3>");
         html.append("<table style='width: 100%; border-collapse: collapse;'>");

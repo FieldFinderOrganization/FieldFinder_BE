@@ -5,6 +5,8 @@ import com.example.FieldFinder.entity.ProductVariant;
 import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.ProductVariantRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +34,10 @@ public class StockLockService {
      *   Redis lock released AFTER DB commit (không phải trước).
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Caching(evict = {
+            @CacheEvict(value = "product_detail", allEntries = true),
+            @CacheEvict(value = "top_selling", allEntries = true)
+    })
     public LockResult lockStock(Long productId, String size, int quantity) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found: " + productId));
@@ -90,6 +96,10 @@ public class StockLockService {
      * (compensation cho các item đã lock thành công trước đó).
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Caching(evict = {
+            @CacheEvict(value = "product_detail", allEntries = true),
+            @CacheEvict(value = "top_selling", allEntries = true)
+    })
     public void unlockStock(Long productId, String size, int quantity) {
         productVariantRepository.findByProduct_ProductIdAndSize(productId, size)
                 .ifPresent(variant -> {

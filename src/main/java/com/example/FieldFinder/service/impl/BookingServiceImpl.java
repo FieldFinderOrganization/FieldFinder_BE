@@ -403,8 +403,8 @@ public class BookingServiceImpl implements BookingService {
                 LocalTime startTime = earliestSlotStart.get();
                 long minutesUntilStart = ChronoUnit.MINUTES.between(currentTime, startTime);
 
-                // 2. Reminder Email at T-10m
-                if (!Boolean.TRUE.equals(booking.getIsReminderSent()) && minutesUntilStart <= 10 && minutesUntilStart > 5) {
+                // 2. Reminder Email at T-15m
+                if (!Boolean.TRUE.equals(booking.getIsReminderSent()) && minutesUntilStart <= 15 && minutesUntilStart > 5) {
                     System.out.println("📧 Sending reminder for Booking #" + booking.getBookingId());
                     rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_REMINDER_EMAIL_ROUTING_KEY,
                             booking.getBookingId().toString());

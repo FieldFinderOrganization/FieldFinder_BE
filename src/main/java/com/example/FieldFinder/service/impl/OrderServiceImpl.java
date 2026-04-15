@@ -190,6 +190,7 @@ public class OrderServiceImpl implements OrderService {
 
         if (order.getPaymentMethod() == PaymentMethod.CASH) {
             order.setStatus(OrderStatus.CONFIRMED);
+            order.setPaymentTime(order.getCreatedAt());
             for (OrderItem item : orderItemsToSave) {
                 productService.commitStock(
                         item.getProduct().getProductId(),
@@ -337,6 +338,7 @@ public class OrderServiceImpl implements OrderService {
                 .status(order.getStatus().name())
                 .paymentMethod(order.getPaymentMethod().name())
                 .createdAt(order.getCreatedAt())
+                .paymentTime(order.getPaymentTime())
                 .items(items)
                 .build();
     }
@@ -344,40 +346,38 @@ public class OrderServiceImpl implements OrderService {
     @Scheduled(fixedRate = 3600000) // 1h
     @Transactional
     public void processAutomatedOrderManagement() {
-        System.out.println("🧹 Starting Automated Order Management (Cleaning stale PENDING orders)...");
-        List<Order> pendingOrders = orderRepository.findAllByStatus(OrderStatus.PENDING);
+        System.out.println("Starting Automated Order Management (Cleaning stale PENDING orders)...");
         LocalDateTime threshold = LocalDateTime.now().minusHours(24);
+        List<Order> staleOrders = orderRepository.findByStatusAndCreatedAtBefore(OrderStatus.PENDING, threshold);
 
         int count = 0;
-        for (Order order : pendingOrders) {
-            if (order.getCreatedAt().isBefore(threshold)) {
-                System.out.println("⚠️ Cancelling stale Order #" + order.getOrderId());
-                order.setStatus(OrderStatus.CANCELED);
+        for (Order order : staleOrders) {
+            System.out.println("Cancelling stale Order #" + order.getOrderId());
+            order.setStatus(OrderStatus.CANCELED);
 
-                // Release stock
-                if (order.getItems() != null) {
-                    for (OrderItem item : order.getItems()) {
-                        productService.releaseStock(
-                                item.getProduct().getProductId(),
-                                item.getSize(),
-                                item.getQuantity()
-                        );
-                    }
+            // Release stock
+            if (order.getItems() != null) {
+                for (OrderItem item : order.getItems()) {
+                    productService.releaseStock(
+                            item.getProduct().getProductId(),
+                            item.getSize(),
+                            item.getQuantity()
+                    );
                 }
+            }
 
-                orderRepository.save(order);
-                count++;
+            orderRepository.save(order);
+            count++;
 
-                // Send email
-                try {
-                    emailService.sendOrderCancellation(order);
-                } catch (Exception e) {
-                    System.err.println("❌ Lỗi gửi email hủy đơn hàng #" + order.getOrderId() + ": " + e.getMessage());
-                }
+            // Send email
+            try {
+                emailService.sendOrderCancellation(order);
+            } catch (Exception e) {
+                System.err.println(" Lỗi gửi email hủy đơn hàng #" + order.getOrderId() + ": " + e.getMessage());
             }
         }
         if (count > 0) {
-            System.out.println("✅ Processed and cancelled " + count + " stale orders.");
+            System.out.println(" Processed and cancelled " + count + " stale orders.");
         }
     }
 }
