@@ -25,4 +25,6 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     List<Payment> findAllByBookingIds(@Param("ids") List<UUID> ids);
 
     Optional<Payment> findFirstByBooking_BookingIdOrderByCreatedAtDesc(UUID bookingId);
+
+    Optional<Payment> findFirstByOrder_OrderIdOrderByCreatedAtDesc(Long orderId);
 }

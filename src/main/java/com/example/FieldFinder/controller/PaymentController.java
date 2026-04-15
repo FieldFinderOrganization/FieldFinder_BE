@@ -57,4 +57,10 @@ public class PaymentController {
     public ResponseEntity<PaymentResponseDTO> getPaymentStatusByBookingId(@PathVariable UUID bookingId) {
         return ResponseEntity.ok(paymentService.getPaymentStatusByBookingId(bookingId));
     }
+
+    @GetMapping("/status-by-order/{orderId}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<PaymentResponseDTO> getPaymentStatusByOrderId(@PathVariable Long orderId) {
+        return ResponseEntity.ok(paymentService.getPaymentStatusByOrderId(orderId));
+    }
 }

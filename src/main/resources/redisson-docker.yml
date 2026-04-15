@@ -1,0 +1,14 @@
+sentinelServersConfig:
+  masterName: mymaster
+  checkSentinelsList: false
+  sentinelAddresses:
+    - redis://redis-sentinel-1:26379
+    - redis://redis-sentinel-2:26379
+    - redis://redis-sentinel-3:26379
+  masterConnectionMinimumIdleSize: 2
+  slaveConnectionMinimumIdleSize: 2
+
+  connectTimeout: 10000
+  timeout: 10000
+  retryAttempts: 10
+  retryInterval: 2000

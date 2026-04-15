@@ -1,11 +1,14 @@
 package com.example.FieldFinder.controller;
 
+import com.example.FieldFinder.Enum.OrderStatus;
 import com.example.FieldFinder.dto.req.WebhookRequestDTO;
 import com.example.FieldFinder.Enum.BookingStatus;
 import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.entity.Booking;
+import com.example.FieldFinder.entity.Order;
 import com.example.FieldFinder.entity.Payment;
 import com.example.FieldFinder.repository.BookingRepository;
+import com.example.FieldFinder.repository.OrderRepository;
 import com.example.FieldFinder.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +24,7 @@ public class PaymentWebhookController {
 
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
+    private final OrderRepository orderRepository;
 
     @PostMapping("/webhook")
     public ResponseEntity<String> handleWebhook(@RequestBody WebhookRequestDTO request) {
@@ -46,6 +50,12 @@ public class PaymentWebhookController {
                 booking.setStatus(BookingStatus.CONFIRMED);
             }
             bookingRepository.save(booking);
+        }
+
+        Order order = payment.getOrder();
+        if (order != null && newStatus == PaymentStatus.PAID) {
+            order.setStatus(OrderStatus.CONFIRMED);
+            orderRepository.save(order);
         }
 
         return ResponseEntity.ok("✅ Payment and Booking payment status updated successfully");

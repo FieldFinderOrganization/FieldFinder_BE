@@ -2,10 +2,13 @@ services:
   app:
     build: .
     container_name: fieldfinder_be
+    restart: on-failure
     ports:
       - "8080:8080"
     depends_on:
-      - redis
+      - redis-sentinel-1
+      - redis-sentinel-2
+      - redis-sentinel-3
       - rabbitmq
       - mongo
     env_file:
@@ -13,17 +16,98 @@ services:
     volumes:
       - ./.env:/app/.env
     environment:
-      # Use service names defined below for internal Docker networking
-      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_SENTINEL_MASTER=mymaster
+      - SPRING_DATA_REDIS_SENTINEL_NODES=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      - SPRING_DATA_REDIS_CONNECT_TIMEOUT=3000
+      - SPRING_DATA_REDIS_TIMEOUT=3000
+      - SPRING_REDIS_REDISSON_FILE=classpath:redisson-docker.yml
       - SPRING_RABBITMQ_HOST=rabbitmq
-      # By default, use Atlas from .env. Uncomment below to use local Mongo container:
-      # - SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/FieldFinder
 
-  redis:
-    image: redis:alpine
-    container_name: fieldfinder_redis
+  redis-master:
+    image: redis:7-alpine
+    container_name: redis-master
     ports:
       - "6379:6379"
+    # Thêm bind và tắt protected-mode
+    command: redis-server --bind 0.0.0.0 --protected-mode no --appendonly yes
+    restart: always
+
+  redis-replica:
+    image: redis:7-alpine
+    container_name: redis-replica
+    ports:
+      - "6380:6380"
+    # Thêm bind và tắt protected-mode
+    command: redis-server --port 6380 --bind 0.0.0.0 --protected-mode no --replicaof redis-master 6379
+    depends_on:
+      - redis-master
+    restart: always
+
+  redis-sentinel-1:
+    image: redis:7-alpine
+    container_name: redis-sentinel-1
+    ports:
+      - "26379:26379"
+    # LƯU Ý: Dùng dấu gạch dọc | ở đây thay vì dấu >
+    command: |
+      sh -c "cat <<EOF > /tmp/sentinel.conf
+      port 26379
+      bind 0.0.0.0
+      sentinel resolve-hostnames yes
+      sentinel announce-hostnames yes
+      sentinel monitor mymaster redis-master 6379 2
+      sentinel down-after-milliseconds mymaster 30000
+      sentinel failover-timeout mymaster 60000
+      sentinel parallel-syncs mymaster 1
+      EOF
+      redis-sentinel /tmp/sentinel.conf --protected-mode no"
+    depends_on:
+      - redis-master
+      - redis-replica
+    restart: always
+
+  redis-sentinel-2:
+    image: redis:7-alpine
+    container_name: redis-sentinel-2
+    ports:
+      - "26380:26379"
+    command: |
+      sh -c "cat <<EOF > /tmp/sentinel.conf
+      port 26379
+      bind 0.0.0.0
+      sentinel resolve-hostnames yes
+      sentinel announce-hostnames yes
+      sentinel monitor mymaster redis-master 6379 2
+      sentinel down-after-milliseconds mymaster 30000
+      sentinel failover-timeout mymaster 60000
+      sentinel parallel-syncs mymaster 1
+      EOF
+      redis-sentinel /tmp/sentinel.conf --protected-mode no"
+    depends_on:
+      - redis-master
+      - redis-replica
+    restart: always
+
+  redis-sentinel-3:
+    image: redis:7-alpine
+    container_name: redis-sentinel-3
+    ports:
+      - "26381:26379"
+    command: |
+      sh -c "cat <<EOF > /tmp/sentinel.conf
+      port 26379
+      bind 0.0.0.0
+      sentinel resolve-hostnames yes
+      sentinel announce-hostnames yes
+      sentinel monitor mymaster redis-master 6379 2
+      sentinel down-after-milliseconds mymaster 30000
+      sentinel failover-timeout mymaster 60000
+      sentinel parallel-syncs mymaster 1
+      EOF
+      redis-sentinel /tmp/sentinel.conf --protected-mode no"
+    depends_on:
+      - redis-master
+      - redis-replica
     restart: always
 
   rabbitmq:
@@ -32,7 +116,7 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
-      - "61613:61613" # STOMP port
+      - "61613:61613"
     command: /bin/sh -c "rabbitmq-plugins enable --offline rabbitmq_stomp && rabbitmq-server"
     restart: always
 

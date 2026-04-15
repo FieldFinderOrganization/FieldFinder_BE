@@ -7,6 +7,7 @@ public interface EmailService {
     void send(String to, String subject, String body);
     void sendOrderConfirmation(Order order);
     void sendOrderCancellation(Order order);
+    void sendOrderPaymentReminder(Order order);
 
     void sendBookingConfirmation(Booking booking);
     void sendBookingCancellation(Booking booking);

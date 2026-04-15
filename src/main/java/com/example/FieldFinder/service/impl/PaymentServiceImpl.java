@@ -119,6 +119,8 @@ public class PaymentServiceImpl implements PaymentService {
         String returnUrl = frontEndUrl + "/payment-success?myOrderId=" + order.getOrderId();
         String cancelUrl = frontEndUrl + "/payment-cancel?myOrderId=" + order.getOrderId();
 
+        String qrCode = null;
+
         if ("BANK".equalsIgnoreCase(requestDTO.getPaymentMethod())) {
             int payOsOrderCode = generateOrderCode();
 
@@ -130,6 +132,7 @@ public class PaymentServiceImpl implements PaymentService {
                     cancelUrl);
             checkoutUrl = result.checkoutUrl();
             transactionId = result.paymentLinkId();
+            qrCode = result.qrCode();
         } else {
             checkoutUrl = returnUrl;
             transactionId = "COD-" + System.currentTimeMillis();
@@ -143,6 +146,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .paymentStatus(PaymentStatus.PENDING)
                 .checkoutUrl(checkoutUrl)
                 .transactionId(transactionId)
+                .qrCode(qrCode)
                 .build();
 
         paymentRepository.save(payment);
@@ -150,6 +154,7 @@ public class PaymentServiceImpl implements PaymentService {
         return PaymentResponseDTO.builder()
                 .transactionId(transactionId)
                 .checkoutUrl(checkoutUrl)
+                .qrCode(qrCode)
                 .amount(requestDTO.getAmount().toString())
                 .status("PENDING")
                 .build();
@@ -323,6 +328,13 @@ public class PaymentServiceImpl implements PaymentService {
     public PaymentResponseDTO getPaymentStatusByBookingId(UUID bookingId) {
         Payment payment = paymentRepository.findFirstByBooking_BookingIdOrderByCreatedAtDesc(bookingId)
                 .orElseThrow(() -> new RuntimeException("Payment not found for booking: " + bookingId));
+        return convertToDTO(payment);
+    }
+
+    @Override
+    public PaymentResponseDTO getPaymentStatusByOrderId(Long orderId) {
+        Payment payment = paymentRepository.findFirstByOrder_OrderIdOrderByCreatedAtDesc(orderId)
+                .orElseThrow(() -> new RuntimeException("Payment not found for order: " + orderId));
         return convertToDTO(payment);
     }
 }

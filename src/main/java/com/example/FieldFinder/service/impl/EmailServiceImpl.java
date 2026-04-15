@@ -478,4 +478,86 @@ public class EmailServiceImpl implements EmailService {
 
         return html.toString();
     }
+
+    @Override
+    @Async
+    @Transactional
+    public void sendOrderPaymentReminder(Order order) {
+        Order liveOrder = orderRepository.findById(order.getOrderId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy đơn hàng để gửi email nhắc nhở"));
+
+        if (liveOrder.getUser() == null || liveOrder.getUser().getEmail() == null) {
+            System.err.println("Cannot send email: User email is missing for Order #" + liveOrder.getOrderId());
+            return;
+        }
+
+        String to = liveOrder.getUser().getEmail();
+        String subject = "FieldFinder - Vui lòng thanh toán đơn hàng #" + liveOrder.getOrderId() + " trong 24 giờ";
+        String content = buildOrderReminderHtml(liveOrder);
+
+        try {
+            sendHtmlEmail(to, subject, content);
+            System.out.println("📧 Order Reminder Email sent successfully to " + to);
+        } catch (MessagingException e) {
+            System.err.println("❌ Failed to send order reminder email: " + e.getMessage());
+        }
+    }
+
+    private String buildOrderReminderHtml(Order order) {
+        NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.of("vi", "VN"));
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+
+        StringBuilder html = new StringBuilder();
+        html.append("<html><body style='font-family: Arial, sans-serif; color: #333;'>");
+
+        html.append("<div style='background-color: #f39c12; color: white; padding: 20px; text-align: center;'>");
+        html.append("<h1>Nhắc nhở thanh toán đơn hàng</h1>");
+        html.append("<p>Đơn hàng #").append(order.getOrderId()).append("</p>");
+        html.append("</div>");
+
+        html.append("<div style='padding: 20px;'>");
+        html.append("<p>Chào <strong>").append(order.getUser().getName()).append("</strong>,</p>");
+        html.append("<p>Bạn có đơn hàng đặt lúc <strong>")
+                .append(order.getCreatedAt().format(dateFormatter))
+                .append("</strong> chưa được thanh toán.</p>");
+        html.append("<p style='color: #d32f2f; font-weight: bold;'>⚠️ Lưu ý: Đơn hàng sẽ tự động bị hủy nếu chưa thanh toán trong vòng 24 giờ.</p>");
+
+        html.append("<h3 style='margin-top: 20px;'>Sản phẩm đã đặt:</h3>");
+        html.append("<table style='width: 100%; border-collapse: collapse;'>");
+        html.append("<tr style='background-color: #f2f2f2;'>");
+        html.append("<th style='padding: 12px; border: 1px solid #ddd; text-align: left;'>Sản phẩm</th>");
+        html.append("<th style='padding: 12px; border: 1px solid #ddd; text-align: center;'>Size</th>");
+        html.append("<th style='padding: 12px; border: 1px solid #ddd; text-align: center;'>SL</th>");
+        html.append("<th style='padding: 12px; border: 1px solid #ddd; text-align: right;'>Thành tiền</th>");
+        html.append("</tr>");
+
+        if (order.getItems() != null) {
+            for (OrderItem item : order.getItems()) {
+                html.append("<tr>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd;'>")
+                        .append(item.getProduct().getName()).append("</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: center;'>")
+                        .append(item.getSize()).append("</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: center;'>")
+                        .append(item.getQuantity()).append("</td>");
+                html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right;'>")
+                        .append(currencyFormatter.format(item.getPrice())).append("</td>");
+                html.append("</tr>");
+            }
+        }
+
+        html.append("<tr>");
+        html.append("<td colspan='3' style='padding: 12px; border: 1px solid #ddd; text-align: right;'><strong>Tổng cộng:</strong></td>");
+        html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right; color: #d32f2f; font-weight: bold;'>")
+                .append(currencyFormatter.format(order.getTotalAmount())).append("</td>");
+        html.append("</tr>");
+        html.append("</table>");
+
+        html.append("<p style='margin-top: 20px;'>Vui lòng truy cập ứng dụng để hoàn tất thanh toán.</p>");
+        html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
+        html.append("</div>");
+        html.append("</body></html>");
+
+        return html.toString();
+    }
 }

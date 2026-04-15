@@ -3,10 +3,6 @@ package com.example.FieldFinder.dto.res;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-/**
- * Trả về cho client khi bắt đầu đăng ký PassKey.
- * Client dùng dữ liệu này để gọi WebAuthn API tạo credential.
- */
 @Getter
 @AllArgsConstructor
 public class PasskeyRegisterStartResponseDTO {

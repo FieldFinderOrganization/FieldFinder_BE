@@ -31,6 +31,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OrderServiceImpl implements OrderService {
 
+    private record LockedItem(Long productId, String size, int quantity) {}
+
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final UserRepository userRepository;
@@ -42,6 +44,7 @@ public class OrderServiceImpl implements OrderService {
     private final RedissonClient redissonClient;
     private final ProductService productService;
     private final EmailService emailService;
+    private final StockLockService stockLockService;
 
     @Override
     @Transactional
@@ -64,54 +67,50 @@ public class OrderServiceImpl implements OrderService {
         double subTotal = 0.0;
         List<OrderItem> orderItemsToSave = new ArrayList<>();
 
-        for (OrderItemRequestDTO itemDTO : request.getItems()) {
+        // Theo dõi các item đã lock thành công để compensation nếu lỗi giữa chừng
+        List<LockedItem> lockedItems = new ArrayList<>();
 
+        for (OrderItemRequestDTO itemDTO : request.getItems()) {
             String lockKey = "lock_product_" + itemDTO.getProductId() + "_size_" + itemDTO.getSize();
             RLock lock = redissonClient.getLock(lockKey);
-
             boolean isLocked = false;
+            boolean redisAvailable = true;
+
             try {
-                isLocked = lock.tryLock(3, 10, TimeUnit.SECONDS);
-
-                if (isLocked) {
-                    Product product = productRepository.findById(itemDTO.getProductId())
-                            .orElseThrow(() -> new RuntimeException("Product not found: " + itemDTO.getProductId()));
-
-                    ProductVariant variant = productVariantRepository
-                            .findByProduct_ProductIdAndSize(itemDTO.getProductId(), itemDTO.getSize())
-                            .orElseThrow(() -> new RuntimeException(
-                                    "Không tìm thấy size " + itemDTO.getSize() + " cho sản phẩm " + product.getName()));
-
-                    if (variant.getAvailableQuantity() < itemDTO.getQuantity()) {
-                        throw new RuntimeException("Rất tiếc! Sản phẩm " + product.getName() + " (Size "
-                                + itemDTO.getSize() + ") vừa hết hàng hoặc không đủ số lượng.");
-                    }
-
-                    variant.setLockedQuantity(variant.getLockedQuantity() + itemDTO.getQuantity());
-                    productVariantRepository.saveAndFlush(variant);
-
-                    double price = product.getEffectivePrice() * itemDTO.getQuantity();
-                    subTotal += price;
-
-                    OrderItem orderItem = OrderItem.builder()
-                            .order(order)
-                            .product(product)
-                            .quantity(itemDTO.getQuantity())
-                            .price(price)
-                            .size(itemDTO.getSize())
-                            .build();
-
-                    orderItemsToSave.add(orderItem);
-                } else {
-                    // Nếu 3 giây vẫn không lấy được khóa (quá nhiều người mua cùng lúc)
-                    throw new RuntimeException(
-                            "Hệ thống đang quá tải đối với sản phẩm này, vui lòng thử lại sau giây lát!");
+                // 1. Attempt Redis Lock
+                try {
+                    isLocked = lock.tryLock(3, 10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    // Re-throw to be caught by the outer InterruptedException catch
+                    throw e;
+                } catch (Exception redisEx) {
+                    System.err.println("⚠️ Redis unavailable, falling back to DB lock: " + redisEx.getMessage());
+                    redisAvailable = false;
                 }
+
+                // 2. Process Stock
+                if (redisAvailable && !isLocked) {
+                    throw new RuntimeException("Hệ thống đang quá tải, vui lòng thử lại sau!");
+                }
+
+                StockLockService.LockResult result;
+                if (redisAvailable) {
+                    result = stockLockService.lockStock(itemDTO.getProductId(), itemDTO.getSize(), itemDTO.getQuantity());
+                } else {
+                    result = stockLockService.lockStockWithDbLock(itemDTO.getProductId(), itemDTO.getSize(), itemDTO.getQuantity());
+                }
+
+                lockedItems.add(new LockedItem(itemDTO.getProductId(), itemDTO.getSize(), itemDTO.getQuantity()));
+                // ... rest of your logic ...
+
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                compensateLockedItems(lockedItems);
                 throw new RuntimeException("Lỗi hệ thống khi xử lý tồn kho!");
+            } catch (RuntimeException e) {
+                compensateLockedItems(lockedItems);
+                throw e;
             } finally {
-                // 3. TRẢ KHÓA LẠI CHO HỆ THỐNG
                 if (isLocked && lock.isHeldByCurrentThread()) {
                     lock.unlock();
                 }
@@ -121,48 +120,54 @@ public class OrderServiceImpl implements OrderService {
 
         double totalDiscountAmount = 0.0;
 
-        if (request.getDiscountCodes() != null && !request.getDiscountCodes().isEmpty() && user != null) {
-            for (String code : request.getDiscountCodes()) {
-                Discount discount = discountRepository.findByCode(code)
-                        .orElseThrow(() -> new RuntimeException("Discount code not found: " + code));
+        try {
+            if (request.getDiscountCodes() != null && !request.getDiscountCodes().isEmpty() && user != null) {
+                for (String code : request.getDiscountCodes()) {
+                    Discount discount = discountRepository.findByCode(code)
+                            .orElseThrow(() -> new RuntimeException("Discount code not found: " + code));
 
-                UserDiscount userDiscount = userDiscountRepository.findByUserAndDiscount(user, discount)
-                        .orElse(null);
+                    UserDiscount userDiscount = userDiscountRepository.findByUserAndDiscount(user, discount)
+                            .orElse(null);
 
-                if (userDiscount == null) {
-                    if (discount.getScope() == Discount.DiscountScope.GLOBAL) {
-                        userDiscount = UserDiscount.builder()
-                                .user(user)
-                                .discount(discount)
-                                .savedAt(LocalDateTime.now())
-                                .isUsed(false)
-                                .build();
-                        userDiscountRepository.save(userDiscount);
-                    } else {
-                        throw new RuntimeException("You don't own this voucher: " + code);
+                    if (userDiscount == null) {
+                        if (discount.getScope() == Discount.DiscountScope.GLOBAL) {
+                            userDiscount = UserDiscount.builder()
+                                    .user(user)
+                                    .discount(discount)
+                                    .savedAt(LocalDateTime.now())
+                                    .isUsed(false)
+                                    .build();
+                            userDiscountRepository.save(userDiscount);
+                        } else {
+                            throw new RuntimeException("You don't own this voucher: " + code);
+                        }
                     }
-                }
 
-                if (userDiscount.isUsed()) {
-                    throw new RuntimeException("Voucher has already been used: " + code);
-                }
-                if (discount.getStatus() != Discount.DiscountStatus.ACTIVE ||
-                        LocalDate.now().isAfter(discount.getEndDate()) ||
-                        LocalDate.now().isBefore(discount.getStartDate())) {
-                    throw new RuntimeException("Voucher is not active or expired: " + code);
-                }
-                if (discount.getMinOrderValue() != null &&
-                        BigDecimal.valueOf(subTotal).compareTo(discount.getMinOrderValue()) < 0) {
-                    throw new RuntimeException("Order value is not enough for voucher: " + code);
-                }
+                    if (userDiscount.isUsed()) {
+                        throw new RuntimeException("Voucher has already been used: " + code);
+                    }
+                    if (discount.getStatus() != Discount.DiscountStatus.ACTIVE ||
+                            LocalDate.now().isAfter(discount.getEndDate()) ||
+                            LocalDate.now().isBefore(discount.getStartDate())) {
+                        throw new RuntimeException("Voucher is not active or expired: " + code);
+                    }
+                    if (discount.getMinOrderValue() != null &&
+                            BigDecimal.valueOf(subTotal).compareTo(discount.getMinOrderValue()) < 0) {
+                        throw new RuntimeException("Order value is not enough for voucher: " + code);
+                    }
 
-                double discountValueForCode = calculateDiscountAmount(discount, orderItemsToSave, subTotal);
-                totalDiscountAmount += discountValueForCode;
+                    double discountValueForCode = calculateDiscountAmount(discount, orderItemsToSave, subTotal);
+                    totalDiscountAmount += discountValueForCode;
 
-                userDiscount.setUsed(true);
-                userDiscount.setUsedAt(LocalDateTime.now());
-                userDiscountRepository.save(userDiscount);
+                    userDiscount.setUsed(true);
+                    userDiscount.setUsedAt(LocalDateTime.now());
+                    userDiscountRepository.save(userDiscount);
+                }
             }
+        } catch (RuntimeException e) {
+            // Discount validation thất bại sau khi đã lock stock → hoàn tác
+            compensateLockedItems(lockedItems);
+            throw e;
         }
 
         double finalAmount = Math.max(0, subTotal - totalDiscountAmount);
@@ -170,7 +175,23 @@ public class OrderServiceImpl implements OrderService {
         order.setItems(orderItemsToSave);
 
         orderRepository.save(order);
+
+        if (order.getPaymentMethod() == PaymentMethod.BANK) {
+            emailService.sendOrderPaymentReminder(order);
+        }
+
         return mapToResponse(order);
+    }
+
+    private void compensateLockedItems(List<LockedItem> lockedItems) {
+        for (LockedItem item : lockedItems) {
+            try {
+                stockLockService.unlockStock(item.productId(), item.size(), item.quantity());
+            } catch (Exception ex) {
+                System.err.println("❌ Lỗi khi hoàn tác lock tồn kho product="
+                        + item.productId() + " size=" + item.size() + ": " + ex.getMessage());
+            }
+        }
     }
 
     private double calculateDiscountAmount(Discount discount, List<OrderItem> items, double orderSubTotal) {

@@ -137,7 +137,7 @@ public class CartRedisService {
                 }
 
                 Double unitPrice = productInfo.getSalePrice() != null ? productInfo.getSalePrice() : productInfo.getPrice();
-                Double itemTotalPrice = unitPrice * redisItem.getQuantity();
+                double itemTotalPrice = unitPrice * redisItem.getQuantity();
                 totalCartPrice += itemTotalPrice;
 
                 CartResponseDTO.CartItemDetail detail = CartResponseDTO.CartItemDetail.builder()
