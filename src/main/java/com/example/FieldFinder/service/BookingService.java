@@ -19,7 +19,7 @@ public interface BookingService {
     ResponseEntity<String> updateBookingStatus(UUID bookingId, String status);
     List<ProviderBookingResponseDTO> getBookingsByUser(UUID userId);
     Booking getBookingDetails(UUID bookingId);
-    void cancelBooking(UUID bookingId);
+    void cancelBookingByUser(UUID bookingId, UUID userId);
     BigDecimal calculateTotalPrice(UUID bookingId);
     List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate);
     List<BookingResponseDTO> getAllBookings();

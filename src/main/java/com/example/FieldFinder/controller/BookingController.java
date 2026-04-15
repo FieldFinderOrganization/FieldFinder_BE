@@ -10,8 +10,11 @@ import com.example.FieldFinder.dto.res.ProviderBookingResponseDTO;
 import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.service.BookingService;
 import com.example.FieldFinder.service.PitchService;
+import com.example.FieldFinder.service.RedisService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
@@ -26,11 +29,34 @@ public class BookingController {
     private final BookingService bookingService;
     private final PitchService pitchService;
     private final AIChat aiChat;
+    private final RedisService redisService;
 
-    public BookingController(BookingService bookingService, PitchService pitchService, AIChat aiChat) {
+    public BookingController(BookingService bookingService, PitchService pitchService, AIChat aiChat, RedisService redisService) {
         this.bookingService = bookingService;
         this.pitchService = pitchService;
         this.aiChat = aiChat;
+        this.redisService = redisService;
+    }
+
+    private UUID getUserIdFromAuth(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated() || authentication.getPrincipal().equals("anonymousUser")) {
+            return null;
+        }
+        try {
+            Object principal = authentication.getPrincipal();
+            String email = null;
+            if (principal instanceof UserDetails) {
+                email = ((UserDetails) principal).getUsername();
+            } else if (principal instanceof String) {
+                email = (String) principal;
+            }
+            if (email != null) {
+                return redisService.getUserIdByEmail(email);
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        return null;
     }
 
     private String getSessionId() {
@@ -249,6 +275,24 @@ public class BookingController {
     public ResponseEntity<List<ProviderBookingResponseDTO>> getBookingsByProvider(@PathVariable UUID providerId) {
 
         List<ProviderBookingResponseDTO> response = bookingService.getBookingsByProviderId(providerId);
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/{bookingId}/cancel")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Map<String, Object>> cancelBooking(@PathVariable UUID bookingId, Authentication authentication) {
+        UUID userId = getUserIdFromAuth(authentication);
+
+        if (userId == null) {
+            return ResponseEntity.status(401).body(Map.of("message","Không xác định được người dùng!"));
+        }
+
+        bookingService.cancelBookingByUser(bookingId, userId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Hủy đặt sân thành công.");
+        response.put("bookingId", bookingId);
+
         return ResponseEntity.ok(response);
     }
 }

@@ -355,9 +355,30 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
-    public void cancelBooking(UUID bookingId) {
+    public void cancelBookingByUser(UUID bookingId, UUID userId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new RuntimeException("Booking not found!"));
+
+        if (!booking.getUser().getUserId().equals(userId)) {
+            throw new RuntimeException("Bạn không có quyền hủy đặt sân này!");
+        }
+
+        if (booking.getStatus() != BookingStatus.PENDING) {
+            throw new RuntimeException("Chỉ có thể hủy đặt sân đang ở trạng thái PENDING!");
+        }
+
+        // Nhả slot trên Redis
+        for (BookingDetail detail : booking.getBookingDetails()) {
+            if (detail.getPitch() != null && detail.getTimeSlot() != null) {
+                pitchRedisLockService.unlockSlot(
+                        detail.getPitch().getPitchId(),
+                        booking.getBookingDate(),
+                        detail.getTimeSlot().getSlotId(),
+                        userId.toString()
+                );
+            }
+        }
+
         cancelBooking(booking, "User requested cancellation");
     }
 
@@ -403,8 +424,8 @@ public class BookingServiceImpl implements BookingService {
                 LocalTime startTime = earliestSlotStart.get();
                 long minutesUntilStart = ChronoUnit.MINUTES.between(currentTime, startTime);
 
-                // 2. Reminder Email at T-15m
-                if (!Boolean.TRUE.equals(booking.getIsReminderSent()) && minutesUntilStart <= 15 && minutesUntilStart > 5) {
+                // 2. Reminder Email at T-10m
+                if (!Boolean.TRUE.equals(booking.getIsReminderSent()) && minutesUntilStart <= 10 && minutesUntilStart > 5) {
                     System.out.println("📧 Sending reminder for Booking #" + booking.getBookingId());
                     rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_REMINDER_EMAIL_ROUTING_KEY,
                             booking.getBookingId().toString());
@@ -421,24 +442,26 @@ public class BookingServiceImpl implements BookingService {
     }
 
     private void cancelBooking(Booking booking, String reason) {
-        System.out.println("🚫 " + reason + " for Booking #" + booking.getBookingId());
+        System.out.println("Cancel booking id: " + booking.getBookingId() + " for reason: " + reason);
+
         booking.setStatus(BookingStatus.CANCELED);
         bookingRepository.save(booking);
 
         List<Payment> payments = paymentRepository.findAllByBookingIds(Collections.singletonList(booking.getBookingId()));
         if (payments != null) {
-            for (Payment p : payments) {
-                if (p.getPaymentStatus() == PaymentStatus.PENDING) {
-                    p.setPaymentStatus(PaymentStatus.CANCELED);
-                    paymentRepository.save(p);
-                }
-            }
+            payments.forEach(p -> {
+                        if (p.getPaymentStatus() == PaymentStatus.PENDING) {
+                            p.setPaymentStatus(PaymentStatus.CANCELED);
+                            paymentRepository.save(p);
+                        }
+                    }
+            );
         }
 
         try {
             emailService.sendBookingCancellation(booking);
         } catch (Exception e) {
-            System.err.println("❌ Lỗi gửi email hủy đặt sân: " + e.getMessage());
+            System.out.println("Lỗi gửi email hủy đặt sân: " + e.getMessage());
         }
     }
 }

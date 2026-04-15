@@ -12,7 +12,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -81,5 +83,24 @@ public class OrderController {
     @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public void delete(@PathVariable Long id) {
         orderService.deleteOrder(id);
+    }
+
+    @PutMapping("/{orderId}/cancel")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Map<String, Object>> cancelOrder(@PathVariable Long orderId,
+                                                           Authentication authentication) {
+        UUID userId = getUserIdFromAuth(authentication);
+
+        if (userId == null) {
+            return ResponseEntity.status(401).body(Map.of("message", "Không xác định được người dùng!"));
+        }
+
+        orderService.cancelOrderByUser(orderId, userId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Hủy đơn đặt sản phẩm thành công!");
+        response.put("orderId", orderId);
+
+        return ResponseEntity.ok(response);
     }
 }

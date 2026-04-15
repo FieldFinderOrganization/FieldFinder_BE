@@ -308,6 +308,37 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    public void cancelOrderByUser(Long id, UUID userId) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Order not found with given id: " + id));
+
+        if (!userId.equals(order.getUser().getUserId())) {
+            throw new RuntimeException("Bạn không có quyền thay đổi order của người khác!");
+        }
+
+        order.setStatus(OrderStatus.CANCELED);
+        order.setUpdatedAt(LocalDateTime.now());
+
+        if (order.getItems() != null) {
+            for (OrderItem item : order.getItems()) {
+                productService.releaseStock(
+                        item.getOrderItemId(),
+                        item.getSize(),
+                        item.getQuantity()
+                );
+            }
+        }
+
+        orderRepository.save(order);
+
+        try {
+            emailService.sendOrderCancellation(order);
+        } catch (Exception e) {
+            System.out.println("Lỗi gửi email hủy đặt sản phẩm: " + e.getMessage());
+        }
+    }
+
+    @Override
     public List<OrderResponseDTO> getOrdersByUserId(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found!"));
