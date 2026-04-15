@@ -15,6 +15,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -295,10 +296,11 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     @Caching(evict = {
             @CacheEvict(value = "product_detail", allEntries = true),
-            @CacheEvict(value = "top_selling", allEntries = true)
+            @CacheEvict(value = "top_selling", allEntries = true),
+            @CacheEvict(value = "products_category", allEntries = true)
     })
     public void commitStock(Long productId, String size, int quantity) {
         Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size);
@@ -315,10 +317,11 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     @Caching(evict = {
             @CacheEvict(value = "product_detail", allEntries = true),
-            @CacheEvict(value = "top_selling", allEntries = true)
+            @CacheEvict(value = "top_selling", allEntries = true),
+            @CacheEvict(value = "products_category", allEntries = true)
     })
     public void releaseStock(Long productId, String size, int quantity) {
         Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size);

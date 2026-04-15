@@ -36,7 +36,8 @@ public class StockLockService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     @Caching(evict = {
             @CacheEvict(value = "product_detail", allEntries = true),
-            @CacheEvict(value = "top_selling", allEntries = true)
+            @CacheEvict(value = "top_selling", allEntries = true),
+            @CacheEvict(value = "products_category", allEntries = true)
     })
     public LockResult lockStock(Long productId, String size, int quantity) {
         Product product = productRepository.findById(productId)
@@ -69,6 +70,11 @@ public class StockLockService {
      * (DB block thay vì fast-fail như Redis), nhưng hệ thống vẫn đúng.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Caching(evict = {
+            @CacheEvict(value = "product_detail", allEntries = true),
+            @CacheEvict(value = "top_selling", allEntries = true),
+            @CacheEvict(value = "products_category", allEntries = true)
+    })
     public LockResult lockStockWithDbLock(Long productId, String size, int quantity) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found: " + productId));
