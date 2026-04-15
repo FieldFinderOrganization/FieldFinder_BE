@@ -296,6 +296,10 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "product_detail", allEntries = true),
+            @CacheEvict(value = "top_selling", allEntries = true)
+    })
     public void commitStock(Long productId, String size, int quantity) {
         Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size);
         if (optionalVariant.isEmpty()) {
@@ -312,6 +316,10 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "product_detail", allEntries = true),
+            @CacheEvict(value = "top_selling", allEntries = true)
+    })
     public void releaseStock(Long productId, String size, int quantity) {
         Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size);
         if (optionalVariant.isEmpty()) {

@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -101,7 +103,17 @@ public class OrderServiceImpl implements OrderService {
                 }
 
                 lockedItems.add(new LockedItem(itemDTO.getProductId(), itemDTO.getSize(), itemDTO.getQuantity()));
-                // ... rest of your logic ...
+
+                // Tạo OrderItem từ kết quả lock
+                OrderItem orderItem = OrderItem.builder()
+                        .order(order)
+                        .product(result.product())
+                        .size(itemDTO.getSize())
+                        .quantity(itemDTO.getQuantity())
+                        .price(result.price())
+                        .build();
+                orderItemsToSave.add(orderItem);
+                subTotal += result.price();
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -176,9 +188,29 @@ public class OrderServiceImpl implements OrderService {
 
         orderRepository.save(order);
 
-        if (order.getPaymentMethod() == PaymentMethod.BANK) {
-            emailService.sendOrderPaymentReminder(order);
+        if (order.getPaymentMethod() == PaymentMethod.CASH) {
+            order.setStatus(OrderStatus.CONFIRMED);
+            for (OrderItem item : orderItemsToSave) {
+                productService.commitStock(
+                        item.getProduct().getProductId(),
+                        item.getSize(),
+                        item.getQuantity()
+                );
+            }
+            orderRepository.save(order);
         }
+
+        final Order finalOrder = order;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                if (finalOrder.getPaymentMethod() == PaymentMethod.CASH) {
+                    emailService.sendOrderConfirmation(finalOrder);
+                } else if (finalOrder.getPaymentMethod() == PaymentMethod.BANK) {
+                    emailService.sendOrderPaymentReminder(finalOrder);
+                }
+            }
+        });
 
         return mapToResponse(order);
     }

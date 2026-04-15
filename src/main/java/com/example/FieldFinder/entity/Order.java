@@ -35,9 +35,9 @@ public class Order {
     @Column(length = 20)
     private PaymentMethod paymentMethod;
 
-    @CreationTimestamp
+    @Builder.Default
     @Column(updatable = false)
-    private LocalDateTime createdAt;
+    private LocalDateTime createdAt = LocalDateTime.now();
 
     private LocalDateTime updatedAt = LocalDateTime.now();
 

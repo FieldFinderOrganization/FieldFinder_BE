@@ -316,8 +316,9 @@ public class EmailServiceImpl implements EmailService {
         html.append("</div>");
 
         html.append("<div style='padding: 20px;'>");
+        String customerName = (order.getUser() != null) ? order.getUser().getName() : "Khách hàng";
         html.append("<p><strong>Khách hàng:</strong> ")
-                .append(order.getUser().getName())
+                .append(customerName)
                 .append("</p>");
         html.append("<p><strong>Ngày đặt:</strong> ")
                 .append(order.getCreatedAt().format(dateFormatter))
@@ -486,8 +487,12 @@ public class EmailServiceImpl implements EmailService {
         Order liveOrder = orderRepository.findById(order.getOrderId())
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy đơn hàng để gửi email nhắc nhở"));
 
-        if (liveOrder.getUser() == null || liveOrder.getUser().getEmail() == null) {
-            System.err.println("Cannot send email: User email is missing for Order #" + liveOrder.getOrderId());
+        if (liveOrder.getUser() == null) {
+            System.err.println("⚠️ Cannot send BANK reminder: Order #" + liveOrder.getOrderId() + " is a guest order (no user).");
+            return;
+        }
+        if (liveOrder.getUser().getEmail() == null) {
+            System.err.println("⚠️ Cannot send BANK reminder: User has no email for Order #" + liveOrder.getOrderId());
             return;
         }
 

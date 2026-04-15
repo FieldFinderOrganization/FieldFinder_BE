@@ -1,0 +1,7 @@
+singleServerConfig:
+  address: "redis://127.0.0.1:6379"
+  connectionMinimumIdleSize: 2
+  connectTimeout: 3000
+  timeout: 3000
+  retryAttempts: 2
+  retryInterval: 500
