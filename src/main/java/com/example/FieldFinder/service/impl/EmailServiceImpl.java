@@ -91,7 +91,7 @@ public class EmailServiceImpl implements EmailService {
         }
 
         String to = liveOrder.getUser().getEmail();
-        String subject = "Thông báo hủy đơn hàng #" + liveOrder.getOrderId();
+        String subject = "FieldFinder - Thông báo hủy đơn hàng #" + liveOrder.getOrderId();
         String content = buildOrderCancellationHtml(liveOrder);
 
         try {
@@ -211,7 +211,7 @@ public class EmailServiceImpl implements EmailService {
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
         // Determine Header and Instruction based on status
-        String headerTitle = "Đặt sân thành công!";
+        String headerTitle = "FieldFinder - Đặt sân thành công!";
         String instruction = "Chúc bạn có một trận đấu vui vẻ.";
         String headerColor = "#188862"; // Green
 
@@ -396,7 +396,7 @@ public class EmailServiceImpl implements EmailService {
         html.append("</div>");
         html.append("<div style='padding: 20px;'>");
         html.append("<p>Chào <strong>").append(order.getUser().getName()).append("</strong>,</p>");
-        html.append("<p>Đơn hàng Shop của bạn đã bị hủy tự động do chưa hoàn tất thanh toán trong vòng 24 giờ.</p>");
+        html.append("<p>Đơn đặt hàng sản phẩm của bạn đã bị hủy tự động do chưa hoàn tất thanh toán trong vòng 24 giờ hoặc do yêu cầu từ bạn.</p>");
         html.append("<p>Các sản phẩm trong đơn hàng đã được trả lại kho cho các khách hàng khác.</p>");
         html.append("<p>Cảm ơn bạn đã quan tâm.</p>");
         html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");

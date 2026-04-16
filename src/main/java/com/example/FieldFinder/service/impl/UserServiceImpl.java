@@ -122,16 +122,17 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!"));
 
-        if (!user.getEmail().equals(userUpdateRequestDTO.getEmail())
-                && userRepository.existsByEmail(userUpdateRequestDTO.getEmail())) {
+        if (userUpdateRequestDTO.getEmail() != null &&
+                !user.getEmail().equals(userUpdateRequestDTO.getEmail()) &&
+                userRepository.existsByEmail(userUpdateRequestDTO.getEmail())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Email already exists. Please use a different email!");
         }
 
-        user.setName(userUpdateRequestDTO.getName());
-        user.setEmail(userUpdateRequestDTO.getEmail());
-        user.setPhone(userUpdateRequestDTO.getPhone());
-        user.setStatus(userUpdateRequestDTO.getStatus());
+        if (userUpdateRequestDTO.getName() != null) user.setName(userUpdateRequestDTO.getName());
+        if (userUpdateRequestDTO.getEmail() != null) user.setEmail(userUpdateRequestDTO.getEmail());
+        if (userUpdateRequestDTO.getPhone() != null) user.setPhone(userUpdateRequestDTO.getPhone());
+        if (userUpdateRequestDTO.getStatus() != null) user.setStatus(userUpdateRequestDTO.getStatus());
 
         if (userUpdateRequestDTO.getImageUrl() != null) {
             user.setImageUrl(userUpdateRequestDTO.getImageUrl());
@@ -196,7 +197,7 @@ public class UserServiceImpl implements UserService {
 
         emailService.send(
                 email,
-                "[FieldFinder] Yêu cầu đặt lại mật khẩu",
+                "FieldFinder - Yêu cầu đặt lại mật khẩu",
                 String.format("""
                         Xin chào,
 
@@ -296,6 +297,36 @@ public class UserServiceImpl implements UserService {
         }
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
+
+        String timeStr = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss dd/MM/yyyy")
+                .format(java.time.LocalDateTime.now());
+
+        emailService.send(
+                email,
+                "[FieldFinder] Thay đổi mật khẩu thành công",
+                String.format("""
+                        Xin chào,
+                        
+                        Bạn đã thay đổi mật khẩu thành công vào lúc %s.
+                        
+                        Nếu bạn là người thực hiện yêu cầu này, vui lòng bỏ qua email này.
+                        Nếu không, hãy liên hệ ngay với bộ phận hỗ trợ của chúng tôi để được trợ giúp bảo mật tài khoản.
+                        
+                        Trân trọng,
+                        Đội ngũ FieldFinder
+                        """, timeStr)
+        );
     }
 
+    @Override
+    public boolean verifyCurrentPassword(UUID userId, String currentPassword) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Người dùng không tồn tại."));
+
+        if (user.getPassword() == null) {
+            return false;
+        }
+
+        return passwordEncoder.matches(currentPassword, user.getPassword());
+    }
 }

@@ -3,6 +3,7 @@ package com.example.FieldFinder.service.impl;
 import com.example.FieldFinder.service.AuthService;
 import com.example.FieldFinder.service.EmailService;
 import lombok.RequiredArgsConstructor;
+import org.jspecify.annotations.NonNull;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,12 +25,12 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void sendLoginOtp(String email) {
-        generateAndSendOtp(email, LOGIN_OTP_PREFIX, "Mã xác thực đăng nhập FieldFinder", "Mã OTP đăng nhập");
+        generateAndSendOtp(email, LOGIN_OTP_PREFIX, "FieldFinder -Mã xác thực đăng nhập FieldFinder", "Mã OTP đăng nhập");
     }
 
     // Thêm phương thức mới cho Reset Password
     public void sendResetPasswordOtp(String email) {
-        generateAndSendOtp(email, RESET_PASSWORD_OTP_PREFIX, "[FieldFinder] Mã đặt lại mật khẩu", "Mã OTP để đặt lại mật khẩu");
+        generateAndSendOtp(email, RESET_PASSWORD_OTP_PREFIX, "FieldFinder - Mã đặt lại mật khẩu", "Mã OTP để đặt lại mật khẩu");
     }
 
     private void generateAndSendOtp(String email, String prefix, String subject, String purpose) {
@@ -75,16 +76,20 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void sendActivationEmail(String email) {
-        String subject = "Chào mừng đến với FieldFinder!";
-        String body = """
-                Xin chào,
+        String subject = "FieldFinder - Chào mừng đến với chúng tôi!";
+        String body = getBody();
+        emailService.send(email, subject, body);
+    }
 
+    private static @NonNull String getBody() {
+        return """
+                Xin chào,
+                
                 Tài khoản FieldFinder của bạn đã được tạo thành công!
                 Bạn có thể đăng nhập ngay bây giờ và bắt đầu khám phá.
-
+                
                 Trân trọng,
                 Đội ngũ FieldFinder
                 """;
-        emailService.send(email, subject, body);
     }
 }

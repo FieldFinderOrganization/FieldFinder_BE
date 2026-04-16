@@ -189,4 +189,31 @@ public class UserController {
             return targetUser.getEmail().equals(currentLoginEmail);
         }
     }
+
+    @PostMapping("/verify-current-password")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<String> verifyCurrentPassword(
+            @RequestParam UUID userId,
+            @RequestParam String currentPassword) {
+        boolean isValid = userService.verifyCurrentPassword(userId, currentPassword);
+        if (isValid) {
+            // Nếu đúng mk cũ, tự động gửi OTP luôn
+            UserResponseDTO user = userService.getUserById(userId);
+            if (authService instanceof AuthServiceImpl) {
+                ((AuthServiceImpl) authService).sendResetPasswordOtp(user.getEmail());
+            }
+            return ResponseEntity.ok("Mật khẩu chính xác. Mã OTP đã được gửi.");
+        } else {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Mật khẩu hiện tại không chính xác.");
+        }
+    }
+
+    @PostMapping("/change-password-otp")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<String> changePasswordOtp(@RequestParam String email) {
+        if (authService instanceof AuthServiceImpl) {
+            ((AuthServiceImpl) authService).sendResetPasswordOtp(email);
+        }
+        return ResponseEntity.ok("Mã OTP đã được gửi.");
+    }
 }

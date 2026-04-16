@@ -17,6 +17,7 @@ public class UserResponseDTO {
     private User.Role role;
     private User.Status status;
     private String imageUrl;
+    private boolean hasPassword;
 
     public static UserResponseDTO toDto(User user) {
         return new UserResponseDTO(
@@ -26,7 +27,8 @@ public class UserResponseDTO {
                 user.getPhone(),
                 user.getRole(),
                 user.getStatus(),
-                user.getImageUrl()
+                user.getImageUrl(),
+                user.getPassword() != null
         );
     }
 }

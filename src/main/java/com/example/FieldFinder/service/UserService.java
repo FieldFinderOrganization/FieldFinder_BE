@@ -37,4 +37,6 @@ public interface UserService {
     void blockUser(String email);
 
     void resetPasswordWithOtp(String email, String newPassword);
+
+    boolean verifyCurrentPassword(UUID userId, String currentPassword);
 }
