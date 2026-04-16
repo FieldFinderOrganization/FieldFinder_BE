@@ -1,5 +1,6 @@
 package com.example.FieldFinder.dto.res;
 
+import com.example.FieldFinder.Enum.CategoryType;
 import lombok.Builder;
 import lombok.Data;
 
@@ -10,5 +11,5 @@ public class CategoryResponseDTO {
     private String name;
     private String description;
     private String parentName;
+    private CategoryType categoryType;
 }
-

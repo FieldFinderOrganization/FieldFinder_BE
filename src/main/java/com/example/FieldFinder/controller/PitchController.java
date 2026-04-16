@@ -36,10 +36,10 @@ public class PitchController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<PitchResponseDTO>> getAllPitches(@RequestParam(defaultValue = "0") int page,
-                                                                @RequestParam(defaultValue = "10") int size) {
-        Pageable pageable = PageRequest.of(page, size);
-        Page<PitchResponseDTO> pitches = pitchService.getAllPitches(pageable);
+    public ResponseEntity<Page<PitchResponseDTO>> getAllPitches(Pageable pageable,
+                                                                @RequestParam(required = false) String district,
+                                                                @RequestParam(required = false) String type) {
+        Page<PitchResponseDTO> pitches = pitchService.getAllPitches(pageable, district, type);
         return ResponseEntity.ok(pitches);
     }
 

@@ -8,10 +8,12 @@ import com.example.FieldFinder.entity.ProviderAddress;
 import com.example.FieldFinder.repository.PitchRepository;
 import com.example.FieldFinder.repository.ProviderAddressRepository;
 import com.example.FieldFinder.service.PitchService;
+import com.example.FieldFinder.specification.PitchSpecification;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -74,9 +76,11 @@ public class PitchServiceImpl implements PitchService {
         pitchRepository.deleteById(pitchId);
     }
     @Override
-    public Page<PitchResponseDTO> getAllPitches(Pageable pageable) {
+    public Page<PitchResponseDTO> getAllPitches(Pageable pageable, String district, String type) {
+        Specification<Pitch> spec = Specification.where(PitchSpecification.hasDistrict(district))
+                .and(PitchSpecification.hasType(type));
 
-        Page<Pitch> pitches = pitchRepository.findAll(pageable);
+        Page<Pitch> pitches = pitchRepository.findAll(spec, pageable);
 
         List<PitchResponseDTO> pitchResponseDTOS = pitches.getContent()
                 .stream()

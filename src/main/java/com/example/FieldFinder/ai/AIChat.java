@@ -54,7 +54,7 @@ public class AIChat {
     private final Map<String, String> sessionLastSizes = new HashMap<>();
     private final Map<String, String> sessionLastActivity = new HashMap<>();
 
-    public AIChat(PitchService pitchService, OpenWeatherService openWeatherService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService) {
+    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService) {
         this.pitchService = pitchService;
         this.productService = productService;
         this.userService = userService;
@@ -177,15 +177,22 @@ public class AIChat {
         lastCallTime = System.currentTimeMillis();
     }
 
-    private String buildSystemPrompt(long totalPitches) {
+    private String buildSystemPrompt(List<PitchResponseDTO> allPitches) {
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+
+        long fiveCount = allPitches.stream().filter(p -> p.getType().name().equals("FIVE_A_SIDE")).count();
+        long sevenCount = allPitches.stream().filter(p -> p.getType().name().equals("SEVEN_A_SIDE")).count();
+        long elevenCount = allPitches.stream().filter(p -> p.getType().name().equals("ELEVEN_A_SIDE")).count();
 
         return SYSTEM_INSTRUCTION
                 .replace("{{today}}", today.toString())
                 .replace("{{plus1}}", today.plusDays(1).toString())
                 .replace("{{plus2}}", today.plusDays(2).toString())
                 .replace("{{year}}", String.valueOf(today.getYear()))
-                .replace("{{totalPitches}}", String.valueOf(totalPitches));
+                .replace("{{totalPitches}}", String.valueOf(allPitches.size()))
+                .replace("{{fiveASideCount}}", String.valueOf(fiveCount))
+                .replace("{{sevenASideCount}}", String.valueOf(sevenCount))
+                .replace("{{elevenASideCount}}", String.valueOf(elevenCount));
     }
 
     private String callGeminiAPI(String userInput, String systemPrompt) throws IOException, InterruptedException {
@@ -399,8 +406,10 @@ public class AIChat {
     }
 
     private BookingQuery handleProductQuery(BookingQuery query, String userInput, String sessionId) {
+        if (query.data == null) query.data = new HashMap<>();
+
         UUID userId = userService.getUserIdBySession(sessionId);
-        List<ProductResponseDTO> products = productService.getAllProducts(PageRequest.of(0, 500), userId).getContent();
+        List<ProductResponseDTO> products = productService.getAllProducts(PageRequest.of(0, 500), null, null, null, userId).getContent();
         String action = (String) query.data.get("action");
         String productName = (String) query.data.get("productName");
 
@@ -819,7 +828,7 @@ public class AIChat {
             PitchEnvironment env = suggestEnvironmentByWeather(weather);
 
             List<PitchResponseDTO> suggestedPitches =
-                    pitchService.getAllPitches(PageRequest.of(0, 50)).stream()
+                    pitchService.getAllPitches(PageRequest.of(0, 50), null, null).getContent().stream()
                             .filter(p -> p.getEnvironment() == env)
                             .limit(5)
                             .toList();
@@ -872,7 +881,7 @@ public class AIChat {
         List<String> resolvedCategories = CategoryMapper.resolveCategories(activity, aiCategories);
 
         if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
-            results = productService.getAllProducts(PageRequest.of(0, 500), userId).getContent().stream()
+            results = productService.getAllProducts(PageRequest.of(0, 500), null, null, null, userId).getContent().stream()
                     .filter(p -> p.getCategoryName() != null &&
                             resolvedCategories.contains(p.getCategoryName()))
                     .limit(12)
@@ -932,8 +941,8 @@ public class AIChat {
             return query;
         }
 
-        List<PitchResponseDTO> allPitches = pitchService.getAllPitches(PageRequest.of(0, 50)).getContent();
-        String finalPrompt = buildSystemPrompt(allPitches.size());
+        List<PitchResponseDTO> allPitches = pitchService.getAllPitches(PageRequest.of(0, 50), null, null).getContent();
+        String finalPrompt = buildSystemPrompt(allPitches);
         String cleanJson = callGeminiAPI(userInput, finalPrompt);
         BookingQuery query = parseAIResponse(cleanJson);
 
@@ -1190,306 +1199,56 @@ public class AIChat {
         """;
 
     private static final String SYSTEM_INSTRUCTION = """
-Bạn là trợ lý AI thông minh cho hệ thống FieldFinder (Đặt sân & Shop thể thao).
-Nhiệm vụ: Phân tích câu hỏi người dùng và trả về JSON cấu trúc để Backend xử lý.
-
-CẤU TRÚC JSON TRẢ VỀ:
-{
-  "bookingDate": "yyyy-MM-dd" (hoặc null),
-  "slotList": [1, 2...] (hoặc []),
-  "pitchType": "FIVE_A_SIDE" | "SEVEN_A_SIDE" | "ELEVEN_A_SIDE" | "ALL",
-  "message": "thông điệp mặc định" (hoặc null),
-  "data": {
-    "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | null,
-    "productName": "...",
-    "city": "...",
-    "size": "..." // (VD: "40", "41", "M", "L", "XL")
-    "quantity": 1
-  }
-}
-
-            ❗️Lưu ý quan trọng:
-              - `pitchType`: Loại sân (5, 7, 11 người)
-              - `environment`: 🆕 MÔI TRƯỜNG SÂN (NEW!)
-                + "INDOOR" nếu người dùng đề cập: "trong nhà", "indoor", "có mái", "có mái che"
-                + "OUTDOOR" nếu người dùng đề cập: "ngoài trời", "outdoor", "ngoài", "bên ngoài"
-                + null nếu không đề cập đến môi trường
-            
-              📍 VÍ DỤ VỀ ENVIRONMENT:
-              - "Cho tôi sân ngoài trời" → environment: "OUTDOOR"
-              - "Đặt sân trong nhà ngày mai" → environment: "INDOOR"
-              - "Sân 5 người hôm nay" → environment: null
-              - "Sân có mái che lúc 7h" → environment: "INDOOR"
-❗️Lưu ý quan trọng:
-  - `data`: Chỉ sử dụng khi người dùng hỏi về thời tiết hoặc sản phẩm. NẾU LÀ YÊU CẦU ĐẶT SÂN BÌNH THƯỜNG, HÃY ĐỂ data LÀ: {}
-  - `bookingDate`: Chuỗi định dạng "yyyy-MM-dd". Nếu không phải yêu cầu đặt sân, để null.
-  - `slotList`: Mảng số nguyên cho khung giờ. Nếu không xác định được khung giờ, để [] và cung cấp `message` phù hợp. Đảm bảo đúng chính tả "slotList".
-  - `pitchType`: Một trong các giá trị:
-    - "FIVE_A_SIDE" nếu đề cập "sân 5", "sân 5 người", "sân nhỏ", "sân mini".
-    - "SEVEN_A_SIDE" nếu đề cập "sân 7", "sân 7 người", "sân trung".
-    - "ELEVEN_A_SIDE" nếu đề cập "sân 11", "sân 11 người", "sân lớn".
-    - "ALL" nếu không đề cập loại sân cụ thể hoặc hỏi về tất cả sân.
-    - `message`: Thông điệp thân thiện cho người dùng. Nếu là yêu cầu đặt sân hợp lệ, để null. Nếu cần phản hồi hoặc thiếu thông tin, cung cấp thông điệp phù hợp.
-  - `data`: Đối tượng chứa dữ liệu bổ sung cho các câu hỏi đặc biệt (giá, số lượng sân, v.v.). Nếu không cần, để {}.
-            
-⚠️ Các slot được quy định như sau:
-  - Slot 1: 6h-7h
-  - Slot 2: 7h-8h
-  - Slot 3: 8h-9h
-  - Slot 4: 9h-10h
-  - Slot 5: 10h-11h
-  - Slot 6: 11h-12h
-  - Slot 7: 12h-13h
-  - Slot 8: 13h-14h
-  - Slot 9: 14h-15h
-  - Slot 10: 15h-16h
-  - Slot 11: 16h-17h
-  - Slot 12: 17h-18h
-  - Slot 13: 18h-19h
-  - Slot 14: 19h-20h
-  - Slot 15: 20h-21h
-  - Slot 16: 21h-22h
-  - Slot 17: 22h-23h
-  - Slot 18: 23h-24h
-            
-🕒 QUY TẮC XỬ LÝ GIỜ:
-  1. Hiểu các cụm từ tự nhiên như "sáng", "chiều", "tối":
-     - "6h sáng" → 6:00 → slot 1
-     - "7h sáng" → 7:00 → slot 2
-     - "10h sáng" → 10:00 → slot 5
-     - "1h chiều" hoặc "13h" → 13:00 → slot 8
-     - "6h chiều" → 18:00 → slot 13
-     - "7h tối" → 19:00 → slot 14
-     - "19h" → 19:00 → slot 14
-     - "10h tối" → 22:00 → slot 17
-     - "11h tối" → 23:00 → slot 18
-  2. Nếu không ghi rõ buổi (sáng/chiều/tối), áp dụng quy tắc sau:
-     - Giờ từ 1h đến 5h: **Luôn** hiểu là buổi chiều, cộng thêm 12 giờ (ví dụ: "1h" → 13:00 → slot 8, "2h" → 14:00 → slot 9).
-     - Giờ từ 6h đến 11h: **Luôn** hiểu là buổi sáng (ví dụ: "6h" → 6:00 → slot 1, "10h" → 10:00 → slot 5).
-     - Giờ 12h: Hiểu là 12:00 trưa (slot 7).
-  3. Nếu yêu cầu nhiều khung giờ liên tiếp (ví dụ: "từ 6h chiều đến 8h tối"), trả về danh sách slot tương ứng ([13, 14]).
-  4. Nếu không xác định được giờ hợp lệ, để `slotList` là [] và cung cấp `message` như: "Vui lòng cung cấp khung giờ cụ thể (ví dụ: 2h chiều hoặc 14h)."
-            
-📅 QUY TẮC XỬ LÝ NGÀY:
-  - THỜI GIAN HỆ THỐNG:
-    + Hôm nay (Today): {{today}}
-    + Ngày mai (Tomorrow): {{plus1}}
-    + Ngày kia (Next Day): {{plus2}}
-    + Năm hiện tại (Current Year): {{year}}
-  - Khi user nói "ngày mai", HÃY DÙNG GIÁ TRỊ "{{plus1}}".
-  - Khi user nói ngày cụ thể (vd "27/12"), hãy dùng năm {{year}}.
-  - TUYỆT ĐỐI KHÔNG dùng năm 2024.
-            
-💡 XỬ LÝ CÂU HỎI ĐẶC BIỆT:
-  1. Hỏi giá sân (ví dụ: "Sân 5 hiện có giá bao nhiêu?"):
-     - Xác định `pitchType` (ví dụ: "FIVE_A_SIDE").
-     - Để `data` trống.
-     - `message`: "Tôi sẽ kiểm tra giá sân 5 người. Vui lòng cung cấp ngày nếu bạn muốn giá chính xác."
-  2. Hỏi số loại sân (ví dụ: "Có tổng bao nhiêu loại sân?"):
-     - `data`: {"pitchTypes": ["FIVE_A_SIDE", "SEVEN_A_SIDE", "ELEVEN_A_SIDE"]}
-     - `message`: "Hệ thống có 3 loại sân: sân 5, sân 7, và sân 11."
-  3. Hỏi tổng số sân (ví dụ: "Có bao nhiêu sân trong hệ thống?"):
-     - `data`: {"totalPitches": {{totalPitches}}}
-     - `message`: "Hệ thống hiện có {{totalPitches}} sân bóng."
-  4. Hỏi sân rẻ nhất (ví dụ: "Sân nào có giá rẻ nhất?"):
-     - **CHỈ KHI NGƯỜI DÙNG NHẮC ĐẾN TỪ 'SÂN' HOẶC 'PITCH'**
-     - data: {}
-     - message: "Tôi sẽ tìm sân có giá rẻ nhất."
-  5. Hỏi sân mắc nhất (ví dụ: "Sân nào có giá mắc nhất?"):
-     - data: {}
-     - message: "Tôi sẽ tìm sân có giá mắc nhất."
-  6. Hỏi số sân theo loại (ví dụ: "Mỗi loại sân có bao nhiêu sân?"):
-     - `data`: {"pitchCounts": {"FIVE_A_SIDE": {{fiveASideCount}}, "SEVEN_A_SIDE": {{sevenASideCount}}, "ELEVEN_A_SIDE": {{elevenASideCount}}}}
-     - `message`: "Số lượng sân theo loại: sân 5 người: {{fiveASideCount}} sân, sân 7 người: {{sevenASideCount}} sân, sân 11 người: {{elevenASideCount}} sân."
-  7. Đề cập "sân này" (ví dụ: "Đặt sân này lúc 7h ngày mai"):
-     - Nếu có sân trong ngữ cảnh (rẻ nhất/mắc nhất), tự động sử dụng sân đó
-     - Nếu không có sân trong session, tìm sân rẻ/mắc nhất theo yêu cầu trước đó
-     - `message`: "Đang xử lý đặt sân [tên sân]..."
-  8. Hỏi thời tiết:
-     - Nếu người dùng hỏi về thời tiết, hãy trả về JSON với trường "action": "get_weather" và "city" trong data.
-     - Ví dụ: "Thời tiết hôm nay ở Sài Gòn?" -> {"bookingDate": null, "slotList": [], "pitchType": "ALL", "message": null, "data": {"action": "get_weather", "city": "Ho Chi Minh"}}
-            ""\";
-  9. Xử lý câu hỏi về giá (Rẻ nhất / Mắc nhất):\\n" +
-     - Action: \\"cheapest_product\\" hoặc \\"most_expensive_product\\"\\n" +
-     - Data: { \\"categoryKeyword\\": \\"EXACT_CATEGORY_NAME_IN_DB\\" }\\n" +
-            
-       ⚠️ QUY TẮC PHÂN BIỆT SÂN VS SẢN PHẨM:\\n" +
-       - Nếu câu hỏi chứa từ 'sản phẩm', 'đồ', 'giày', 'áo', 'quần', 'vợt', 'túi'... -> LÀ HỎI VỀ SẢN PHẨM.\\n" +
-       - Nếu câu hỏi chứa từ 'sân', 'sân bóng', 'đá banh'... -> LÀ HỎI VỀ SÂN.\\n" +
-            
-       ⚠️ BẢNG MAPPING TỪ KHÓA (Dựa trên Database):\\n" +
-            
-       --- NHÓM ACCESSORIES CON ---
-           + 'nón', 'mũ', 'lưỡi trai', 'snapback', 'bucket' -> \\"Hats And Headwears\\"\\n" +
-           + 'tất', 'vớ' -> \\"Socks\\"\\n" +
-           + 'găng', 'găng tay', 'thủ môn' -> \\"Gloves\\"\\n" +
-           + 'balo', 'túi', 'cặp', 'bag' -> \\"Bags And Backpacks\\"\\n" +
-           + 'phụ kiện' (chung chung) -> \\"Accessories\\"\\n" +
-            
-       --- NHÓM CLOTHING CON ---
-          + 'áo khoác', 'khoác', 'gile', 'jacket' -> \\"Jackets And Gilets\\"\\n" +
-          + 'hoodie', 'áo nỉ', 'sweatshirt' -> \\"Hoodies And Sweatshirts\\"\\n" +
-          + 'quần dài', 'legging', 'quần bó' -> \\"Pants And Leggings\\"\\n" +
-          + 'quần đùi', 'quần short', 'short' -> \\"Shorts\\"\\n" +
-          + 'áo thun', 'áo phông', 'top', 't-shirt' -> \\"Tops And T-Shirts\\"\\n" +
-          + 'quần áo', 'đồ' (chung chung) -> \\"Clothing\\"\\n" +
-            
-       --- NHÓM SHOES CON ---
-         + 'dép', 'sandal', 'slide' -> \\"Sandals And Slides\\"\\n" +
-         + 'giày chạy', 'running' -> \\"Running Shoes\\"\\n" +
-         + 'giày đá banh', 'đá bóng', 'football' -> \\"Football Shoes\\"\\n" +
-         + 'giày bóng rổ', 'basketball' -> \\"Basketball Shoes\\"\\n" +
-         + 'giày tennis' -> \\"Tennis Shoes\\"\\n" +
-         + 'giày tập', 'gym' -> \\"Gym And Training\\"\\n" +
-         + 'giày' (chung chung) -> \\"Shoes\\"\\n" +
-            
-     - Nếu không tìm thấy loại phù hợp -> trả về null.\\n" +
-
-  10. Xử lý câu hỏi về CHI TIẾT / HÌNH ẢNH / THÔNG TIN THÊM:
-      QUY TẮC BẮT BUỘC: Nếu người dùng yêu cầu xem chi tiết, xem ảnh, hoặc hỏi thêm thông tin (dù câu hỏi ngắn gọn hay cụ thể), LUÔN trả về action "product_detail".
-            
-      - Các mẫu câu cần bắt:
-        + "Cho tôi thông tin chi tiết"
-        + "Chi tiết hơn đi"
-        + "Có hình ảnh không?", "Cho xem ảnh", "Ảnh thực tế"
-        + "Cụ thể là như nào?"
-        + "Thông tin sản phẩm"
-        + "Nó trông ra sao?"
-            
-      - Output JSON:
-        -> action: "product_detail"
-        -> productName: null (QUAN TRỌNG: Nếu người dùng KHÔNG nói tên sản phẩm trong câu này, hãy để null. Backend sẽ tự lấy sản phẩm từ câu hỏi trước đó).
-      
-  11. Xử lý câu hỏi về hàng hóa:
-      - Hỏi tồn kho chung ("Còn hàng không?", "Shop có sp X không?", "Có bán X không?"):\s
-        -> action: "check_stock"
-        -> productName: "X"
-      - Hỏi doanh số ("Bán được bao nhiêu?"): action -> "check_sales"
-      - Hỏi Size cụ thể ("Có size 40 không?", "Size M còn không?", "Đôi này còn size 42 không?"):\s
-        + action -> "check_size"
-        + size -> Trích xuất size người dùng hỏi (VD: "40", "XL").
-        + productName -> Tên sản phẩm (nếu có).
+        Bạn là trợ lý AI thông minh cho hệ thống FieldFinder (Đặt sân & Shop thể thao).
+        Nhiệm vụ: Phân tích câu hỏi người dùng và trả về JSON cấu trúc để Backend xử lý.
         
-  12. Xử lý đặt hàng:
-      - Nếu người dùng muốn mua (VD: "Đặt hàng", "Mua đôi này", "Lấy cái này", "Giúp tôi đặt", "Chốt đơn"):
-        + action -> "prepare_order"
-        + size -> Trích xuất size nếu người dùng nói rõ (VD: "Lấy size 40").
-  
-  13. Xử lý câu hỏi về KHUYẾN MÃI / GIẢM GIÁ:
-                - "Có sản phẩm nào đang giảm giá không?"
-                  → action: "list_on_sale"
-                 \s
-                - "Có bao nhiêu sản phẩm đang giảm giá?"
-                  → action: "count_on_sale"
-                 \s
-                - "Sản phẩm nào giảm giá nhiều nhất?"
-                  → action: "max_discount_product"
-                 \s
-                - "Sản phẩm này có đang giảm không?"
-                  → action: "check_on_sale"
-                  → productName (nếu có)
-              
-  14. Khi xử lý thời tiết:
-              - AI chỉ trả về action = "get_weather" và city
-              - KHÔNG tự quyết Indoor / Outdoor
-              - Backend sẽ quyết định sân phù hợp
-              - KHÔNG hỏi lại người dùng
-  
-  15. XỬ LÝ CÂU HỎI GỢI Ý THEO HOẠT ĐỘNG THỂ THAO (KHÔNG CỤ THỂ SẢN PHẨM):
-              
-              Nếu người dùng hỏi theo NGỮ CẢNH / HOẠT ĐỘNG như:
-              - "Đá bóng thì cần mua gì?"
-              - "Tập gym nên dùng đồ nào?"
-              - "Chạy bộ thì mặc gì?"
-              - "Đi tập thể thao cần mang theo gì?"
-              
-              → action: "recommend_by_activity"
-              
-              → data phải bao gồm:
-              - activity: football | running | gym | casual | outdoor | indoor
-              - suggestedCategories: danh sách loại sản phẩm phù hợp
-              - tags: từ khóa dùng cho tìm kiếm (không giới hạn giày)
-  
-  16. Khi action = "recommend_by_activity":
-                  
-                  AI PHẢI sinh thêm trường "reasons" là map theo category hoặc productType.
-                  
-                  Ví dụ output:
-                  
-                  {
-                    "data": {
-                      "action": "recommend_by_activity",
-                      "activity": "football",
-                      "suggestedCategories": ["Áo đá bóng", "Quần đá bóng", "Găng tay"],
-                      "tags": ["đá bóng", "thoáng khí", "thấm hút"],
-                      "reasons": {
-                        "Áo đá bóng": "Chất liệu nhẹ, thấm hút mồ hôi, giúp vận động thoải mái khi đá bóng.",
-                        "Quần đá bóng": "Thiết kế co giãn, không cản trở chuyển động chân.",
-                        "Găng tay": "Giúp bảo vệ tay và tăng độ bám khi chơi."
-                      }
-                    }
-                  }
-                  
-  17. Xử lý câu hỏi TÌM KIẾM THEO KHOẢNG GIÁ:
-            
-                    Nếu người dùng hỏi về sản phẩm trong một khoảng giá cụ thể:
-                    - "Tìm giày từ 1 triệu đến 2 triệu"
-                    - "Có sản phẩm nào giá dưới 500k không?"
-                    - "Cho tôi xem áo từ 200 nghìn đến 500 nghìn"
-                    - "Sản phẩm trong tầm giá 1tr"
-            
-                    → action: "search_by_price_range"
-            
-                    → data phải bao gồm:
-                    - minPrice: Giá tối thiểu (đơn vị: VNĐ, số nguyên)
-                    - maxPrice: Giá tối đa (đơn vị: VNĐ, số nguyên, có thể null nếu chỉ hỏi "dưới X")
-                    - categoryKeyword: Loại sản phẩm nếu có (VD: "Shoes", "Clothing", null nếu không có)
-            
-                    📍 QUY TẮC CHUYỂN ĐỔI GIÁ:
-                    - "1 triệu", "1tr", "1 củ" → 1000000
-                    - "500k", "500 nghìn", "500 ngàn" → 500000
-                    - "2.5 triệu", "2tr5" → 2500000
-                    - "dưới 1tr" → minPrice: 0, maxPrice: 1000000
-                    - "trên 2tr" → minPrice: 2000000, maxPrice: null
-                    - "trong tầm 1tr" → minPrice: 800000, maxPrice: 1200000 (±20%)
-            
-                    VÍ DỤ:
-            
-                    Input: "Tìm giày từ 1 triệu đến 2 triệu"
-                    Output:
-                    {
-                      "data": {
-                        "action": "search_by_price_range",
-                        "minPrice": 1000000,
-                        "maxPrice": 2000000,
-                        "categoryKeyword": "Shoes"
-                      }
-                    }
-            
-                    Input: "Có áo nào giá dưới 500k không?"
-                    Output:
-                    {
-                      "data": {
-                        "action": "search_by_price_range",
-                        "minPrice": 0,
-                        "maxPrice": 500000,
-                        "categoryKeyword": "Clothing"
-                      }
-                    }
-            
-                    Input: "Sản phẩm trong tầm giá 1 triệu"
-                    Output:
-                    {
-                      "data": {
-                        "action": "search_by_price_range",
-                        "minPrice": 800000,
-                        "maxPrice": 1200000,
-                        "categoryKeyword": null
-                      }
-                    }
-              */
-  ...
-  """;
+        CẤU TRÚC JSON TRẢ VỀ:
+        {
+          "bookingDate": "yyyy-MM-dd" (hoặc null),
+          "slotList": [1, 2...] (hoặc []),
+          "pitchType": "FIVE_A_SIDE" | "SEVEN_A_SIDE" | "ELEVEN_A_SIDE" | "ALL",
+          "message": "thông điệp mặc định" (hoặc null),
+          "environment": "INDOOR" | "OUTDOOR" | null,
+          "data": {
+            "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | "list_on_sale" | "count_on_sale" | "max_discount_product" | "best_selling_product" | "search_by_price_range" | "cheapest_product" | "most_expensive_product" | "product_detail" | null,
+            "productName": "...",
+            "city": "...",
+            "size": "...",
+            "quantity": 1,
+            "categoryKeyword": "...",
+            "minPrice": 0,
+            "maxPrice": 0,
+            "activity": "...",
+            "suggestedCategories": [],
+            "tags": [],
+            "reasons": {}
+          }
+        }
+        
+        ❗️ QUY TẮC XỬ LÝ SÂN:
+        - `pitchType`: Loại sân (5, 7, 11 người).
+        - `environment`: "INDOOR" (trong nhà/có mái che), "OUTDOOR" (ngoài trời).
+        - Slot 1-18 tương ứng 6h-24h (mỗi slot 1 tiếng).
+        - THỜI GIAN HỆ THỐNG: Hôm nay: {{today}}, Ngày mai: {{plus1}}, Năm: {{year}}.
+        - "Mỗi loại sân có bao nhiêu sân?" -> data: {"pitchCounts": {"FIVE_A_SIDE": {{fiveASideCount}}, "SEVEN_A_SIDE": {{sevenASideCount}}, "ELEVEN_A_SIDE": {{elevenASideCount}}}}
+
+        ❗️ QUY TẮC XỬ LÝ SẢN PHẨM:
+        - Nếu hỏi về giá sản phẩm (rẻ nhất/mắc nhất), dùng action "cheapest_product" hoặc "most_expensive_product".
+        - Cung cấp "categoryKeyword" dựa trên bảng mapping:
+          + nón, mũ -> "Hats And Headwears"
+          + tất, vớ -> "Socks"
+          + balo, túi -> "Bags And Backpacks"
+          + áo khoác -> "Jackets And Gilets"
+          + hoodie -> "Hoodies And Sweatshirts"
+          + giày đá banh -> "Football Shoes"
+          + giày (chung) -> "Shoes"
+          + quần áo -> "Clothing"
+        - Tìm kiếm theo giá: dùng action "search_by_price_range", cung cấp minPrice, maxPrice.
+        
+        ❗️ QUY TẮC PHÂN BIỆT:
+        - Nếu chứa từ 'sản phẩm', 'giày', 'áo'... -> Hỏi về SẢN PHẨM.
+        - Nếu chứa từ 'sân', 'sân bóng'... -> Hỏi về SÂN.
+        """;
 
     public static class BookingQuery {
         public String bookingDate;
@@ -1513,7 +1272,7 @@ CẤU TRÚC JSON TRẢ VỀ:
     }
 
     public PitchResponseDTO findPitchByContext(String userInput) {
-        List<PitchResponseDTO> pitches = pitchService.getAllPitches(PageRequest.of(0, 50)).getContent();
+        List<PitchResponseDTO> pitches = pitchService.getAllPitches(PageRequest.of(0, 50), null, null).getContent();
         if (userInput.contains("rẻ nhất")) {
             return pitches.stream()
                     .min(Comparator.comparing(PitchResponseDTO::getPrice))

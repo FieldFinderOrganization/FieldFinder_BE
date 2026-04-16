@@ -7,13 +7,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 public interface ProductService {
     ProductResponseDTO createProduct(ProductRequestDTO request, MultipartFile imageFile);
 
     ProductResponseDTO getProductById(Long id, UUID userId);
-    Page<ProductResponseDTO> getAllProducts(Pageable pageable, UUID userId);
+    Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId);
     List<ProductResponseDTO> getTopSellingProducts(int limit, UUID userId);
     List<ProductResponseDTO> findProductsByCategories(List<String> categories, UUID userId);
 

@@ -17,6 +17,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @CrossOrigin("*")
@@ -61,12 +62,13 @@ public class ProductController {
 
     @GetMapping
     public Page<ProductResponseDTO> getAll(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size,
+            Pageable pageable,
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) Set<String> genders,
+            @RequestParam(required = false) String brand,
             Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
-        Pageable pageable = PageRequest.of(page, size);
-        return productService.getAllProducts(pageable, userId);
+        return productService.getAllProducts(pageable, categoryId, genders, brand, userId);
     }
 
     @GetMapping("/top-selling")

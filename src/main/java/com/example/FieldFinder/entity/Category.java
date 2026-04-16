@@ -3,7 +3,7 @@ package com.example.FieldFinder.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-
+import com.example.FieldFinder.Enum.CategoryType;
 import java.util.List;
 
 @Entity
@@ -23,9 +23,16 @@ public class Category {
 
     private String description;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private CategoryType categoryType = CategoryType.STANDARD;
+
     @ManyToOne
     @JoinColumn(name = "parent_id")
     private Category parent;
+
+    @OneToMany(mappedBy = "parent", fetch = FetchType.LAZY)
+    private List<Category> children;
 
     @OneToMany(mappedBy = "category", cascade = CascadeType.ALL)
     private List<Product> products;

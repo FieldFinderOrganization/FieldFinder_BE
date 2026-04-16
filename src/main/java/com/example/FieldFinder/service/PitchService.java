@@ -13,7 +13,7 @@ public interface PitchService {
     PitchResponseDTO updatePitch(UUID pitchId, PitchRequestDTO dto);
     List<PitchResponseDTO> getPitchesByProviderAddressId(UUID providerAddressId);
     void deletePitch(UUID pitchId);
-    Page<PitchResponseDTO> getAllPitches(Pageable pageable);
+    Page<PitchResponseDTO> getAllPitches(Pageable pageable, String district, String type);
 
     PitchResponseDTO getPitchById(UUID pitchId);
 }

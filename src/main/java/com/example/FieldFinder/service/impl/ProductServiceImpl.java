@@ -7,6 +7,7 @@ import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.CloudinaryService;
 import com.example.FieldFinder.service.ProductService;
+import com.example.FieldFinder.specification.ProductSpecification;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
@@ -15,12 +16,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-
+import com.example.FieldFinder.Enum.CategoryType;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -102,6 +104,31 @@ public class ProductServiceImpl implements ProductService {
 
         // 3. Tính giá bằng hàm của Entity
         product.calculateSalePriceForUser(allDiscounts);
+    }
+
+    private Set<Long> getKeywordExpandedIds(String keyword) {
+        Set<Long> ids = new HashSet<>();
+        List<Category> matching = categoryRepository.findByNameContainingIgnoreCase(keyword);
+        for (Category cat : matching) {
+            ids.addAll(getAllDescendantIds(cat.getCategoryId()));
+        }
+        return ids;
+    }
+
+    private Set<Long> getAllDescendantIds(Long categoryId) {
+        Set<Long> ids = new HashSet<>();
+        ids.add(categoryId);
+        Queue<Long> queue = new LinkedList<>();
+        queue.add(categoryId);
+        while (!queue.isEmpty()) {
+            Long current = queue.poll();
+            List<Category> children = categoryRepository.findByParent_CategoryId(current);
+            for (Category child : children) {
+                ids.add(child.getCategoryId());
+                queue.add(child.getCategoryId());
+            }
+        }
+        return ids;
     }
 
     private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds) {
@@ -193,12 +220,31 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ProductResponseDTO> getAllProducts(Pageable pageable, UUID userId) {
+    public Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId) {
         List<UUID> usedDiscountIds = (userId != null)
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
 
-        Page<Product> products = productRepository.findAll(pageable);
+        Set<Long> categoryIds = null;
+        String effectiveBrand = brand;
+
+        if (categoryId != null) {
+            Category selectedCategory = categoryRepository.findById(categoryId)
+                    .orElseThrow(() -> new RuntimeException("Category not found"));
+            if (selectedCategory.getCategoryType() == CategoryType.BRAND) {
+                effectiveBrand = selectedCategory.getName();
+            } else if (selectedCategory.getCategoryType() == CategoryType.SUPER_CATEGORY) {
+                categoryIds = getKeywordExpandedIds(selectedCategory.getName());
+            } else {
+                categoryIds = getAllDescendantIds(categoryId);
+            }
+        }
+
+        Specification<Product> spec = Specification.where(ProductSpecification.hasCategoryIds(categoryIds))
+                .and(ProductSpecification.hasSex(genders))
+                .and(ProductSpecification.hasBrand(effectiveBrand));
+
+        Page<Product> products = productRepository.findAll(spec, pageable);
 
         List<ProductResponseDTO> dtos = products.getContent()
                 .stream()

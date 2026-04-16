@@ -2,6 +2,7 @@ package com.example.FieldFinder.service.impl;
 
 
 import com.example.FieldFinder.dto.req.CategoryRequestDTO;
+import com.example.FieldFinder.Enum.CategoryType;
 import com.example.FieldFinder.dto.res.CategoryResponseDTO;
 import com.example.FieldFinder.entity.Category;
 import com.example.FieldFinder.repository.CategoryRepository;
@@ -33,6 +34,7 @@ public class CategoryServiceImpl implements CategoryService {
                 .name(request.getName())
                 .description(request.getDescription())
                 .parent(parent)
+                .categoryType(request.getCategoryType() != null ? request.getCategoryType() : CategoryType.STANDARD)
                 .build();
 
         categoryRepository.save(category);
@@ -68,6 +70,9 @@ public class CategoryServiceImpl implements CategoryService {
         category.setName(request.getName());
         category.setDescription(request.getDescription());
         category.setParent(parent);
+        if (request.getCategoryType() != null) {
+            category.setCategoryType(request.getCategoryType());
+        }
         categoryRepository.save(category);
 
         return mapToResponse(category);
@@ -84,6 +89,7 @@ public class CategoryServiceImpl implements CategoryService {
                 .name(category.getName())
                 .description(category.getDescription())
                 .parentName(category.getParent() != null ? category.getParent().getName() : null)
+                .categoryType(category.getCategoryType())
                 .build();
     }
 }
