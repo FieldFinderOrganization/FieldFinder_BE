@@ -16,6 +16,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.cdimascio.dotenv.Dotenv;
 import okhttp3.*;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -398,7 +400,7 @@ public class AIChat {
 
     private BookingQuery handleProductQuery(BookingQuery query, String userInput, String sessionId) {
         UUID userId = userService.getUserIdBySession(sessionId);
-        List<ProductResponseDTO> products = productService.getAllProducts(userId);
+        List<ProductResponseDTO> products = productService.getAllProducts(PageRequest.of(0, 500), userId).getContent();
         String action = (String) query.data.get("action");
         String productName = (String) query.data.get("productName");
 
@@ -870,7 +872,7 @@ public class AIChat {
         List<String> resolvedCategories = CategoryMapper.resolveCategories(activity, aiCategories);
 
         if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
-            results = productService.getAllProducts(userId).stream()
+            results = productService.getAllProducts(PageRequest.of(0, 500), userId).getContent().stream()
                     .filter(p -> p.getCategoryName() != null &&
                             resolvedCategories.contains(p.getCategoryName()))
                     .limit(12)

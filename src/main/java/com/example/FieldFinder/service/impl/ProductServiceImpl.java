@@ -11,6 +11,8 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -191,15 +193,19 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ProductResponseDTO> getAllProducts(UUID userId) {
+    public Page<ProductResponseDTO> getAllProducts(Pageable pageable, UUID userId) {
         List<UUID> usedDiscountIds = (userId != null)
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
 
-        return productRepository.findAll()
+        Page<Product> products = productRepository.findAll(pageable);
+
+        List<ProductResponseDTO> dtos = products.getContent()
                 .stream()
                 .map(p -> mapToResponse(p, usedDiscountIds))
-                .collect(Collectors.toList());
+                .toList();
+
+        return new PageImpl<>(dtos, pageable, products.getTotalElements());
     }
 
     @Override

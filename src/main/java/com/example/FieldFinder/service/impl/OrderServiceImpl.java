@@ -38,11 +38,9 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final UserRepository userRepository;
-    private final ProductRepository productRepository;
     private final DiscountRepository discountRepository;
     private final UserDiscountRepository userDiscountRepository;
 
-    private final ProductVariantRepository productVariantRepository;
     private final RedissonClient redissonClient;
     private final ProductService productService;
     private final EmailService emailService;

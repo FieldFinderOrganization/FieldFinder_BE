@@ -2,6 +2,8 @@ package com.example.FieldFinder.service;
 
 import com.example.FieldFinder.dto.req.ProductRequestDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -11,7 +13,7 @@ public interface ProductService {
     ProductResponseDTO createProduct(ProductRequestDTO request, MultipartFile imageFile);
 
     ProductResponseDTO getProductById(Long id, UUID userId);
-    List<ProductResponseDTO> getAllProducts(UUID userId);
+    Page<ProductResponseDTO> getAllProducts(Pageable pageable, UUID userId);
     List<ProductResponseDTO> getTopSellingProducts(int limit, UUID userId);
     List<ProductResponseDTO> findProductsByCategories(List<String> categories, UUID userId);
 
