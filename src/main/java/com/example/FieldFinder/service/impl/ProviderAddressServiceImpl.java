@@ -4,6 +4,8 @@ import com.example.FieldFinder.dto.req.ProviderAddressRequestDTO;
 import com.example.FieldFinder.dto.res.ProviderAddressResponseDTO;
 import com.example.FieldFinder.entity.Provider;
 import com.example.FieldFinder.entity.ProviderAddress;
+import com.example.FieldFinder.repository.BookingDetailRepository;
+import com.example.FieldFinder.repository.PitchRepository;
 import com.example.FieldFinder.repository.ProviderAddressRepository;
 import com.example.FieldFinder.repository.ProviderRepository;
 import com.example.FieldFinder.service.ProviderAddressService;
@@ -18,11 +20,17 @@ import java.util.UUID;
 public class ProviderAddressServiceImpl implements ProviderAddressService {
     private final ProviderAddressRepository addressRepository;
     private final ProviderRepository providerRepository;
+    private final PitchRepository pitchRepository;
+    private final BookingDetailRepository bookingDetailRepository;
 
     public ProviderAddressServiceImpl(ProviderAddressRepository addressRepository,
-            ProviderRepository providerRepository) {
+                                      ProviderRepository providerRepository,
+                                      PitchRepository pitchRepository,
+                                      BookingDetailRepository bookingDetailRepository) {
         this.addressRepository = addressRepository;
         this.providerRepository = providerRepository;
+        this.pitchRepository = pitchRepository;
+        this.bookingDetailRepository = bookingDetailRepository;
     }
 
     @Override
@@ -52,6 +60,15 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
     public void deleteAddress(UUID addressId) {
         ProviderAddress address = addressRepository.findById(addressId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Address not found!"));
+
+        // Check if any pitch in this address has bookings
+        boolean hasBookedPitches = pitchRepository.findByProviderAddressProviderAddressId(addressId).stream()
+                .anyMatch(pitch -> bookingDetailRepository.existsByPitch_PitchId(pitch.getPitchId()));
+
+        if (hasBookedPitches) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể xóa khu vực vì có sân đã được đặt!");
+        }
+
         addressRepository.delete(address);
     }
 

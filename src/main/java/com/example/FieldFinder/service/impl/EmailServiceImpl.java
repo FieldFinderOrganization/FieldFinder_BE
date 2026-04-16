@@ -67,7 +67,7 @@ public class EmailServiceImpl implements EmailService {
         }
 
         String to = liveOrder.getUser().getEmail();
-        String subject = "Xác nhận đơn hàng #" + liveOrder.getOrderId() + " - Thanh toán thành công";
+        String subject = "FieldFinder - Xác nhận đơn hàng #" + liveOrder.getOrderId() + " - Thanh toán thành công";
         String content = buildOrderHtml(liveOrder);
 
         try {
@@ -165,9 +165,9 @@ public class EmailServiceImpl implements EmailService {
 
         try {
             sendHtmlEmail(to, subject, content);
-            System.out.println("📧 Booking Email sent successfully to " + to);
+            System.out.println("Booking Email sent successfully to " + to);
         } catch (MessagingException e) {
-            System.err.println("❌ Failed to send booking email: " + e.getMessage());
+            System.err.println("Failed to send booking email: " + e.getMessage());
         }
     }
 
@@ -189,9 +189,9 @@ public class EmailServiceImpl implements EmailService {
 
         try {
             sendHtmlEmail(to, subject, content);
-            System.out.println("📧 Booking Reminder Email sent successfully to " + to);
+            System.out.println("Booking Reminder Email sent successfully to " + to);
         } catch (MessagingException e) {
-            System.err.println("❌ Failed to send booking reminder email: " + e.getMessage());
+            System.err.println("Failed to send booking reminder email: " + e.getMessage());
         }
     }
 
@@ -213,7 +213,7 @@ public class EmailServiceImpl implements EmailService {
         // Determine Header and Instruction based on status
         String headerTitle = "FieldFinder - Đặt sân thành công!";
         String instruction = "Chúc bạn có một trận đấu vui vẻ.";
-        String headerColor = "#188862"; // Green
+        String headerColor = "#188862";
 
         if (booking.getStatus() == BookingStatus.CANCELED) {
             headerTitle = "Đơn đặt sân đã bị hủy";

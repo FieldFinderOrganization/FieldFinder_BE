@@ -5,6 +5,7 @@ import com.example.FieldFinder.dto.req.PitchRequestDTO;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.entity.Pitch;
 import com.example.FieldFinder.entity.ProviderAddress;
+import com.example.FieldFinder.repository.BookingDetailRepository;
 import com.example.FieldFinder.repository.PitchRepository;
 import com.example.FieldFinder.repository.ProviderAddressRepository;
 import com.example.FieldFinder.service.PitchService;
@@ -27,6 +28,7 @@ public class PitchServiceImpl implements PitchService {
 
     private final PitchRepository pitchRepository;
     private final ProviderAddressRepository providerAddressRepository;
+    private final BookingDetailRepository bookingDetailRepository;
 
     @Override
     public PitchResponseDTO createPitch(PitchRequestDTO dto) {
@@ -72,6 +74,9 @@ public class PitchServiceImpl implements PitchService {
     public void deletePitch(UUID pitchId) {
         if (!pitchRepository.existsById(pitchId)) {
             throw new RuntimeException("Pitch not found!");
+        }
+        if (bookingDetailRepository.existsByPitch_PitchId(pitchId)) {
+            throw new RuntimeException("Không thể xóa sân vì đã có đơn đặt sân liên quan!");
         }
         pitchRepository.deleteById(pitchId);
     }

@@ -33,4 +33,6 @@ public interface BookingDetailRepository extends JpaRepository<BookingDetail, Lo
             @Param("bookingDate") LocalDate bookingDate,
             @Param("excludedStatuses") List<BookingStatus> excludedStatuses);
 
+    boolean existsByPitch_PitchId(UUID pitchId);
+
 }
