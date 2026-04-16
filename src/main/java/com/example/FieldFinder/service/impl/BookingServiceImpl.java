@@ -20,6 +20,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
@@ -47,8 +49,8 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate) {
-        List<BookingDetail> bookingDetails = bookingDetailRepository.findByPitch_PitchIdAndBooking_BookingDate(pitchId,
-                bookingDate);
+        List<BookingDetail> bookingDetails = bookingDetailRepository.findByPitchAndDateExcludingStatuses(
+                pitchId, bookingDate, List.of(BookingStatus.CANCELED));
         return bookingDetails.stream()
                 .map(bd -> bd.getTimeSlot().getSlotId())
                 .distinct()
@@ -57,13 +59,13 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public List<PitchBookedSlotsDTO> getAllBookedTimeSlots(LocalDate bookingDate) {
-        List<BookingDetail> bookingDetails = bookingDetailRepository.findByBooking_BookingDate(bookingDate);
+        List<BookingDetail> bookingDetails = bookingDetailRepository.findByBookingDateExcludingStatuses(
+                bookingDate, List.of(BookingStatus.CANCELED));
 
         Map<UUID, List<Integer>> grouped = bookingDetails.stream()
                 .collect(Collectors.groupingBy(
                         bd -> bd.getPitch().getPitchId(),
-                        Collectors.mapping(bd -> bd.getTimeSlot().getSlotId(), Collectors.toList())
-                ));
+                        Collectors.mapping(bd -> bd.getTimeSlot().getSlotId(), Collectors.toList())));
 
         return grouped.entrySet().stream()
                 .map(entry -> new PitchBookedSlotsDTO(entry.getKey(),
@@ -263,7 +265,8 @@ public class BookingServiceImpl implements BookingService {
 
         List<Booking> bookings = bookingRepository.findByUserWithDetails(user);
 
-        if (bookings.isEmpty()) return new ArrayList<>();
+        if (bookings.isEmpty())
+            return new ArrayList<>();
 
         List<UUID> bookingIds = bookings.stream().map(Booking::getBookingId).toList();
         List<Payment> allPayments = paymentRepository.findAllByBookingIds(bookingIds);
@@ -273,8 +276,7 @@ public class BookingServiceImpl implements BookingService {
                 .collect(Collectors.toMap(
                         p -> p.getBooking().getBookingId(),
                         p -> p.getPaymentMethod() != null ? p.getPaymentMethod().name() : "PENDING",
-                        (existing, replacement) -> existing
-                ));
+                        (existing, replacement) -> existing));
 
         return bookings.stream().map(booking -> {
             String pitchName = "Không xác định";
@@ -355,6 +357,7 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
+    @Transactional
     public void cancelBookingByUser(UUID bookingId, UUID userId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new RuntimeException("Booking not found!"));
@@ -367,19 +370,29 @@ public class BookingServiceImpl implements BookingService {
             throw new RuntimeException("Chỉ có thể hủy đặt sân đang ở trạng thái PENDING!");
         }
 
-        // Nhả slot trên Redis
-        for (BookingDetail detail : booking.getBookingDetails()) {
-            if (detail.getPitch() != null && detail.getTimeSlot() != null) {
-                pitchRedisLockService.unlockSlot(
-                        detail.getPitch().getPitchId(),
-                        booking.getBookingDate(),
-                        detail.getTimeSlot().getSlotId(),
-                        userId.toString()
-                );
-            }
-        }
-
+        // Save DB first (within transaction), unlock Redis AFTER commit
         cancelBooking(booking, "User requested cancellation");
+
+        // Unlock Redis slots only after the transaction commits successfully
+        // This prevents double-booking: if DB rollback occurs, Redis lock stays → slot remains locked
+        final String userIdStr = userId.toString();
+        final LocalDate bookingDate = booking.getBookingDate();
+        final List<BookingDetail> details = new ArrayList<>(booking.getBookingDetails());
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                for (BookingDetail detail : details) {
+                    if (detail.getPitch() != null && detail.getTimeSlot() != null) {
+                        pitchRedisLockService.unlockSlot(
+                                detail.getPitch().getPitchId(),
+                                bookingDate,
+                                detail.getTimeSlot().getSlotId(),
+                                userIdStr);
+                    }
+                }
+            }
+        });
     }
 
     @Override
@@ -392,16 +405,9 @@ public class BookingServiceImpl implements BookingService {
         return List.of();
     }
 
-    /**
-     * Tác vụ tự động mỗi phút để xử lý các đơn hàng PENDING:
-     * 1. Gửi nhắc nhở trước 10 phút.
-     * 2. Tự động hủy nếu chưa thanh toán trước 5 phút.
-     * 3. Dọn dẹp các đơn hàng cũ (ngày quá khứ).
-     */
     @Scheduled(fixedRate = 300000)
     @Transactional
     public void processAutomatedBookingManagement() {
-//        LocalDateTime now = LocalDateTime.now();
         LocalDate today = LocalDate.now();
         LocalTime currentTime = LocalTime.now();
 
@@ -410,6 +416,7 @@ public class BookingServiceImpl implements BookingService {
         for (Booking booking : pendingBookings) {
             // 1. Data Cleanup: Canceled old pending records
             if (booking.getBookingDate().isBefore(today)) {
+                unlockRedisSlots(booking);
                 cancelBooking(booking, "Data Cleanup: Booking date passed");
                 continue;
             }
@@ -425,9 +432,11 @@ public class BookingServiceImpl implements BookingService {
                 long minutesUntilStart = ChronoUnit.MINUTES.between(currentTime, startTime);
 
                 // 2. Reminder Email at T-10m
-                if (!Boolean.TRUE.equals(booking.getIsReminderSent()) && minutesUntilStart <= 10 && minutesUntilStart > 5) {
+                if (!Boolean.TRUE.equals(booking.getIsReminderSent()) && minutesUntilStart <= 10
+                        && minutesUntilStart > 5) {
                     System.out.println("📧 Sending reminder for Booking #" + booking.getBookingId());
-                    rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_REMINDER_EMAIL_ROUTING_KEY,
+                    rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
+                            RabbitMQConfig.BOOKING_REMINDER_EMAIL_ROUTING_KEY,
                             booking.getBookingId().toString());
                     booking.setIsReminderSent(true);
                     bookingRepository.save(booking);
@@ -435,33 +444,50 @@ public class BookingServiceImpl implements BookingService {
 
                 // 3. Auto-Cancellation at T-5m
                 if (minutesUntilStart <= 5) {
+                    unlockRedisSlots(booking);
                     cancelBooking(booking, "Auto-Cancel: Unpaid 5m before start or time passed");
                 }
             }
         }
     }
 
-    private void cancelBooking(Booking booking, String reason) {
-        System.out.println("Cancel booking id: " + booking.getBookingId() + " for reason: " + reason);
+    /**
+     * Defensively unlock Redis slots for a booking.
+     * Uses the booking owner's userId to match lock ownership.
+     */
+    private void unlockRedisSlots(Booking booking) {
+        String userId = booking.getUser().getUserId().toString();
+        for (BookingDetail detail : booking.getBookingDetails()) {
+            if (detail.getPitch() != null && detail.getTimeSlot() != null) {
+                pitchRedisLockService.unlockSlot(
+                        detail.getPitch().getPitchId(),
+                        booking.getBookingDate(),
+                        detail.getTimeSlot().getSlotId(),
+                        userId);
+            }
+        }
+    }
 
+    private void cancelBooking(Booking booking, String reason) {
+        System.out.println("🚫 " + reason + " for Booking #" + booking.getBookingId());
         booking.setStatus(BookingStatus.CANCELED);
         bookingRepository.save(booking);
 
-        List<Payment> payments = paymentRepository.findAllByBookingIds(Collections.singletonList(booking.getBookingId()));
+        List<Payment> payments = paymentRepository
+                .findAllByBookingIds(Collections.singletonList(booking.getBookingId()));
         if (payments != null) {
-            payments.forEach(p -> {
-                        if (p.getPaymentStatus() == PaymentStatus.PENDING) {
-                            p.setPaymentStatus(PaymentStatus.CANCELED);
-                            paymentRepository.save(p);
-                        }
-                    }
-            );
+            for (Payment p : payments) {
+                if (p.getPaymentStatus() == PaymentStatus.PENDING) {
+                    p.setPaymentStatus(PaymentStatus.CANCELED);
+                    paymentRepository.save(p);
+                }
+            }
         }
 
         try {
             emailService.sendBookingCancellation(booking);
         } catch (Exception e) {
-            System.out.println("Lỗi gửi email hủy đặt sân: " + e.getMessage());
+            System.err.println("❌ Lỗi gửi email hủy đặt sân: " + e.getMessage());
         }
     }
 }

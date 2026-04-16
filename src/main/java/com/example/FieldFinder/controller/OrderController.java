@@ -85,22 +85,15 @@ public class OrderController {
         orderService.deleteOrder(id);
     }
 
-    @PutMapping("/{orderId}/cancel")
+    @PutMapping("/{id}/cancel")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Map<String, Object>> cancelOrder(@PathVariable Long orderId,
-                                                           Authentication authentication) {
+    public ResponseEntity<OrderResponseDTO> cancelOrder(
+            @PathVariable Long id,
+            Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
-
         if (userId == null) {
-            return ResponseEntity.status(401).body(Map.of("message", "Không xác định được người dùng!"));
+            return ResponseEntity.status(401).build();
         }
-
-        orderService.cancelOrderByUser(orderId, userId);
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "Hủy đơn đặt sản phẩm thành công!");
-        response.put("orderId", orderId);
-
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(orderService.cancelOrderByUser(id, userId));
     }
 }

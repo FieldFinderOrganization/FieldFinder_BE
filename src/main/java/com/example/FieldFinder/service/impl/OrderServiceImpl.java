@@ -308,12 +308,17 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public void cancelOrderByUser(Long id, UUID userId) {
-        Order order = orderRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Order not found with given id: " + id));
+    @Transactional
+    public OrderResponseDTO cancelOrderByUser(Long orderId, UUID userId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found!"));
 
-        if (!userId.equals(order.getUser().getUserId())) {
-            throw new RuntimeException("Bạn không có quyền thay đổi order của người khác!");
+        if (order.getUser() == null || !order.getUser().getUserId().equals(userId)) {
+            throw new RuntimeException("Bạn không có quyền hủy đơn hàng này!");
+        }
+
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new RuntimeException("Chỉ có thể hủy đơn hàng đang ở trạng thái PENDING!");
         }
 
         order.setStatus(OrderStatus.CANCELED);
@@ -322,7 +327,7 @@ public class OrderServiceImpl implements OrderService {
         if (order.getItems() != null) {
             for (OrderItem item : order.getItems()) {
                 productService.releaseStock(
-                        item.getOrderItemId(),
+                        item.getProduct().getProductId(),
                         item.getSize(),
                         item.getQuantity()
                 );
@@ -334,8 +339,10 @@ public class OrderServiceImpl implements OrderService {
         try {
             emailService.sendOrderCancellation(order);
         } catch (Exception e) {
-            System.out.println("Lỗi gửi email hủy đặt sản phẩm: " + e.getMessage());
+            System.err.println("Lỗi gửi email hủy đơn hàng #" + order.getOrderId() + ": " + e.getMessage());
         }
+
+        return mapToResponse(order);
     }
 
     @Override

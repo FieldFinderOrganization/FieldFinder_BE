@@ -303,9 +303,11 @@ public class ProductServiceImpl implements ProductService {
             @CacheEvict(value = "products_category", allEntries = true)
     })
     public void commitStock(Long productId, String size, int quantity) {
-        Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size);
+        Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId,
+                size);
         if (optionalVariant.isEmpty()) {
-            System.err.println("⚠️ Warning: Cannot commit stock. Variant not found for Product ID: " + productId + ", Size: " + size);
+            System.err.println("⚠️ Warning: Cannot commit stock. Variant not found for Product ID: " + productId
+                    + ", Size: " + size);
             return;
         }
 
@@ -324,9 +326,27 @@ public class ProductServiceImpl implements ProductService {
             @CacheEvict(value = "products_category", allEntries = true)
     })
     public void releaseStock(Long productId, String size, int quantity) {
-        Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size);
+        Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId,
+                size);
         if (optionalVariant.isEmpty()) {
-            System.err.println("⚠️ Warning: Cannot release stock. Variant not found for Product ID: " + productId + ", Size: " + size);
+            // Log tất cả variant hiện có để chẩn đoán size mismatch
+            List<ProductVariant> allVariants = productVariantRepository.findAllByProduct_ProductId(productId);
+            String existingSizes = allVariants.stream()
+                    .map(v -> "'" + v.getSize() + "'")
+                    .collect(java.util.stream.Collectors.joining(", "));
+            System.err.println("⚠️ Cannot release stock. Product ID: " + productId
+                    + ", queried size: '" + size + "'"
+                    + ", existing sizes in DB: [" + existingSizes + "]");
+            // Fallback: nếu chỉ có 1 variant cho sản phẩm này (Freesize/one-size), dùng
+            // variant đó
+            if (allVariants.size() == 1) {
+                ProductVariant variant = allVariants.get(0);
+                System.err.println(
+                        "⚠️ Fallback: releasing stock for single variant with size='" + variant.getSize() + "'");
+                int newLocked = variant.getLockedQuantity() - quantity;
+                variant.setLockedQuantity(Math.max(newLocked, 0));
+                productVariantRepository.save(variant);
+            }
             return;
         }
 
