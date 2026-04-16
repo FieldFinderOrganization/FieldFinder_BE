@@ -17,9 +17,7 @@ public class OpenWeatherService {
     private String weatherApiKey;
 
     @Value("${OPEN_WEATHER_URL}")
-    private static String openWeatherUrl;
-
-    private static final String BASE_URL = openWeatherUrl;
+    private String openWeatherUrl;
 
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
@@ -30,7 +28,7 @@ public class OpenWeatherService {
 
     public String getCurrentWeather(String city) throws IOException {
         String url = String.format("%s?q=%s&appid=%s&units=metric&lang=vi",
-                BASE_URL, city, weatherApiKey);
+                openWeatherUrl, city, weatherApiKey);
 
         Request request = new Request.Builder().url(url).build();
 

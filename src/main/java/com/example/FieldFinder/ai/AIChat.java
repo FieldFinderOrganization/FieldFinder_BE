@@ -524,8 +524,23 @@ public class AIChat {
                             }
                         }
                         if (foundSize && quantity > 0) {
-                            query.message = String.format("Sản phẩm '%s' size %s hiện đang còn hàng (SL: %d).", p.getName(), sizeToCheck, quantity);
                             if (sessionId != null) sessionLastSizes.put(sessionId, sizeToCheck);
+                            boolean hasOrderIntent = userInput != null && (
+                                    userInput.toLowerCase().contains("đặt") ||
+                                            userInput.toLowerCase().contains("mua") ||
+                                            userInput.toLowerCase().contains("lấy") ||
+                                            userInput.toLowerCase().contains("order")
+                            );
+                            if (hasOrderIntent) {
+                                // Chuyển thẳng sang prepare_order flow
+                                int orderQty = extractQuantityFromInput(userInput, query.data.get("quantity"));
+                                query.message = String.format("Xác nhận: Bạn muốn đặt **%d** đôi **%s** - **Size %s**. Nhấn nút bên dưới để thanh toán nhé! 👇", orderQty, p.getName(), sizeToCheck);
+                                query.data.put("selectedSize", sizeToCheck);
+                                query.data.put("selectedQuantity", orderQty);
+                                query.data.put("action", "ready_to_order");
+                            } else {
+                                query.message = String.format("Sản phẩm '%s' size %s hiện đang còn hàng (SL: %d).", p.getName(), sizeToCheck, quantity);
+                            }
                         } else {
                             query.message = String.format("Tiếc quá, sản phẩm '%s' size %s hiện đang hết hàng.", p.getName(), sizeToCheck);
                         }
@@ -537,11 +552,14 @@ public class AIChat {
                         sizeToOrder = sessionLastSizes.get(sessionId);
                     }
 
+                    int quantity = extractQuantityFromInput(userInput, query.data.get("quantity"));
+
                     if (sizeToOrder == null) {
                         query.message = String.format("Bạn muốn đặt size nào cho sản phẩm '%s'? (VD: 'Lấy size 40').", p.getName());
                     } else {
-                        query.message = String.format("Xác nhận: Bạn muốn đặt **%s** - **Size %s**. Nhấn nút bên dưới để thanh toán nhé! 👇", p.getName(), sizeToOrder);
+                        query.message = String.format("Xác nhận: Bạn muốn đặt **%d** đôi **%s** - **Size %s**. Nhấn nút bên dưới để thanh toán nhé! 👇", quantity, p.getName(), sizeToOrder);
                         query.data.put("selectedSize", sizeToOrder);
+                        query.data.put("selectedQuantity", quantity);
                         query.data.put("action", "ready_to_order");
                     }
                 }
@@ -1198,6 +1216,21 @@ public class AIChat {
         }
         """;
 
+    private int extractQuantityFromInput(String userInput, Object rawQty) {
+        // Ưu tiên Gemini parse, nếu không có thì dùng regex trên userInput
+        if (rawQty instanceof Number) {
+            int q = ((Number) rawQty).intValue();
+            if (q > 1) return q;
+        }
+        if (userInput != null) {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("(\\d+)\\s*(đôi|cái|chiếc|cặp|pair|x|×)")
+                    .matcher(userInput.toLowerCase());
+            if (m.find()) return Math.max(1, Integer.parseInt(m.group(1)));
+        }
+        return 1;
+    }
+
     private static final String SYSTEM_INSTRUCTION = """
         Bạn là trợ lý AI thông minh cho hệ thống FieldFinder (Đặt sân & Shop thể thao).
         Nhiệm vụ: Phân tích câu hỏi người dùng và trả về JSON cấu trúc để Backend xử lý.
@@ -1245,6 +1278,11 @@ public class AIChat {
           + quần áo -> "Clothing"
         - Tìm kiếm theo giá: dùng action "search_by_price_range", cung cấp minPrice, maxPrice.
         
+        ❗️ QUY TẮC ĐẶT HÀNG:
+        - Nếu người dùng nói "đặt", "mua", "lấy", "cho mình X cái/đôi size Y" -> action: "prepare_order", điền "size" và "quantity" ngay trong cùng tin nhắn đó.
+        - Nếu người dùng đã đề cập size trong cùng câu muốn đặt (VD: "đặt 2 đôi size 42") -> PHẢI trả về action: "prepare_order" với size: "42" và quantity: 2 ngay, KHÔNG dùng "check_size".
+        - "quantity" là số lượng sản phẩm muốn mua (mặc định 1 nếu không đề cập).
+
         ❗️ QUY TẮC PHÂN BIỆT:
         - Nếu chứa từ 'sản phẩm', 'giày', 'áo'... -> Hỏi về SẢN PHẨM.
         - Nếu chứa từ 'sân', 'sân bóng'... -> Hỏi về SÂN.
