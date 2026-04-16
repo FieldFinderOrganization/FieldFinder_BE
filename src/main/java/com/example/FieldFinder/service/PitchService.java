@@ -2,6 +2,8 @@ package com.example.FieldFinder.service;
 
 import com.example.FieldFinder.dto.req.PitchRequestDTO;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.UUID;
@@ -11,7 +13,7 @@ public interface PitchService {
     PitchResponseDTO updatePitch(UUID pitchId, PitchRequestDTO dto);
     List<PitchResponseDTO> getPitchesByProviderAddressId(UUID providerAddressId);
     void deletePitch(UUID pitchId);
-    List<PitchResponseDTO> getAllPitches();
+    Page<PitchResponseDTO> getAllPitches(Pageable pageable);
 
     PitchResponseDTO getPitchById(UUID pitchId);
 }

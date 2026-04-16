@@ -819,7 +819,7 @@ public class AIChat {
             PitchEnvironment env = suggestEnvironmentByWeather(weather);
 
             List<PitchResponseDTO> suggestedPitches =
-                    pitchService.getAllPitches().stream()
+                    pitchService.getAllPitches(PageRequest.of(0, 50)).stream()
                             .filter(p -> p.getEnvironment() == env)
                             .limit(5)
                             .toList();
@@ -932,7 +932,7 @@ public class AIChat {
             return query;
         }
 
-        List<PitchResponseDTO> allPitches = pitchService.getAllPitches();
+        List<PitchResponseDTO> allPitches = pitchService.getAllPitches(PageRequest.of(0, 50)).getContent();
         String finalPrompt = buildSystemPrompt(allPitches.size());
         String cleanJson = callGeminiAPI(userInput, finalPrompt);
         BookingQuery query = parseAIResponse(cleanJson);
@@ -1513,7 +1513,7 @@ CẤU TRÚC JSON TRẢ VỀ:
     }
 
     public PitchResponseDTO findPitchByContext(String userInput) {
-        List<PitchResponseDTO> pitches = pitchService.getAllPitches();
+        List<PitchResponseDTO> pitches = pitchService.getAllPitches(PageRequest.of(0, 50)).getContent();
         if (userInput.contains("rẻ nhất")) {
             return pitches.stream()
                     .min(Comparator.comparing(PitchResponseDTO::getPrice))
