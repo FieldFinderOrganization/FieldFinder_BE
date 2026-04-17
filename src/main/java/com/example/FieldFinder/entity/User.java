@@ -2,6 +2,7 @@ package com.example.FieldFinder.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import java.util.Date;
 import java.util.UUID;
 
 @Getter
@@ -48,4 +49,7 @@ public class User {
 
     @Column(name = "ImageUrl", columnDefinition = "TEXT")
     private String imageUrl;
+
+    @Column(name = "LastLoginAt")
+    private Date lastLoginAt;
 }

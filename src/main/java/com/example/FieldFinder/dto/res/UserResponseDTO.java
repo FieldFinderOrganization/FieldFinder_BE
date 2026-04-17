@@ -3,6 +3,7 @@ package com.example.FieldFinder.dto.res;
 import com.example.FieldFinder.entity.User;
 import lombok.*;
 
+import java.util.Date;
 import java.util.UUID;
 
 @Getter
@@ -18,6 +19,7 @@ public class UserResponseDTO {
     private User.Status status;
     private String imageUrl;
     private boolean hasPassword;
+    private Date lastLoginAt;
 
     public static UserResponseDTO toDto(User user) {
         return new UserResponseDTO(
@@ -28,7 +30,8 @@ public class UserResponseDTO {
                 user.getRole(),
                 user.getStatus(),
                 user.getImageUrl(),
-                user.getPassword() != null
+                user.getPassword() != null,
+                user.getLastLoginAt()
         );
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> {
@@ -24,4 +25,13 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
 
     @Query("SELECT COUNT(c) FROM ChatMessage c WHERE c.receiverId = :receiverId AND c.isRead = false")
     long countUnreadMessages(@Param("receiverId") UUID receiverId);
+
+    @Query("SELECT DISTINCT c.receiverId FROM ChatMessage c WHERE c.senderId = :userId")
+    List<UUID> findDistinctReceivers(@Param("userId") UUID userId);
+
+    @Query("SELECT DISTINCT c.senderId FROM ChatMessage c WHERE c.receiverId = :userId")
+    List<UUID> findDistinctSenders(@Param("userId") UUID userId);
+
+    @Query("SELECT COUNT(c) FROM ChatMessage c WHERE c.senderId = :senderId AND c.receiverId = :receiverId AND c.isRead = false")
+    long countUnreadFromSender(@Param("senderId") UUID senderId, @Param("receiverId") UUID receiverId);
 }

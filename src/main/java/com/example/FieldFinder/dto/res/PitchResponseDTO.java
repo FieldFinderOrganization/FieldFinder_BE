@@ -20,6 +20,8 @@ public class PitchResponseDTO {
     private String description;
     private List<String> imageUrls;
     private String address;
+    private String providerUserId;
+    private String providerName;
 
     public static PitchResponseDTO fromEntity(Pitch pitch) {
         PitchResponseDTO dto = new PitchResponseDTO();
@@ -32,6 +34,9 @@ public class PitchResponseDTO {
         dto.setDescription(pitch.getDescription());
         dto.setImageUrls(pitch.getImageUrls());
         dto.setAddress(pitch.getProviderAddress().getAddress());
+        var providerUser = pitch.getProviderAddress().getProvider().getUser();
+        dto.setProviderUserId(providerUser.getUserId().toString());
+        dto.setProviderName(providerUser.getName());
         return dto;
     }
 }

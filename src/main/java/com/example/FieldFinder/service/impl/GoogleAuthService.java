@@ -77,6 +77,7 @@ public class GoogleAuthService {
                 picture
         );
 
+        user.setLastLoginAt(new java.util.Date());
         return jwtService.generateTokenPair(user);
     }
 

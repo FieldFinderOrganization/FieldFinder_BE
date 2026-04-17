@@ -19,7 +19,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.cdimascio.dotenv.Dotenv;
 import okhttp3.*;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -329,7 +328,7 @@ public class AIChat {
 
                 if (!finalResults.isEmpty()) {
                     if (sessionId != null) {
-                        sessionLastProducts.put(sessionId, finalResults.get(0));
+                        sessionLastProducts.put(sessionId, finalResults.getFirst());
                         System.out.println("✅ Image Search: Saved Context for Session " + sessionId + " -> " + finalResults.get(0).getName());
                     }
 

@@ -109,6 +109,8 @@ public class AuthController {
                     "Tài khoản của bạn đã bị khóa.");
         }
 
+        user.setLastLoginAt(new java.util.Date());
+        userRepository.save(user);
         AuthTokenResponseDTO tokenResponse = jwtService.generateTokenPair(user);
         return ResponseEntity.ok(tokenResponse);
     }

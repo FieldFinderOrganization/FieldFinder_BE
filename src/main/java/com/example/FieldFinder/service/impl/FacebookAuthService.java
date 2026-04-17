@@ -66,6 +66,7 @@ public class FacebookAuthService {
                 info.pictureUrl()
         );
 
+        user.setLastLoginAt(new java.util.Date());
         return jwtService.generateTokenPair(user);
     }
 
