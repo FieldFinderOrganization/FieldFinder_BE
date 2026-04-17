@@ -4,9 +4,11 @@ import com.example.FieldFinder.Enum.PitchEnvironment;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.mapper.CategoryMapper;
+import com.example.FieldFinder.service.BookingService;
 import com.example.FieldFinder.service.OpenWeatherService;
 import com.example.FieldFinder.service.PitchService;
 import com.example.FieldFinder.service.ProductService;
+import com.example.FieldFinder.service.RedisService;
 import com.example.FieldFinder.service.UserService;
 import com.example.FieldFinder.service.log.LogPublisherService;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -18,6 +20,8 @@ import io.github.cdimascio.dotenv.Dotenv;
 import okhttp3.*;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -41,6 +45,8 @@ public class AIChat {
     private final ProductService productService;
     private final UserService userService;
     private final LogPublisherService logPublisherService;
+    private final BookingService bookingService;
+    private final RedisService redisService;
 
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 4000;
     private long lastCallTime = 0;
@@ -54,12 +60,33 @@ public class AIChat {
     private final Map<String, String> sessionLastSizes = new HashMap<>();
     private final Map<String, String> sessionLastActivity = new HashMap<>();
 
-    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService) {
+    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService) {
         this.pitchService = pitchService;
         this.productService = productService;
         this.userService = userService;
         this.weatherService = weatherService;
         this.logPublisherService = logPublisherService;
+        this.bookingService = bookingService;
+        this.redisService = redisService;
+    }
+
+    private UUID resolveCurrentUserId(String sessionId) {
+        try {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof String) {
+                String email = (String) auth.getPrincipal();
+                if (email != null && !email.equals("anonymousUser") && !email.isBlank()) {
+                    UUID uid = redisService.getUserIdByEmail(email);
+                    if (uid != null) return uid;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("resolveCurrentUserId error: " + e.getMessage());
+        }
+        if (sessionId != null) {
+            return userService.getUserIdBySession(sessionId);
+        }
+        return null;
     }
 
     static {
@@ -329,7 +356,9 @@ public class AIChat {
     private String extractGeminiResponse(String rawJson) throws IOException {
         JsonNode root = mapper.readTree(rawJson);
         if (root.path("candidates").isMissingNode() || root.path("candidates").isEmpty()) {
-            return "{}";
+            String errMsg = root.path("error").path("message").asText("");
+            System.err.println("⚠️ Gemini không trả về candidates. Raw: " + (rawJson != null && rawJson.length() > 500 ? rawJson.substring(0, 500) + "..." : rawJson));
+            throw new IOException("Gemini API không trả về kết quả" + (errMsg.isEmpty() ? "" : ": " + errMsg));
         }
         return root.path("candidates").get(0)
                 .path("content").path("parts").get(0)
@@ -961,8 +990,24 @@ public class AIChat {
 
         List<PitchResponseDTO> allPitches = pitchService.getAllPitches(PageRequest.of(0, 50), null, null).getContent();
         String finalPrompt = buildSystemPrompt(allPitches);
-        String cleanJson = callGeminiAPI(userInput, finalPrompt);
-        BookingQuery query = parseAIResponse(cleanJson);
+
+        BookingQuery query;
+        try {
+            String cleanJson = callGeminiAPI(userInput, finalPrompt);
+            query = parseAIResponse(cleanJson);
+        } catch (IOException e) {
+            System.err.println("❌ Lỗi gọi Gemini trong parseBookingInput: " + e.getMessage());
+            BookingQuery fallback = new BookingQuery();
+            fallback.message = "Hệ thống AI tạm thời bận, bạn vui lòng thử lại sau ít phút nhé.";
+            fallback.slotList = new ArrayList<>();
+            fallback.pitchType = "ALL";
+            fallback.data = new HashMap<>();
+            return fallback;
+        }
+
+        if (query.slotList == null) query.slotList = new ArrayList<>();
+        if (query.pitchType == null) query.pitchType = "ALL";
+        if (query.data == null) query.data = new HashMap<>();
 
         if (query.data != null && query.data.containsKey("action")) {
             String action = (String) query.data.get("action");
@@ -982,6 +1027,12 @@ public class AIChat {
             }
             if ("recommend_by_activity".equals(action)) {
                 return handleRecommendByActivity(query, sessionId);
+            }
+            if ("list_pitches".equals(action) || "count_pitches_by_type".equals(action)
+                    || "check_pitch_availability".equals(action) || "book_pitch".equals(action)
+                    || "list_my_bookings".equals(action) || "cheapest_pitch".equals(action)
+                    || "most_expensive_pitch".equals(action)) {
+                return handlePitchQuery(query, userInput, sessionId, allPitches);
             }
             if (action.contains("product") || action.contains("stock") ||
                     action.contains("sales") || action.contains("sale") ||
@@ -1056,6 +1107,198 @@ public class AIChat {
             System.err.println("Không thể ghi log AI Chat: " + e.getMessage());
         }
 
+        if (query.message == null || query.message.isBlank()) {
+            query.message = "Mình chưa hiểu rõ yêu cầu. Bạn muốn tìm sân bóng, đặt sân, hay mua sản phẩm thể thao? Ví dụ: \"cho xem các sân 5 người\" hoặc \"giày rẻ nhất\".";
+        }
+
+        return query;
+    }
+
+    private BookingQuery handlePitchQuery(BookingQuery query, String userInput, String sessionId, List<PitchResponseDTO> allPitches) {
+        if (query.data == null) query.data = new HashMap<>();
+        if (query.slotList == null) query.slotList = new ArrayList<>();
+        if (query.pitchType == null) query.pitchType = "ALL";
+
+        String action = (String) query.data.get("action");
+        PitchEnvironment env = null;
+        if (query.environment != null) {
+            try { env = PitchEnvironment.valueOf(query.environment); } catch (Exception ignored) {}
+        }
+        if (env == null) env = detectEnvironmentFromInput(userInput);
+        final PitchEnvironment requestedEnvironment = env;
+
+        List<PitchResponseDTO> matched = allPitches.stream()
+                .filter(p -> "ALL".equals(query.pitchType) || p.getType().name().equalsIgnoreCase(query.pitchType))
+                .filter(p -> requestedEnvironment == null || p.getEnvironment() == requestedEnvironment)
+                .collect(Collectors.toList());
+
+        String envStr = requestedEnvironment != null ? " " + formatEnvironment(requestedEnvironment) : "";
+        String typeStr = formatPitchType(query.pitchType);
+
+        switch (action) {
+            case "count_pitches_by_type": {
+                long five = allPitches.stream().filter(p -> p.getType().name().equals("FIVE_A_SIDE")).count();
+                long seven = allPitches.stream().filter(p -> p.getType().name().equals("SEVEN_A_SIDE")).count();
+                long eleven = allPitches.stream().filter(p -> p.getType().name().equals("ELEVEN_A_SIDE")).count();
+                if (!"ALL".equals(query.pitchType)) {
+                    query.message = String.format("Hệ thống đang có %d %s.", matched.size(), typeStr);
+                } else {
+                    query.message = String.format("Hệ thống có: %d sân 5, %d sân 7, %d sân 11.", five, seven, eleven);
+                }
+                Map<String, Long> counts = new HashMap<>();
+                counts.put("FIVE_A_SIDE", five);
+                counts.put("SEVEN_A_SIDE", seven);
+                counts.put("ELEVEN_A_SIDE", eleven);
+                query.data.put("pitchCounts", counts);
+                query.data.put("matchedPitches", matched);
+                break;
+            }
+            case "cheapest_pitch":
+            case "most_expensive_pitch": {
+                boolean cheapest = "cheapest_pitch".equals(action);
+                boolean typeSpecified = !"ALL".equals(query.pitchType);
+                List<PitchResponseDTO> searchPool = typeSpecified ? matched : allPitches;
+                if (typeSpecified && requestedEnvironment == null) {
+                    searchPool = allPitches.stream()
+                            .filter(p -> p.getType().name().equalsIgnoreCase(query.pitchType))
+                            .collect(Collectors.toList());
+                }
+                if (searchPool.isEmpty()) {
+                    query.message = typeSpecified
+                            ? String.format("Không tìm thấy%s %s nào trong hệ thống.", envStr, typeStr)
+                            : "Hệ thống hiện chưa có sân nào.";
+                    break;
+                }
+                PitchResponseDTO picked = findPitchByPrice(searchPool, cheapest);
+                if (picked == null) {
+                    query.message = "Không xác định được sân có giá phù hợp.";
+                    break;
+                }
+                if (sessionId != null) sessionPitches.put(sessionId, picked);
+                String scopeLabel = typeSpecified ? (" " + typeStr + envStr).trim() : " (tất cả loại sân)";
+                query.message = String.format("Sân %s%s là \"%s\" - %s VNĐ (%s).",
+                        cheapest ? "rẻ nhất" : "mắc nhất",
+                        scopeLabel.isEmpty() ? "" : " " + scopeLabel.trim(),
+                        picked.getName(),
+                        picked.getPrice(),
+                        picked.getAddress());
+                query.data.put("pitch", picked);
+                query.data.put("suggestedPitch", picked);
+                query.data.put("showBookingButton", true);
+                break;
+            }
+            case "check_pitch_availability": {
+                if (matched.isEmpty()) {
+                    query.message = String.format("Không có%s %s nào phù hợp để kiểm tra.", envStr, typeStr);
+                    break;
+                }
+                if (query.bookingDate == null) {
+                    query.message = "Bạn muốn kiểm tra sân trống ngày nào? Vui lòng cho mình biết ngày (vd: 2026-04-20).";
+                    break;
+                }
+                try {
+                    LocalDate date = LocalDate.parse(query.bookingDate);
+                    List<Integer> desired = query.slotList.isEmpty() ? null : query.slotList;
+                    List<Map<String, Object>> availability = new ArrayList<>();
+                    for (PitchResponseDTO p : matched) {
+                        List<Integer> booked = bookingService.getBookedTimeSlots(p.getPitchId(), date);
+                        List<Integer> freeSlots = new ArrayList<>();
+                        for (int s = 1; s <= 18; s++) if (!booked.contains(s)) freeSlots.add(s);
+                        List<Integer> checkSlots = desired != null ? desired : freeSlots;
+                        List<Integer> freeInRequested = checkSlots.stream().filter(freeSlots::contains).collect(Collectors.toList());
+                        Map<String, Object> item = new HashMap<>();
+                        item.put("pitchId", p.getPitchId());
+                        item.put("name", p.getName());
+                        item.put("address", p.getAddress());
+                        item.put("availableSlots", freeInRequested);
+                        availability.add(item);
+                    }
+                    query.data.put("availability", availability);
+                    query.data.put("matchedPitches", matched);
+                    long avail = availability.stream().filter(a -> !((List<?>) a.get("availableSlots")).isEmpty()).count();
+                    String slotStr = desired != null ? " khung giờ " + desired : "";
+                    query.message = String.format("Ngày %s: có %d/%d%s %s còn slot trống%s. Xem chi tiết bên dưới 👇",
+                            query.bookingDate, avail, matched.size(), envStr, typeStr, slotStr);
+                } catch (Exception e) {
+                    query.message = "Ngày bạn cung cấp không hợp lệ. Vui lòng nhập theo dạng yyyy-MM-dd.";
+                }
+                break;
+            }
+            case "book_pitch": {
+                if (matched.isEmpty()) {
+                    query.message = String.format("Không tìm thấy%s %s nào phù hợp để đặt.", envStr, typeStr);
+                    break;
+                }
+                PitchResponseDTO target = null;
+                if (sessionId != null && sessionPitches.get(sessionId) != null) {
+                    PitchResponseDTO cached = sessionPitches.get(sessionId);
+                    if (matched.stream().anyMatch(p -> p.getPitchId().equals(cached.getPitchId()))) {
+                        target = cached;
+                    }
+                }
+                if (target == null) target = matched.get(0);
+
+                query.message = String.format("Bạn muốn đặt sân \"%s\" (%s%s) tại %s. Nhấn nút bên dưới để chọn ngày và khung giờ nhé 👇",
+                        target.getName(), typeStr, envStr, target.getAddress());
+                query.data.put("pendingBooking", true);
+                query.data.put("suggestedPitch", target);
+                query.data.put("showBookingButton", true);
+                if (query.bookingDate != null) query.data.put("bookingDate", query.bookingDate);
+                if (!query.slotList.isEmpty()) query.data.put("slotList", query.slotList);
+                query.data.put("matchedPitches", matched);
+                break;
+            }
+            case "list_my_bookings": {
+                UUID userId = resolveCurrentUserId(sessionId);
+                if (userId == null) {
+                    query.message = "Bạn cần đăng nhập để xem các đơn đặt sân của mình.";
+                    break;
+                }
+                try {
+                    var bookings = bookingService.getBookingsByUser(userId);
+                    query.data.put("bookings", bookings);
+                    query.message = bookings.isEmpty()
+                            ? "Bạn chưa có đơn đặt sân nào."
+                            : String.format("Bạn có %d đơn đặt sân. Xem chi tiết bên dưới 👇", bookings.size());
+                } catch (Exception e) {
+                    query.message = "Không lấy được danh sách đơn đặt sân lúc này, bạn thử lại sau nhé.";
+                }
+                break;
+            }
+            case "list_pitches":
+            default: {
+                if (matched.isEmpty()) {
+                    query.message = String.format("Rất tiếc, không tìm thấy%s %s nào phù hợp.", envStr, typeStr);
+                } else {
+                    query.message = String.format("Đã tìm thấy %d%s %s. Xem danh sách bên dưới 👇", matched.size(), envStr, typeStr);
+                }
+                query.data.put("matchedPitches", matched);
+                break;
+            }
+        }
+
+        try {
+            String userIdStr = null;
+            if (sessionId != null) {
+                UUID uid = userService.getUserIdBySession(sessionId);
+                if (uid != null) userIdStr = uid.toString();
+            }
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("raw_user_input", userInput);
+            metadata.put("pitch_action", action);
+            metadata.put("matched_pitch_count", matched.size());
+            metadata.put("requested_pitch_type", query.pitchType);
+            if (requestedEnvironment != null) metadata.put("requested_environment", requestedEnvironment.name());
+            if (query.bookingDate != null) metadata.put("booking_date", query.bookingDate);
+            if (!query.slotList.isEmpty()) metadata.put("slot_list", query.slotList);
+            logPublisherService.publishEvent(userIdStr, sessionId, "CHAT_INTENT_RESOLVED", null, null, metadata, "AI_Chatbot");
+        } catch (Exception e) {
+            System.err.println("Không thể ghi log AI Chat (pitch): " + e.getMessage());
+        }
+
+        if (query.message == null || query.message.isBlank()) {
+            query.message = "Mình đã ghi nhận yêu cầu sân của bạn, nhưng chưa có dữ liệu phù hợp để trả lời.";
+        }
         return query;
     }
 
@@ -1243,7 +1486,7 @@ public class AIChat {
           "message": "thông điệp mặc định" (hoặc null),
           "environment": "INDOOR" | "OUTDOOR" | null,
           "data": {
-            "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | "list_on_sale" | "count_on_sale" | "max_discount_product" | "best_selling_product" | "search_by_price_range" | "cheapest_product" | "most_expensive_product" | "product_detail" | null,
+            "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | "list_on_sale" | "count_on_sale" | "max_discount_product" | "best_selling_product" | "search_by_price_range" | "cheapest_product" | "most_expensive_product" | "product_detail" | "list_pitches" | "count_pitches_by_type" | "check_pitch_availability" | "book_pitch" | "list_my_bookings" | "cheapest_pitch" | "most_expensive_pitch" | null,
             "productName": "...",
             "city": "...",
             "size": "...",
@@ -1264,6 +1507,14 @@ public class AIChat {
         - Slot 1-18 tương ứng 6h-24h (mỗi slot 1 tiếng).
         - THỜI GIAN HỆ THỐNG: Hôm nay: {{today}}, Ngày mai: {{plus1}}, Năm: {{year}}.
         - "Mỗi loại sân có bao nhiêu sân?" -> data: {"pitchCounts": {"FIVE_A_SIDE": {{fiveASideCount}}, "SEVEN_A_SIDE": {{sevenASideCount}}, "ELEVEN_A_SIDE": {{elevenASideCount}}}}
+        - Câu hỏi liệt kê / xem danh sách sân (vd: "có những sân nào", "cho xem danh sách sân", "sân 7 người ngoài trời có không") -> action: "list_pitches", kèm `pitchType` và `environment` nếu có.
+        - Câu hỏi đếm số lượng sân (vd: "có bao nhiêu sân 5 người", "mấy sân 7") -> action: "count_pitches_by_type", kèm `pitchType`.
+        - Câu hỏi kiểm tra sân trống theo ngày/giờ (vd: "sân 7 còn trống ngày mai 19h", "còn slot nào trống không") -> action: "check_pitch_availability", kèm `bookingDate` (yyyy-MM-dd), `slotList`, `pitchType`.
+        - Câu đặt sân (vd: "đặt sân 5 ngày 20/4 slot 13", "book sân 7 chiều mai") -> action: "book_pitch", kèm đầy đủ `pitchType`, `bookingDate`, `slotList`.
+        - Câu hỏi sân giá rẻ/đắt nhất:
+          + Nếu KHÔNG nêu loại sân cụ thể (vd: "sân rẻ nhất", "tìm sân giá thấp nhất") -> action: "cheapest_pitch" hoặc "most_expensive_pitch", `pitchType`: "ALL" (tìm trên TOÀN BỘ sân, không giới hạn loại).
+          + Nếu có nêu loại sân (vd: "sân 5 mắc nhất", "sân 7 rẻ nhất") -> action như trên NHƯNG `pitchType` PHẢI đúng loại ("FIVE_A_SIDE" / "SEVEN_A_SIDE" / "ELEVEN_A_SIDE") để chỉ tìm trong loại đó.
+        - Câu hỏi đơn đặt của tôi -> action: "list_my_bookings".
 
         ❗️ QUY TẮC XỬ LÝ SẢN PHẨM:
         - Nếu hỏi về giá sản phẩm (rẻ nhất/mắc nhất), dùng action "cheapest_product" hoặc "most_expensive_product".
@@ -1285,7 +1536,7 @@ public class AIChat {
 
         ❗️ QUY TẮC PHÂN BIỆT:
         - Nếu chứa từ 'sản phẩm', 'giày', 'áo'... -> Hỏi về SẢN PHẨM.
-        - Nếu chứa từ 'sân', 'sân bóng'... -> Hỏi về SÂN.
+        - Nếu chứa từ 'sân', 'sân bóng', 'đặt sân', 'book sân'... -> Hỏi về SÂN; BẮT BUỘC gán một action sân tương ứng ở trên (không để action=null).
         """;
 
     public static class BookingQuery {

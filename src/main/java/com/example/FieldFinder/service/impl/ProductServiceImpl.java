@@ -445,7 +445,8 @@ public class ProductServiceImpl implements ProductService {
             return new ArrayList<>();
 
         List<String> lowerKeywords = keywords.stream().map(String::toLowerCase).collect(Collectors.toList());
-        List<Product> candidates = productRepository.findByKeywords(lowerKeywords);
+        String firstKeyword = lowerKeywords.get(0);
+        List<Product> candidates = productRepository.findByKeywords(lowerKeywords, firstKeyword);
 
         return candidates.stream()
                 .filter(p -> isValidCategory(p, majorCategory))
@@ -559,7 +560,8 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public ProductResponseDTO getProductByName(String productName) {
-        List<Product> products = productRepository.findByKeywords(List.of(productName.toLowerCase()));
+        String keyword = productName.toLowerCase();
+        List<Product> products = productRepository.findByKeywords(List.of(keyword), keyword);
         return products.isEmpty() ? null : mapToResponse(products.getFirst(), Collections.emptyList());
     }
 

@@ -14,9 +14,11 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     @Query("SELECT p FROM Product p JOIN p.variants v GROUP BY p ORDER BY SUM(v.soldQuantity) DESC")
     List<Product> findTopSellingProducts(Pageable pageable);
 
-    @Query("SELECT DISTINCT p FROM Product p LEFT JOIN p.tags t " +
-            "WHERE LOWER(t) IN :keywords " +
-            "OR LOWER(p.brand) IN :keywords " +
-            "OR LOWER(p.name) IN :keywords")
-    List<Product> findByKeywords(@Param("keywords") List<String> keywords);
+    @Query(value = "SELECT DISTINCT p.* FROM products p " +
+            "WHERE LOWER(p.name) IN (:keywords) " +
+            "OR LOWER(p.brand) IN (:keywords) " +
+            "OR LOWER(p.tags) LIKE CONCAT('%', :firstKeyword, '%')",
+            nativeQuery = true)
+    List<Product> findByKeywords(@Param("keywords") List<String> keywords,
+                                 @Param("firstKeyword") String firstKeyword);
 }
