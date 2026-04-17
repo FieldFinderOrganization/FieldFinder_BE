@@ -28,6 +28,17 @@ public class CloudinaryService {
         return buildResponseMap(uploadResult);
     }
 
+    public Map<String, Object> uploadChatImage(MultipartFile file, String senderId) throws IOException {
+        Map params = ObjectUtils.asMap(
+                "folder", "field_finder_chat/" + senderId,
+                "resource_type", "image"
+        );
+
+        Map uploadResult = cloudinary.uploader().upload(file.getBytes(), params);
+
+        return buildResponseMap(uploadResult);
+    }
+
     private Map<String, Object> buildResponseMap(Map uploadResult) {
         Map<String, Object> result = new HashMap<>();
         result.put("url", uploadResult.get("url"));

@@ -25,8 +25,11 @@ public class ChatMessage {
     @Column(name = "receiver_id", nullable = false)
     private UUID receiverId;
 
-    @Column(name = "content", nullable = false)
+    @Column(name = "content")
     private String content;
+
+    @Column(name = "image_url")
+    private String imageUrl;
 
     @Column(name = "timestamp")
     private Date timestamp;

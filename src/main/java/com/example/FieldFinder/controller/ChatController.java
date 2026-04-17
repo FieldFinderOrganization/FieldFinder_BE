@@ -5,16 +5,19 @@ import com.example.FieldFinder.entity.ChatMessage;
 import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.repository.ChatMessageRepository;
 import com.example.FieldFinder.repository.UserRepository;
+import com.example.FieldFinder.service.CloudinaryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -27,6 +30,7 @@ public class ChatController {
     private final SimpMessagingTemplate messagingTemplate;
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
+    private final CloudinaryService cloudinaryService;
 
     @MessageMapping("/chat")
     public void processMessage(@Payload ChatMessage chatMessage) {
@@ -71,6 +75,18 @@ public class ChatController {
         return ResponseEntity.ok(chatMessageRepository.countUnreadMessages(userId));
     }
 
+    @PostMapping("/upload-image")
+    public ResponseEntity<Map<String, String>> uploadChatImage(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("senderId") String senderId) {
+        try {
+            Map<String, Object> result = cloudinaryService.uploadChatImage(file, senderId);
+            return ResponseEntity.ok(Map.of("imageUrl", result.get("url").toString()));
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", "Upload ảnh thất bại"));
+        }
+    }
+
     @GetMapping("/conversations")
     public ResponseEntity<List<ConversationDTO>> getConversations(@RequestParam UUID userId) {
         Set<UUID> partnerSet = new HashSet<>();
@@ -85,7 +101,7 @@ public class ChatController {
                     User partner = partnerOpt.get();
                     Page<ChatMessage> lastMsgPage = chatMessageRepository
                             .getConversation(userId, partnerId, PageRequest.of(0, 1));
-                    ChatMessage last = lastMsgPage.isEmpty() ? null : lastMsgPage.getContent().get(0);
+                    ChatMessage last = lastMsgPage.isEmpty() ? null : lastMsgPage.getContent().getFirst();
                     long unread = chatMessageRepository.countUnreadFromSender(partnerId, userId);
                     return new ConversationDTO(
                             partnerId.toString(),
