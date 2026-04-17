@@ -25,7 +25,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void sendLoginOtp(String email) {
-        generateAndSendOtp(email, LOGIN_OTP_PREFIX, "FieldFinder -Mã xác thực đăng nhập FieldFinder", "Mã OTP đăng nhập");
+        generateAndSendOtp(email, LOGIN_OTP_PREFIX, "FieldFinder - Mã xác thực đăng nhập FieldFinder", "Mã OTP đăng nhập");
     }
 
     // Thêm phương thức mới cho Reset Password
