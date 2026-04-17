@@ -3,6 +3,8 @@ package com.example.FieldFinder.repository;
 import com.example.FieldFinder.Enum.OrderStatus;
 import com.example.FieldFinder.entity.Order;
 import com.example.FieldFinder.entity.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -21,4 +23,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     @Query("SELECT COALESCE(SUM(o.totalAmount), 0) FROM Order o WHERE o.status IN :statuses")
     Double sumTotalAmountByStatuses(@Param("statuses") List<OrderStatus> statuses);
+
+    Page<Order> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    Page<Order> findByStatusOrderByCreatedAtDesc(OrderStatus status, Pageable pageable);
 }

@@ -18,4 +18,11 @@ public interface ReviewRepository extends JpaRepository<Review, UUID> {
 
     @Query("SELECT AVG(r.rating) FROM Review r")
     Double findOverallAverageRating();
+
+    @Query("SELECT r.rating, COUNT(r) FROM Review r GROUP BY r.rating ORDER BY r.rating DESC")
+    List<Object[]> countByRating();
+
+    List<Review> findTop10ByOrderByCreatedAtDesc();
+
+    long countByRatingEquals(int rating);
 }

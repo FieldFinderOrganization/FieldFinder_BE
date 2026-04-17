@@ -4,6 +4,8 @@ import com.example.FieldFinder.Enum.BookingStatus;
 import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.entity.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -60,4 +62,10 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
     @Query("SELECT DAYOFWEEK(b.bookingDate), COUNT(b) FROM Booking b WHERE b.bookingDate BETWEEN :startDate AND :endDate GROUP BY DAYOFWEEK(b.bookingDate)")
     List<Object[]> countBookingsByDayOfWeek(@Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
+
+    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.user LEFT JOIN FETCH b.bookingDetails bd LEFT JOIN FETCH bd.pitch ORDER BY b.createdAt DESC")
+    Page<Booking> findAllWithDetails(Pageable pageable);
+
+    @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.user LEFT JOIN FETCH b.bookingDetails bd LEFT JOIN FETCH bd.pitch WHERE b.status = :status ORDER BY b.createdAt DESC")
+    Page<Booking> findAllByStatusWithDetails(@Param("status") BookingStatus status, Pageable pageable);
 }

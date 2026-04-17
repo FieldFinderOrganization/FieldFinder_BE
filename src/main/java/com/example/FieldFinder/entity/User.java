@@ -52,4 +52,7 @@ public class User {
 
     @Column(name = "LastLoginAt")
     private Date lastLoginAt;
+
+    @Column(name = "CreatedAt", updatable = false)
+    private Date createdAt;
 }
