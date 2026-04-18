@@ -32,6 +32,9 @@ public class ReviewServiceImpl implements ReviewService {
         Pitch pitch = pitchRepository.findById(requestDTO.getPitchId()).orElseThrow(() -> new RuntimeException("Pitch not found!"));
         User user = userRepository.findById(requestDTO.getUserId()).orElseThrow(() -> new RuntimeException("User not found!"));
 
+        reviewRepository.findByPitch_PitchIdAndUser_UserId(requestDTO.getPitchId(), requestDTO.getUserId())
+                .ifPresent(r -> { throw new RuntimeException("User has already reviewed this pitch!"); });
+
         Review review = Review.builder()
                 .pitch(pitch)
                 .user(user)
@@ -66,6 +69,12 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     @Override
+    public List<ReviewResponseDTO> getReviewsByUser(UUID userId) {
+        return reviewRepository.findByUser_UserId(userId).stream()
+                .map(this::mapToDTO).collect(Collectors.toList());
+    }
+
+    @Override
     public Double getAverageRating(UUID pitchId) {
         return reviewRepository.findAverageRatingByPitchId(pitchId);
     }
@@ -74,6 +83,7 @@ public class ReviewServiceImpl implements ReviewService {
         return ReviewResponseDTO.builder()
                 .reviewId(review.getReviewId())
                 .pitchId(review.getPitch().getPitchId())
+                .pitchName(review.getPitch().getName())
                 .userId(review.getUser().getUserId())
                 .rating(review.getRating())
                 .comment(review.getComment())

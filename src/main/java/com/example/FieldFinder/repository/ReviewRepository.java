@@ -7,11 +7,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public interface ReviewRepository extends JpaRepository<Review, UUID> {
     List<Review> findByPitch_PitchId(UUID pitchId);
+
+    List<Review> findByUser_UserId(UUID userId);
+
+    Optional<Review> findByPitch_PitchIdAndUser_UserId(UUID pitchId, UUID userId);
 
     @Query("SELECT AVG(r.rating) FROM Review r WHERE r.pitch.pitchId = :pitchId")
     Double findAverageRatingByPitchId(UUID pitchId);

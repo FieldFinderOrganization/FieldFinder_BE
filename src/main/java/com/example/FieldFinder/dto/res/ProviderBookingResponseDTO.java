@@ -28,6 +28,7 @@ public class ProviderBookingResponseDTO {
     private String paymentStatus;
     private BigDecimal totalPrice;
     private UUID providerId;
+    private UUID pitchId;
 
     private String paymentMethod;
     private String providerName;

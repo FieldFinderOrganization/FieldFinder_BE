@@ -49,4 +49,10 @@ public class ReviewController {
     public ResponseEntity<Double> getAverageRating(@PathVariable UUID pitchId) {
         return ResponseEntity.ok(reviewService.getAverageRating(pitchId));
     }
+
+    @GetMapping("/user/{userId}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<ReviewResponseDTO>> getReviewsByUser(@PathVariable UUID userId) {
+        return ResponseEntity.ok(reviewService.getReviewsByUser(userId));
+    }
 }

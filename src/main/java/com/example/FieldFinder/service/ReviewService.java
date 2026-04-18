@@ -11,5 +11,6 @@ public interface ReviewService {
     ReviewResponseDTO updateReview(UUID reviewId, ReviewRequestDTO requestDTO);
     void deleteReview(UUID reviewId);
     List<ReviewResponseDTO> getReviewsByPitch(UUID pitchId);
+    List<ReviewResponseDTO> getReviewsByUser(UUID userId);
     Double getAverageRating(UUID pitchId);
 }

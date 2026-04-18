@@ -283,6 +283,7 @@ public class BookingServiceImpl implements BookingService {
             String providerName = "Không xác định";
             String pitchImageUrl = null;
             UUID providerId = null;
+            UUID pitchId = null;
             UUID providerUserId = null;
             List<Integer> slots = new ArrayList<>();
 
@@ -291,6 +292,7 @@ public class BookingServiceImpl implements BookingService {
                 Pitch pitch = firstDetail.getPitch();
                 if (pitch != null) {
                     pitchName = pitch.getName();
+                    pitchId = pitch.getPitchId();
                     if (pitch.getImageUrls() != null && !pitch.getImageUrls().isEmpty()) {
                         pitchImageUrl = pitch.getImageUrls().getFirst();
                     }
@@ -328,6 +330,7 @@ public class BookingServiceImpl implements BookingService {
                     .paymentStatus(booking.getPaymentStatus() != null ? booking.getPaymentStatus().name() : "PENDING")
                     .totalPrice(booking.getTotalPrice())
                     .pitchName(pitchName)
+                    .pitchId(pitchId)
                     .pitchImageUrl(pitchImageUrl)
                     .providerName(providerName)
                     .providerId(providerId)

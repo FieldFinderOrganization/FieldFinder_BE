@@ -18,4 +18,5 @@ public class ReviewResponseDTO {
     private String createdAt;
     private String userName;
     private String userImageUrl;
+    private String pitchName;
 }
