@@ -1263,6 +1263,15 @@ public class AIChat {
                         target = cached;
                     }
                 }
+                if (target == null) {
+                    String lowerInput = userInput.toLowerCase();
+                    for (PitchResponseDTO pitch : matched) {
+                        if (lowerInput.contains(pitch.getName().toLowerCase())) {
+                            target = pitch;
+                            break;
+                        }
+                    }
+                }
                 if (target == null) target = matched.get(0);
 
                 if (query.bookingDate != null && !query.slotList.isEmpty()) {
