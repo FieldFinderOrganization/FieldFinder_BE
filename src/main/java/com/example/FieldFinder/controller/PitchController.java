@@ -38,8 +38,9 @@ public class PitchController {
     @GetMapping
     public ResponseEntity<Page<PitchResponseDTO>> getAllPitches(Pageable pageable,
                                                                 @RequestParam(required = false) String district,
-                                                                @RequestParam(required = false) String type) {
-        Page<PitchResponseDTO> pitches = pitchService.getAllPitches(pageable, district, type);
+                                                                @RequestParam(required = false) String type,
+                                                                @RequestParam(required = false) String name) {
+        Page<PitchResponseDTO> pitches = pitchService.getAllPitches(pageable, district, type, name);
         return ResponseEntity.ok(pitches);
     }
 
@@ -62,5 +63,4 @@ public class PitchController {
         PitchResponseDTO pitch = pitchService.getPitchById(pitchId);
         return ResponseEntity.ok(pitch);
     }
-
 }

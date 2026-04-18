@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.cdimascio.dotenv.Dotenv;
 import okhttp3.*;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -328,7 +329,7 @@ public class AIChat {
 
                 if (!finalResults.isEmpty()) {
                     if (sessionId != null) {
-                        sessionLastProducts.put(sessionId, finalResults.getFirst());
+                        sessionLastProducts.put(sessionId, finalResults.get(0));
                         System.out.println("✅ Image Search: Saved Context for Session " + sessionId + " -> " + finalResults.get(0).getName());
                     }
 
@@ -874,7 +875,7 @@ public class AIChat {
             PitchEnvironment env = suggestEnvironmentByWeather(weather);
 
             List<PitchResponseDTO> suggestedPitches =
-                    pitchService.getAllPitches(PageRequest.of(0, 50), null, null).getContent().stream()
+                    pitchService.getAllPitches(PageRequest.of(0, 50), null, null, null).getContent().stream()
                             .filter(p -> p.getEnvironment() == env)
                             .limit(5)
                             .toList();
@@ -987,7 +988,7 @@ public class AIChat {
             return query;
         }
 
-        List<PitchResponseDTO> allPitches = pitchService.getAllPitches(PageRequest.of(0, 50), null, null).getContent();
+        List<PitchResponseDTO> allPitches = pitchService.getAllPitches(PageRequest.of(0, 50), null, null, null).getContent();
         String finalPrompt = buildSystemPrompt(allPitches);
 
         BookingQuery query;
@@ -1560,7 +1561,7 @@ public class AIChat {
     }
 
     public PitchResponseDTO findPitchByContext(String userInput) {
-        List<PitchResponseDTO> pitches = pitchService.getAllPitches(PageRequest.of(0, 50), null, null).getContent();
+        List<PitchResponseDTO> pitches = pitchService.getAllPitches(PageRequest.of(0, 50), null, null, null).getContent();
         if (userInput.contains("rẻ nhất")) {
             return pitches.stream()
                     .min(Comparator.comparing(PitchResponseDTO::getPrice))

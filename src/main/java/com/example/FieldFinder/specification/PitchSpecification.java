@@ -17,6 +17,18 @@ public class PitchSpecification {
         };
     }
 
+    public static Specification<Pitch> hasName(String name) {
+        return (root, query, criteriaBuilder) -> {
+            if (name == null || name.isEmpty()) {
+                return null;
+            }
+            return criteriaBuilder.like(
+                    criteriaBuilder.lower(root.get("name")),
+                    "%" + name.toLowerCase() + "%"
+            );
+        };
+    }
+
     public static Specification<Pitch> hasType(String type) {
         return (root, query, criteriaBuilder) -> {
             if (type == null || type.isEmpty()) {

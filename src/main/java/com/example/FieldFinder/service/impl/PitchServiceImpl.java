@@ -81,9 +81,10 @@ public class PitchServiceImpl implements PitchService {
         pitchRepository.deleteById(pitchId);
     }
     @Override
-    public Page<PitchResponseDTO> getAllPitches(Pageable pageable, String district, String type) {
+    public Page<PitchResponseDTO> getAllPitches(Pageable pageable, String district, String type, String name) {
         Specification<Pitch> spec = Specification.where(PitchSpecification.hasDistrict(district))
-                .and(PitchSpecification.hasType(type));
+                .and(PitchSpecification.hasType(type))
+                .and(PitchSpecification.hasName(name));
 
         Page<Pitch> pitches = pitchRepository.findAll(spec, pageable);
 
