@@ -1132,6 +1132,17 @@ public class AIChat {
                 .filter(p -> requestedEnvironment == null || p.getEnvironment() == requestedEnvironment)
                 .collect(Collectors.toList());
 
+        boolean isAvailabilityCheck = "book_pitch".equals(action) || "check_pitch_availability".equals(action);
+        if (isAvailabilityCheck && query.bookingDate != null && !query.slotList.isEmpty()) {
+            try {
+                LocalDate date = LocalDate.parse(query.bookingDate);
+                matched = matched.stream().filter(p -> {
+                    List<Integer> booked = bookingService.getBookedTimeSlots(p.getPitchId(), date);
+                    return query.slotList.stream().noneMatch(booked::contains);
+                }).collect(Collectors.toList());
+            } catch (Exception e) {}
+        }
+
         String envStr = requestedEnvironment != null ? " " + formatEnvironment(requestedEnvironment) : "";
         String typeStr = formatPitchType(query.pitchType);
 
@@ -1189,36 +1200,48 @@ public class AIChat {
             }
             case "check_pitch_availability": {
                 if (matched.isEmpty()) {
-                    query.message = String.format("Không có%s %s nào phù hợp để kiểm tra.", envStr, typeStr);
+                    if (query.bookingDate != null && !query.slotList.isEmpty()) {
+                        query.message = String.format("Ngày %s: Rất tiếc, các%s %s đều đã được đặt kín trong khung giờ %s.", query.bookingDate, envStr, typeStr, query.slotList);
+                    } else {
+                        query.message = String.format("Không có%s %s nào phù hợp để kiểm tra.", envStr, typeStr);
+                    }
                     break;
                 }
                 if (query.bookingDate == null) {
-                    query.message = "Bạn muốn kiểm tra sân trống ngày nào? Vui lòng cho mình biết ngày (vd: 2026-04-20).";
+                    query.message = "Bạn muốn kiểm tra sân trống ngày nào? Vui lòng cho mình biết ngày (vd: " + LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).toString() + ").";
                     break;
                 }
                 try {
                     LocalDate date = LocalDate.parse(query.bookingDate);
                     List<Integer> desired = query.slotList.isEmpty() ? null : query.slotList;
                     List<Map<String, Object>> availability = new ArrayList<>();
+                    List<PitchResponseDTO> finalMatched = new ArrayList<>();
                     for (PitchResponseDTO p : matched) {
                         List<Integer> booked = bookingService.getBookedTimeSlots(p.getPitchId(), date);
                         List<Integer> freeSlots = new ArrayList<>();
                         for (int s = 1; s <= 18; s++) if (!booked.contains(s)) freeSlots.add(s);
                         List<Integer> checkSlots = desired != null ? desired : freeSlots;
                         List<Integer> freeInRequested = checkSlots.stream().filter(freeSlots::contains).collect(Collectors.toList());
+                        if (freeInRequested.isEmpty()) continue;
+
                         Map<String, Object> item = new HashMap<>();
                         item.put("pitchId", p.getPitchId());
                         item.put("name", p.getName());
                         item.put("address", p.getAddress());
                         item.put("availableSlots", freeInRequested);
                         availability.add(item);
+                        finalMatched.add(p);
                     }
                     query.data.put("availability", availability);
-                    query.data.put("matchedPitches", matched);
-                    long avail = availability.stream().filter(a -> !((List<?>) a.get("availableSlots")).isEmpty()).count();
+                    query.data.put("matchedPitches", finalMatched);
+                    long avail = finalMatched.size();
                     String slotStr = desired != null ? " khung giờ " + desired : "";
-                    query.message = String.format("Ngày %s: có %d/%d%s %s còn slot trống%s. Xem chi tiết bên dưới 👇",
-                            query.bookingDate, avail, matched.size(), envStr, typeStr, slotStr);
+                    if (avail == 0) {
+                        query.message = String.format("Ngày %s%s: Rất tiếc, các%s %s đều đã kín lịch.", query.bookingDate, slotStr, envStr, typeStr);
+                    } else {
+                        query.message = String.format("Ngày %s: có %d%s %s còn slot trống%s. Xem chi tiết bên dưới 👇",
+                                query.bookingDate, avail, envStr, typeStr, slotStr);
+                    }
                 } catch (Exception e) {
                     query.message = "Ngày bạn cung cấp không hợp lệ. Vui lòng nhập theo dạng yyyy-MM-dd.";
                 }
@@ -1226,7 +1249,11 @@ public class AIChat {
             }
             case "book_pitch": {
                 if (matched.isEmpty()) {
-                    query.message = String.format("Không tìm thấy%s %s nào phù hợp để đặt.", envStr, typeStr);
+                    if (query.bookingDate != null && !query.slotList.isEmpty()) {
+                        query.message = String.format("Rất tiếc,%s %s đều đã kín lịch trong khung giờ %s ngày %s.", envStr, typeStr, query.slotList, query.bookingDate);
+                    } else {
+                        query.message = String.format("Không tìm thấy%s %s nào phù hợp để đặt.", envStr, typeStr);
+                    }
                     break;
                 }
                 PitchResponseDTO target = null;
@@ -1238,14 +1265,23 @@ public class AIChat {
                 }
                 if (target == null) target = matched.get(0);
 
-                query.message = String.format("Bạn muốn đặt sân \"%s\" (%s%s) tại %s. Nhấn nút bên dưới để chọn ngày và khung giờ nhé 👇",
-                        target.getName(), typeStr, envStr, target.getAddress());
+                if (query.bookingDate != null && !query.slotList.isEmpty()) {
+                    int minSlot = Collections.min(query.slotList);
+                    int maxSlot = Collections.max(query.slotList);
+                    int startHour = minSlot + 5;
+                    int endHour = maxSlot + 6;
+                    query.message = String.format("Mình đã giúp bạn chuẩn bị thông tin đặt sân \"%s\" từ %dh đến %dh ngày %s, bạn vui lòng nhấn vào đây để tiến hành thanh toán nhé 👇",
+                            target.getName(), startHour, endHour, query.bookingDate);
+                } else {
+                    query.message = String.format("Bạn muốn đặt sân \"%s\" (%s%s) tại %s. Nhấn nút bên dưới để chọn ngày và khung giờ nhé 👇",
+                            target.getName(), typeStr, envStr, target.getAddress());
+                }
+
                 query.data.put("pendingBooking", true);
                 query.data.put("suggestedPitch", target);
                 query.data.put("showBookingButton", true);
                 if (query.bookingDate != null) query.data.put("bookingDate", query.bookingDate);
                 if (!query.slotList.isEmpty()) query.data.put("slotList", query.slotList);
-                query.data.put("matchedPitches", matched);
                 break;
             }
             case "list_my_bookings": {
@@ -1504,7 +1540,9 @@ public class AIChat {
         ❗️ QUY TẮC XỬ LÝ SÂN:
         - `pitchType`: Loại sân (5, 7, 11 người).
         - `environment`: "INDOOR" (trong nhà/có mái che), "OUTDOOR" (ngoài trời).
-        - Slot 1-18 tương ứng 6h-24h (mỗi slot 1 tiếng).
+        - Giờ (từ 6h sáng đến 24h) được ánh xạ vào slot (1-18) như sau:
+          Slot 1: 6h-7h, Slot 2: 7h-8h, Slot 3: 8h-9h, Slot 4: 9h-10h, Slot 5: 10h-11h ... đến Slot 18: 23h-24h.
+          CHÚ Ý ĐẶC BIỆT: "từ 7h đến 11h" => `slotList`: [2, 3, 4, 5] (vì 7h-8h là slot 2, 8h-9h là slot 3, 9h-10h là slot 4, 10h-11h là slot 5). "từ 16h đến 18h" => `slotList`: [11, 12]. Tương tự cho các giờ khác!
         - THỜI GIAN HỆ THỐNG: Hôm nay: {{today}}, Ngày mai: {{plus1}}, Năm: {{year}}.
         - "Mỗi loại sân có bao nhiêu sân?" -> data: {"pitchCounts": {"FIVE_A_SIDE": {{fiveASideCount}}, "SEVEN_A_SIDE": {{sevenASideCount}}, "ELEVEN_A_SIDE": {{elevenASideCount}}}}
         - Câu hỏi liệt kê / xem danh sách sân (vd: "có những sân nào", "cho xem danh sách sân", "sân 7 người ngoài trời có không") -> action: "list_pitches", kèm `pitchType` và `environment` nếu có.
