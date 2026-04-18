@@ -64,6 +64,8 @@ public class AdminDetailController {
             item.put("status", u.getStatus().name());
             item.put("lastLoginAt", u.getLastLoginAt() != null
                     ? u.getLastLoginAt().toInstant().toString() : null);
+            item.put("createdAt", u.getCreatedAt() != null
+                    ? u.getCreatedAt().toInstant().toString() : null);
             content.add(item);
         }
 
@@ -144,6 +146,21 @@ public class AdminDetailController {
         result.put("totalElements", bookingPage.getTotalElements());
         result.put("totalPages", bookingPage.getTotalPages());
         result.put("currentPage", page);
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/bookings/stats")
+    public ResponseEntity<Map<String, Object>> getBookingStats() {
+        long confirmed = bookingRepository.countByStatus(BookingStatus.CONFIRMED);
+        long canceled  = bookingRepository.countByStatus(BookingStatus.CANCELED);
+        long pending   = bookingRepository.countByStatus(BookingStatus.PENDING);
+        long total     = confirmed + canceled + pending;
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("confirmed", confirmed);
+        result.put("canceled",  canceled);
+        result.put("pending",   pending);
+        result.put("total",     total);
         return ResponseEntity.ok(result);
     }
 

@@ -55,6 +55,7 @@ public class AdminStatisticsController {
         long totalUsers = userRepository.count();
         long totalPitches = pitchRepository.count();
         long bookingsTodayCount = bookingRepository.countByBookingDate(today);
+        long totalBookings = bookingRepository.count();
         long pendingOrdersCount = orderRepository.countByStatus(OrderStatus.PENDING);
         BigDecimal bookingRevenue = bookingRepository.sumTotalPriceByPaymentStatus(PaymentStatus.PAID);
         if (bookingRevenue == null) bookingRevenue = BigDecimal.ZERO;
@@ -79,6 +80,7 @@ public class AdminStatisticsController {
         response.put("pitchesChangePercent", 0.0);
         response.put("bookingsTodayCount", bookingsTodayCount);
         response.put("bookingsTodayChangePercent", 0.0);
+        response.put("totalBookings", totalBookings);
         response.put("pendingOrdersCount", pendingOrdersCount);
         response.put("averageRating", avgRating != null ? BigDecimal.valueOf(avgRating).setScale(1, RoundingMode.HALF_UP) : 0.0);
 
@@ -107,6 +109,10 @@ public class AdminStatisticsController {
             BigDecimal amount = new BigDecimal(row[1].toString());
             revenueByDate.merge(date, amount, BigDecimal::add);
         }
+
+        // Fill zero for dates with no revenue in the range
+        start.datesUntil(end.plusDays(1))
+                .forEach(d -> revenueByDate.putIfAbsent(d.toString(), BigDecimal.ZERO));
 
         // Sort by date and build response
         List<Map<String, Object>> result = revenueByDate.entrySet().stream()
@@ -207,8 +213,9 @@ public class AdminStatisticsController {
         long totalProducts = productRepository.countAllProducts();
         Long totalSold = productRepository.sumTotalSold();
 
-        // Top 5 sản phẩm bán chạy theo doanh thu từ đơn hàng
-        List<Object[]> topRaw = orderItemRepository.findTopSellingProductsWithRevenue(PageRequest.of(0, 5));
+        // Top 5 sản phẩm bán chạy theo doanh thu từ đơn hàng (chỉ tính đơn thành công)
+        List<OrderStatus> paidStatuses = List.of(OrderStatus.PAID, OrderStatus.CONFIRMED, OrderStatus.DELIVERED);
+        List<Object[]> topRaw = orderItemRepository.findTopSellingProductsWithRevenue(paidStatuses, PageRequest.of(0, 5));
         List<Map<String, Object>> topProducts = new ArrayList<>();
         for (Object[] row : topRaw) {
             Map<String, Object> item = new LinkedHashMap<>();

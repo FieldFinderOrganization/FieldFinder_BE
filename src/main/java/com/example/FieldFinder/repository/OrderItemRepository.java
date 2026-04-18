@@ -13,9 +13,10 @@ import java.util.List;
 public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
 
     @Query("SELECT oi.product.productId, oi.product.name, oi.product.imageUrl, SUM(oi.quantity), SUM(oi.quantity * oi.price) " +
-            "FROM OrderItem oi GROUP BY oi.product.productId, oi.product.name, oi.product.imageUrl " +
+            "FROM OrderItem oi WHERE oi.order.status IN :statuses " +
+            "GROUP BY oi.product.productId, oi.product.name, oi.product.imageUrl " +
             "ORDER BY SUM(oi.quantity) DESC")
-    List<Object[]> findTopSellingProductsWithRevenue(org.springframework.data.domain.Pageable pageable);
+    List<Object[]> findTopSellingProductsWithRevenue(@Param("statuses") List<com.example.FieldFinder.Enum.OrderStatus> statuses, org.springframework.data.domain.Pageable pageable);
 
     @Query("SELECT COALESCE(SUM(oi.quantity * oi.price), 0) FROM OrderItem oi " +
             "WHERE oi.order.status IN :statuses")
