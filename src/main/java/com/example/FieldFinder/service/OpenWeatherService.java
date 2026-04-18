@@ -27,8 +27,9 @@ public class OpenWeatherService {
     private static final long CACHE_DURATION_MS = 15 * 60 * 1000;
 
     public String getCurrentWeather(String city) throws IOException {
+        String encodedCity = java.net.URLEncoder.encode(city, java.nio.charset.StandardCharsets.UTF_8);
         String url = String.format("%s?q=%s&appid=%s&units=metric&lang=vi",
-                openWeatherUrl, city, weatherApiKey);
+                openWeatherUrl, encodedCity, weatherApiKey);
 
         Request request = new Request.Builder().url(url).build();
 
