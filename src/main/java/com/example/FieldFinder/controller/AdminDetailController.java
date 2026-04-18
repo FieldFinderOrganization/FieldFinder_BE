@@ -13,6 +13,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -46,12 +49,14 @@ public class AdminDetailController {
     public ResponseEntity<Map<String, Object>> getUsers(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(defaultValue = "") String search) {
+            @RequestParam(defaultValue = "") String search,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String role) {
 
         PageRequest pageable = PageRequest.of(page, size, Sort.by("name").ascending());
-        Page<User> userPage = search.isBlank()
-                ? userRepository.findAll(pageable)
-                : userRepository.findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(search, search, pageable);
+        User.Status statusEnum = (status != null && !status.isBlank()) ? User.Status.valueOf(status) : null;
+        User.Role roleEnum = (role != null && !role.isBlank()) ? User.Role.valueOf(role) : null;
+        Page<User> userPage = userRepository.findWithFilters(search, statusEnum, roleEnum, pageable);
 
         List<Map<String, Object>> content = new ArrayList<>();
         for (User u : userPage.getContent()) {
@@ -108,17 +113,20 @@ public class AdminDetailController {
     public ResponseEntity<Map<String, Object>> getBookings(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) Double minPrice,
+            @RequestParam(required = false) Double maxPrice) {
 
         PageRequest pageable = PageRequest.of(page, size);
-        Page<Booking> bookingPage;
+        BookingStatus statusEnum = (status != null && !status.isBlank()) ? BookingStatus.valueOf(status.toUpperCase()) : null;
+        LocalDate start = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate) : null;
+        LocalDate end   = (endDate != null && !endDate.isBlank()) ? LocalDate.parse(endDate) : null;
+        BigDecimal minP = minPrice != null ? BigDecimal.valueOf(minPrice) : null;
+        BigDecimal maxP = maxPrice != null ? BigDecimal.valueOf(maxPrice) : null;
 
-        if (status != null && !status.isBlank()) {
-            BookingStatus bs = BookingStatus.valueOf(status.toUpperCase());
-            bookingPage = bookingRepository.findAllByStatusWithDetails(bs, pageable);
-        } else {
-            bookingPage = bookingRepository.findAllWithDetails(pageable);
-        }
+        Page<Booking> bookingPage = bookingRepository.findWithFilters(statusEnum, start, end, minP, maxP, pageable);
 
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         List<Map<String, Object>> content = new ArrayList<>();
@@ -170,17 +178,22 @@ public class AdminDetailController {
     public ResponseEntity<Map<String, Object>> getOrders(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "") String search,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) Double minAmount,
+            @RequestParam(required = false) Double maxAmount,
+            @RequestParam(defaultValue = "default") String sort) {
 
         PageRequest pageable = PageRequest.of(page, size);
-        Page<Order> orderPage;
+        OrderStatus statusEnum = (status != null && !status.isBlank()) ? OrderStatus.valueOf(status.toUpperCase()) : null;
+        LocalDateTime start = (startDate != null && !startDate.isBlank()) ? LocalDate.parse(startDate).atStartOfDay() : null;
+        LocalDateTime end   = (endDate != null && !endDate.isBlank()) ? LocalDate.parse(endDate).atTime(LocalTime.MAX) : null;
 
-        if (status != null && !status.isBlank()) {
-            OrderStatus os = OrderStatus.valueOf(status.toUpperCase());
-            orderPage = orderRepository.findByStatusOrderByCreatedAtDesc(os, pageable);
-        } else {
-            orderPage = orderRepository.findAllByOrderByCreatedAtDesc(pageable);
-        }
+        Page<Order> orderPage = "customer_most_orders".equals(sort)
+                ? orderRepository.findWithFiltersSortByCustomerCount(search, statusEnum, start, end, minAmount, maxAmount, pageable)
+                : orderRepository.findWithFilters(search, statusEnum, start, end, minAmount, maxAmount, pageable);
 
         List<Map<String, Object>> content = new ArrayList<>();
         for (Order o : orderPage.getContent()) {
@@ -221,10 +234,19 @@ public class AdminDetailController {
     @GetMapping("/pitches")
     public ResponseEntity<Map<String, Object>> getPitches(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "") String search,
+            @RequestParam(required = false) String type,
+            @RequestParam(defaultValue = "name") String sort) {
 
-        PageRequest pageable = PageRequest.of(page, size, Sort.by("name").ascending());
-        Page<Pitch> pitchPage = pitchRepository.findAll(pageable);
+        Sort sortSpec = switch (sort) {
+            case "price_asc"  -> Sort.by("price").ascending();
+            case "price_desc" -> Sort.by("price").descending();
+            default           -> Sort.by("name").ascending();
+        };
+        PageRequest pageable = PageRequest.of(page, size, sortSpec);
+        Pitch.PitchType typeEnum = (type != null && !type.isBlank()) ? Pitch.PitchType.valueOf(type) : null;
+        Page<Pitch> pitchPage = pitchRepository.findWithFilters(search, typeEnum, pageable);
 
         List<Map<String, Object>> content = new ArrayList<>();
         for (Pitch p : pitchPage.getContent()) {

@@ -1,9 +1,12 @@
 package com.example.FieldFinder.repository;
 
 import com.example.FieldFinder.entity.Pitch;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
@@ -19,4 +22,18 @@ public interface PitchRepository extends JpaRepository<Pitch, UUID>, JpaSpecific
 
     @Query("SELECT p.type, COUNT(p) FROM Pitch p GROUP BY p.type")
     List<Object[]> countByType();
+
+    @Query(value = "SELECT p FROM Pitch p " +
+            "LEFT JOIN p.providerAddress pa LEFT JOIN pa.provider pr LEFT JOIN pr.user pu " +
+            "WHERE (:search = '' OR LOWER(p.name) LIKE LOWER(CONCAT('%',:search,'%')) " +
+            "   OR LOWER(pu.name) LIKE LOWER(CONCAT('%',:search,'%'))) " +
+            "AND (:type IS NULL OR p.type = :type)",
+            countQuery = "SELECT COUNT(p) FROM Pitch p " +
+                    "LEFT JOIN p.providerAddress pa LEFT JOIN pa.provider pr LEFT JOIN pr.user pu " +
+                    "WHERE (:search = '' OR LOWER(p.name) LIKE LOWER(CONCAT('%',:search,'%')) " +
+                    "   OR LOWER(pu.name) LIKE LOWER(CONCAT('%',:search,'%'))) " +
+                    "AND (:type IS NULL OR p.type = :type)")
+    Page<Pitch> findWithFilters(@Param("search") String search,
+                                @Param("type") Pitch.PitchType type,
+                                Pageable pageable);
 }

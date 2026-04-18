@@ -68,4 +68,27 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.user LEFT JOIN FETCH b.bookingDetails bd LEFT JOIN FETCH bd.pitch WHERE b.status = :status ORDER BY b.createdAt DESC")
     Page<Booking> findAllByStatusWithDetails(@Param("status") BookingStatus status, Pageable pageable);
+
+    @Query(value = "SELECT DISTINCT b FROM Booking b " +
+            "LEFT JOIN FETCH b.user u " +
+            "LEFT JOIN FETCH b.bookingDetails bd " +
+            "LEFT JOIN FETCH bd.pitch " +
+            "WHERE (:status IS NULL OR b.status = :status) " +
+            "AND (:startDate IS NULL OR b.bookingDate >= :startDate) " +
+            "AND (:endDate IS NULL OR b.bookingDate <= :endDate) " +
+            "AND (:minPrice IS NULL OR b.totalPrice >= :minPrice) " +
+            "AND (:maxPrice IS NULL OR b.totalPrice <= :maxPrice) " +
+            "ORDER BY b.createdAt DESC",
+            countQuery = "SELECT COUNT(DISTINCT b) FROM Booking b " +
+                    "WHERE (:status IS NULL OR b.status = :status) " +
+                    "AND (:startDate IS NULL OR b.bookingDate >= :startDate) " +
+                    "AND (:endDate IS NULL OR b.bookingDate <= :endDate) " +
+                    "AND (:minPrice IS NULL OR b.totalPrice >= :minPrice) " +
+                    "AND (:maxPrice IS NULL OR b.totalPrice <= :maxPrice)")
+    Page<Booking> findWithFilters(@Param("status") BookingStatus status,
+                                  @Param("startDate") LocalDate startDate,
+                                  @Param("endDate") LocalDate endDate,
+                                  @Param("minPrice") BigDecimal minPrice,
+                                  @Param("maxPrice") BigDecimal maxPrice,
+                                  Pageable pageable);
 }

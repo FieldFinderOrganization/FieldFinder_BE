@@ -31,4 +31,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     @Query("SELECT u.status, COUNT(u) FROM User u GROUP BY u.status")
     List<Object[]> countByStatus();
+
+    @Query("SELECT u FROM User u WHERE " +
+            "(:search = '' OR LOWER(u.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%'))) " +
+            "AND (:status IS NULL OR u.status = :status) " +
+            "AND (:role IS NULL OR u.role = :role)")
+    Page<User> findWithFilters(@Param("search") String search,
+                               @Param("status") User.Status status,
+                               @Param("role") User.Role role,
+                               Pageable pageable);
 }
