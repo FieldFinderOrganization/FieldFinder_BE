@@ -36,7 +36,7 @@ public class ProductSpecification {
             if (brand == null || brand.isEmpty()) {
                 return null;
             }
-            return criteriaBuilder.equal(root.get("brand"), brand);
+            return criteriaBuilder.equal(criteriaBuilder.lower(root.get("brand")), brand.toLowerCase());
         };
     }
 }

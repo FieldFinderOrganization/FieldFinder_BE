@@ -502,7 +502,7 @@ public class AIChat {
 
                     if (isAskingForImage) {
                         if (p.getImageUrl() != null && !p.getImageUrl().isEmpty()) {
-                            query.message = String.format("Đây là hình ảnh thực tế của **%s**. Bạn xem bên dưới nhé 👇", p.getName());
+                            query.message = String.format("Đây là hình ảnh thực tế của %s. Bạn xem bên dưới nhé 👇", p.getName());
                         } else {
                             query.message = String.format("Sản phẩm %s hiện chưa cập nhật hình ảnh.", p.getName());
                         }
@@ -563,7 +563,7 @@ public class AIChat {
                             if (hasOrderIntent) {
                                 // Chuyển thẳng sang prepare_order flow
                                 int orderQty = extractQuantityFromInput(userInput, query.data.get("quantity"));
-                                query.message = String.format("Xác nhận: Bạn muốn đặt **%d** đôi **%s** - **Size %s**. Nhấn nút bên dưới để thanh toán nhé! 👇", orderQty, p.getName(), sizeToCheck);
+                                query.message = String.format("Xác nhận: Bạn muốn đặt %d đôi %s - Size %s. Nhấn nút bên dưới để thanh toán nhé! 👇", orderQty, p.getName(), sizeToCheck);
                                 query.data.put("selectedSize", sizeToCheck);
                                 query.data.put("selectedQuantity", orderQty);
                                 query.data.put("action", "ready_to_order");
@@ -586,7 +586,7 @@ public class AIChat {
                     if (sizeToOrder == null) {
                         query.message = String.format("Bạn muốn đặt size nào cho sản phẩm '%s'? (VD: 'Lấy size 40').", p.getName());
                     } else {
-                        query.message = String.format("Xác nhận: Bạn muốn đặt **%d** đôi **%s** - **Size %s**. Nhấn nút bên dưới để thanh toán nhé! 👇", quantity, p.getName(), sizeToOrder);
+                        query.message = String.format("Xác nhận: Bạn muốn đặt %d đôi %s - Size %s. Nhấn nút bên dưới để thanh toán nhé! 👇", quantity, p.getName(), sizeToOrder);
                         query.data.put("selectedSize", sizeToOrder);
                         query.data.put("selectedQuantity", quantity);
                         query.data.put("action", "ready_to_order");
@@ -881,7 +881,7 @@ public class AIChat {
                             .toList();
 
             query.message = String.format(
-                    "Thời tiết ở %s hiện là **%s** 🌤️. Tôi gợi ý bạn chọn **sân %s**.",
+                    "Thời tiết ở %s hiện là %s 🌤️. Tôi gợi ý bạn chọn sân %s.",
                     city,
                     weather,
                     env == PitchEnvironment.INDOOR
@@ -944,7 +944,7 @@ public class AIChat {
             return query;
         }
 
-        query.message = String.format("Với hoạt động **%s**, bạn có thể tham khảo các sản phẩm sau 👇", activity);
+        query.message = String.format("Với hoạt động %s, bạn có thể tham khảo các sản phẩm sau 👇", activity);
 
         Map<String, List<Map<String, Object>>> groupedProducts = new LinkedHashMap<>();
 
@@ -1403,13 +1403,13 @@ public class AIChat {
         Nhiệm vụ: Phân tích hình ảnh sản phẩm và sinh ra danh sách từ khóa (Tags) chi tiết để phục vụ tìm kiếm.
         
         HÃY QUAN SÁT KỸ VÀ TRẢ VỀ JSON CHỨA DANH SÁCH TAGS:
-        1. **Thương hiệu**: Nhìn logo/chữ trên sản phẩm (Nike, Adidas, Puma...).
-        2. **Dòng sản phẩm**: Tên cụ thể (Air Max, Jordan, Ultraboost, Stan Smith...).
-        3. **Màu sắc**: Liệt kê TẤT CẢ màu nhìn thấy (Tiếng Việt + Tiếng Anh). VD: ["trắng", "white", "cam", "orange"].
-        4. **Đặc điểm hình dáng**: 
+        1. Thương hiệu: Nhìn logo/chữ trên sản phẩm (Nike, Adidas, Puma...).
+        2. Dòng sản phẩm: Tên cụ thể (Air Max, Jordan, Ultraboost, Stan Smith...).
+        3. Màu sắc: Liệt kê TẤT CẢ màu nhìn thấy (Tiếng Việt + Tiếng Anh). VD: ["trắng", "white", "cam", "orange"].
+        4. Đặc điểm hình dáng: 
            - Giày: Cổ cao/thấp, đế air, đế bằng, dây buộc, không dây...
            - Áo/Quần: Tay dài/ngắn, cổ tròn/tim, có mũ...
-        5. **Chất liệu**: Da, vải lưới, nỉ, cotton...
+        5. Chất liệu: Da, vải lưới, nỉ, cotton...
         
         YÊU CẦU OUTPUT JSON:
         {
@@ -1487,7 +1487,7 @@ public class AIChat {
         - `FOOTWEAR` (Giày, Dép), `CLOTHING` (Quần, Áo, Váy), `ACCESSORY` (Balo, Nón, Túi...).
         
         2. PHÂN TÍCH MÀU SẮC (RẤT QUAN TRỌNG):
-        - Đừng chỉ chọn 1 màu. Hãy liệt kê **TẤT CẢ** màu sắc nhìn thấy.
+        - Đừng chỉ chọn 1 màu. Hãy liệt kê TẤT CẢ màu sắc nhìn thấy.
         - Phân biệt: Màu chủ đạo (Dominant) và Màu phối (Accent).
         - Ví dụ: Giày trắng logo đỏ -> Tags phải có cả "trắng", "white", "đỏ", "red".
         - Các màu tương đồng: Nếu thấy "kem/cream/beige" -> Hãy thêm tag "trắng/white". Nếu thấy "xanh dương/navy" -> Thêm tag "xanh/blue".
@@ -1551,7 +1551,8 @@ public class AIChat {
         - `environment`: "INDOOR" (trong nhà/có mái che), "OUTDOOR" (ngoài trời).
         - Giờ (từ 6h sáng đến 24h) được ánh xạ vào slot (1-18) như sau:
           Slot 1: 6h-7h, Slot 2: 7h-8h, Slot 3: 8h-9h, Slot 4: 9h-10h, Slot 5: 10h-11h ... đến Slot 18: 23h-24h.
-          CHÚ Ý ĐẶC BIỆT: "từ 7h đến 11h" => `slotList`: [2, 3, 4, 5] (vì 7h-8h là slot 2, 8h-9h là slot 3, 9h-10h là slot 4, 10h-11h là slot 5). "từ 16h đến 18h" => `slotList`: [11, 12]. Tương tự cho các giờ khác!
+          CHÚ Ý ĐẶC BIỆT: "từ 7h đến 11h" => `slotList`: [2, 3, 4, 5] (vì 7h-8h là slot 2, 8h-9h là slot 3, 9h-10h là slot 4, 10h-11h là slot 5). "từ 16h đến 18h" => `slotList`: [11, 12].
+          LUÔN KIỂM TRA SỐ LƯỢNG SLOT: Số phần tử trong `slotList` PHẢI BẰNG (Giờ kết thúc - Giờ bắt đầu). Ví dụ: từ 11h đến 14h là 14 - 11 = 3 tiếng => CHỈ trả về đúng 3 slot [6, 7, 8]. TUYỆT ĐỐI KHÔNG trả về dư slot!
         - THỜI GIAN HỆ THỐNG: Hôm nay: {{today}}, Ngày mai: {{plus1}}, Năm: {{year}}.
         - "Mỗi loại sân có bao nhiêu sân?" -> data: {"pitchCounts": {"FIVE_A_SIDE": {{fiveASideCount}}, "SEVEN_A_SIDE": {{sevenASideCount}}, "ELEVEN_A_SIDE": {{elevenASideCount}}}}
         - Câu hỏi liệt kê / xem danh sách sân (vd: "có những sân nào", "cho xem danh sách sân", "sân 7 người ngoài trời có không") -> action: "list_pitches", kèm `pitchType` và `environment` nếu có.

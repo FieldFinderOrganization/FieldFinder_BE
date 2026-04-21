@@ -26,8 +26,26 @@ public class OpenWeatherService {
     private long lastFetchTime = 0;
     private static final long CACHE_DURATION_MS = 15 * 60 * 1000;
 
+    private String normalizeCityName(String city) {
+        if (city == null) return "";
+        String normalized = java.text.Normalizer.normalize(city, java.text.Normalizer.Form.NFD);
+        normalized = normalized.replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+        normalized = normalized.replace('đ', 'd').replace('Đ', 'D');
+        normalized = normalized.toLowerCase()
+                .replace("tp.", "")
+                .replace("tp ", "")
+                .replace("thanh pho ", "")
+                .replace("tỉnh ", "")
+                .trim();
+        if (normalized.equals("ho chi minh") || normalized.equals("hcm")) {
+            return "Ho Chi Minh City";
+        }
+        return normalized;
+    }
+
     public String getCurrentWeather(String city) throws IOException {
-        String encodedCity = java.net.URLEncoder.encode(city, java.nio.charset.StandardCharsets.UTF_8);
+        String normalizedCity = normalizeCityName(city);
+        String encodedCity = java.net.URLEncoder.encode(normalizedCity, java.nio.charset.StandardCharsets.UTF_8);
         String url = String.format("%s?q=%s&appid=%s&units=metric&lang=vi",
                 openWeatherUrl, encodedCity, weatherApiKey);
 
