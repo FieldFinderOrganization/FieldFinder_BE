@@ -14,7 +14,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/images")
-@CrossOrigin("*")
 @RequiredArgsConstructor
 public class CloudinaryController {
 

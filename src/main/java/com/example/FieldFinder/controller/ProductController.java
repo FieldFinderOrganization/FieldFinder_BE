@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-@CrossOrigin("*")
 @RestController
 @RequestMapping("/api/products")
 @RequiredArgsConstructor

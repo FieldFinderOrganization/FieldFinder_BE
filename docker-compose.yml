@@ -36,16 +36,22 @@ services:
     container_name: redis-master
     ports:
       - "6379:6379"
-    # Thêm bind và tắt protected-mode
     command: redis-server --bind 0.0.0.0 --protected-mode no --appendonly yes
     restart: always
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared_tunnel
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: always
+    depends_on:
+      - app
 
 #  redis-replica:
 #    image: redis:7-alpine
 #    container_name: redis-replica
 #    ports:
 #      - "6380:6380"
-#    # Thêm bind và tắt protected-mode
 #    command: redis-server --port 6380 --bind 0.0.0.0 --protected-mode no --replicaof redis-master 6379
 #    depends_on:
 #      - redis-master
@@ -56,7 +62,6 @@ services:
 #    container_name: redis-sentinel-1
 #    ports:
 #      - "26379:26379"
-#    # LƯU Ý: Dùng dấu gạch dọc | ở đây thay vì dấu >
 #    command: |
 #      sh -c "cat <<EOF > /tmp/sentinel.conf
 #      port 26379

@@ -13,7 +13,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/ai")
 @RequiredArgsConstructor
-@CrossOrigin("*")
 public class AIChatController {
 
     private final AIChat aiChatService;

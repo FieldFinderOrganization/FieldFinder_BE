@@ -13,7 +13,6 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@CrossOrigin("*")
 @RequestMapping("/api/item-reviews")
 @RequiredArgsConstructor
 public class ItemReviewController {

@@ -24,7 +24,6 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/chat")
 @RequiredArgsConstructor
-@CrossOrigin("*")
 public class ChatController {
 
     private final SimpMessagingTemplate messagingTemplate;
