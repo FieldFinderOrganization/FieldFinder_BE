@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.data.mapping.PropertyReferenceException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -21,6 +22,13 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    // 0. Xử lý lỗi sort parameter không hợp lệ (Ví dụ: sort=["string"] từ Swagger hoặc sort sai tên field)
+    @ExceptionHandler(PropertyReferenceException.class)
+    public ResponseEntity<Object> handlePropertyReferenceException(PropertyReferenceException ex, HttpServletRequest request) {
+        String message = "Tham số sắp xếp không hợp lệ: " + ex.getPropertyName();
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, message, request.getRequestURI());
+    }
 
     // 1. Xử lý lỗi RuntimeException chung (Ví dụ: throw new RuntimeException("Sản phẩm không tồn tại"))
     @ExceptionHandler(RuntimeException.class)

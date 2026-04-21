@@ -19,6 +19,16 @@ import java.util.UUID;
 @Table(name = "Pitches")
 @Data
 @Builder
+@NamedEntityGraph(
+        name = "Pitch.withProviderDetails",
+        attributeNodes = @NamedAttributeNode(value = "providerAddress", subgraph = "providerAddress-subgraph"),
+        subgraphs = {
+                @NamedSubgraph(name = "providerAddress-subgraph",
+                        attributeNodes = @NamedAttributeNode(value = "provider", subgraph = "provider-subgraph")),
+                @NamedSubgraph(name = "provider-subgraph",
+                        attributeNodes = @NamedAttributeNode("user"))
+        }
+)
 public class Pitch {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

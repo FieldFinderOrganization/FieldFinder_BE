@@ -276,6 +276,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public OrderResponseDTO getOrderById(Long id) {
         return orderRepository.findById(id)
                 .map(this::mapToResponse)
@@ -283,6 +284,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<OrderResponseDTO> getAllOrders() {
         return orderRepository.findAll()
                 .stream()
@@ -291,6 +293,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Transactional
     public OrderResponseDTO updateOrderStatus(Long id, String status) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Order not found!"));
@@ -344,6 +347,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<OrderResponseDTO> getOrdersByUserId(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found!"));

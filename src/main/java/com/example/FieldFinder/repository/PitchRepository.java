@@ -3,6 +3,8 @@ package com.example.FieldFinder.repository;
 import com.example.FieldFinder.entity.Pitch;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -16,6 +18,12 @@ import java.util.UUID;
 
 @Repository
 public interface PitchRepository extends JpaRepository<Pitch, UUID>, JpaSpecificationExecutor<Pitch> {
+
+    // Override findAll to use EntityGraph - eliminates N+1 queries for providerAddress->provider->user
+    @Override
+    @EntityGraph(value = "Pitch.withProviderDetails", type = EntityGraph.EntityGraphType.LOAD)
+    Page<Pitch> findAll(Specification<Pitch> spec, Pageable pageable);
+
     List<Pitch> findByProviderAddressProviderAddressId(UUID providerAddressId);
 
     Optional<Pitch> findById(UUID uuid);

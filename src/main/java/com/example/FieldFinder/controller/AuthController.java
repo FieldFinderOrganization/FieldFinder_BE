@@ -54,9 +54,9 @@ public class AuthController {
     }
 
     @PostMapping("/verify-otp")
-    public ResponseEntity<String> verifyOtp(@RequestBody VerifyOtpRequestDTO req) {
+    public ResponseEntity<Map<String, String>> verifyOtp(@RequestBody VerifyOtpRequestDTO req) {
         authService.verifyOtp(req.getEmail(), req.getCode());
-        return ResponseEntity.ok("Login success!");
+        return ResponseEntity.ok(Map.of("message", "Login success!"));
     }
 
     @PostMapping("/google")
