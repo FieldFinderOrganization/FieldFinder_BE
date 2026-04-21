@@ -20,7 +20,7 @@ services:
       # Chạy Redis Sentinel
 #      - SPRING_DATA_REDIS_SENTINEL_MASTER=mymaster
 #      - SPRING_DATA_REDIS_SENTINEL_NODES=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
-      - spring.data.redis.host=127.0.0.1
+      - spring.data.redis.host=redis-master
       - spring.data.redis.port=6379
       - spring.data.redis.connect-timeout=3000
       - spring.data.redis.timeout=3000
@@ -28,7 +28,7 @@ services:
       - SPRING_DATA_REDIS_TIMEOUT=3000
       # Chạy Redis Sentinel
 #      - SPRING_REDIS_REDISSON_FILE=classpath:redisson-docker.yml
-      - SPRING_REDIS_REDISSON_FILE=classpath:redisson-local.yml
+      - SPRING_REDIS_REDISSON_FILE=classpath:redisson-docker-standalone.yml
       - SPRING_RABBITMQ_HOST=rabbitmq
 
   redis-master:
