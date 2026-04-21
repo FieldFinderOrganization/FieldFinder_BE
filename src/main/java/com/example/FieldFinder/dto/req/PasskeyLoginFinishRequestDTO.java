@@ -1,13 +1,14 @@
 package com.example.FieldFinder.dto.req;
 
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 /**
  * Client gửi lên sau khi authenticator đã ký challenge thành công.
  * Tất cả byte[] đều được encode base64url.
  */
 @Getter
+@Setter
+@ToString
 @NoArgsConstructor
 public class PasskeyLoginFinishRequestDTO {
 

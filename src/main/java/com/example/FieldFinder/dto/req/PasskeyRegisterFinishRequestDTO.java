@@ -1,9 +1,10 @@
 package com.example.FieldFinder.dto.req;
 
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 @Getter
+@Setter
+@ToString
 @NoArgsConstructor
 public class PasskeyRegisterFinishRequestDTO {
 

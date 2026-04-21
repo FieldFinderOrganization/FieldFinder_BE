@@ -101,6 +101,8 @@ public class PasskeyServiceImpl implements PasskeyService {
     @Override
     @Transactional
     public void finishRegistration(String userEmail, PasskeyRegisterFinishRequestDTO dto) {
+        log.info("Finish Registration started with DTO: {}", dto);
+
         // Lấy và XÓA challenge khỏi Redis (one-time use)
         String[] challengeData = redisService.consumePasskeyChallenge(dto.getChallengeId());
         String userId  = challengeData[0];
@@ -116,9 +118,15 @@ public class PasskeyServiceImpl implements PasskeyService {
         }
 
         // Decode dữ liệu từ client
+        log.debug("PassKey Register Start - clientDataJSON: {}, attestationObject: {}",
+                dto.getClientDataJSON(), dto.getAttestationObject());
+
         byte[] clientDataJSONBytes   = decodeBase64Url(dto.getClientDataJSON());
         byte[] attestationObjectBytes = decodeBase64Url(dto.getAttestationObject());
         byte[] challengeBytes        = decodeBase64Url(challengeBase64);
+
+        log.debug("Decoded clientDataJSON (first 10 chars): {}",
+                new String(clientDataJSONBytes, 0, Math.min(clientDataJSONBytes.length, 10)));
 
         // Build WebAuthn server property
         ServerProperty serverProperty = new ServerProperty(
@@ -219,6 +227,8 @@ public class PasskeyServiceImpl implements PasskeyService {
     @Override
     @Transactional
     public AuthTokenResponseDTO finishLogin(PasskeyLoginFinishRequestDTO dto) {
+        log.info("Finish Login started with DTO: {}", dto);
+
         // Lấy và XÓA challenge (one-time use)
         String[] challengeData = redisService.consumePasskeyChallenge(dto.getChallengeId());
         String email           = challengeData[0];
@@ -237,11 +247,17 @@ public class PasskeyServiceImpl implements PasskeyService {
         }
 
         // Decode dữ liệu từ client
+        log.debug("PassKey Login start - clientDataJSON: {}, authData: {}, signature: {}",
+                dto.getClientDataJSON(), dto.getAuthenticatorData(), dto.getSignature());
+
         byte[] credentialIdBytes     = decodeBase64Url(dto.getCredentialId());
         byte[] clientDataJSONBytes   = decodeBase64Url(dto.getClientDataJSON());
         byte[] authenticatorDataBytes = decodeBase64Url(dto.getAuthenticatorData());
         byte[] signatureBytes        = decodeBase64Url(dto.getSignature());
         byte[] challengeBytes        = decodeBase64Url(challengeBase64);
+
+        log.debug("Decoded clientDataJSON (first 10 chars): {}",
+                new String(clientDataJSONBytes, 0, Math.min(clientDataJSONBytes.length, 10)));
 
         com.webauthn4j.data.attestation.authenticator.COSEKey storedCOSEKey;
         try {
@@ -267,9 +283,15 @@ public class PasskeyServiceImpl implements PasskeyService {
                 new DefaultChallenge(challengeBytes), null);
 
         // Parse + validate assertion
+        byte[] userHandleBytes = decodeBase64Url(dto.getUserHandle());
+
         AuthenticationRequest authRequest = new AuthenticationRequest(
-                credentialIdBytes, clientDataJSONBytes,
-                authenticatorDataBytes, signatureBytes);
+                credentialIdBytes,
+                userHandleBytes,
+                authenticatorDataBytes,
+                clientDataJSONBytes,
+                signatureBytes
+        );
         AuthenticationParameters authParams = new AuthenticationParameters(
                 serverProperty, authenticator, null, false);
 
@@ -320,8 +342,13 @@ public class PasskeyServiceImpl implements PasskeyService {
      * Mobile SDK có thể gửi standard base64 thay vì base64url.
      */
     private byte[] decodeBase64Url(String input) {
-        // Normalize: chuẩn hóa về base64url không padding
-        String normalized = input
+        if (input == null || input.isBlank()) {
+            return new byte[0];
+        }
+        // Normalize: trim whitespace, chuẩn hóa về base64url không padding
+        String normalized = input.trim()
+                .replace("\n", "")
+                .replace("\r", "")
                 .replace('+', '-')
                 .replace('/', '_')
                 .replaceAll("=+$", "");
