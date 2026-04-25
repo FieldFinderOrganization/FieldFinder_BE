@@ -9,6 +9,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -109,6 +110,7 @@ public class AdminDetailController {
     // ── BOOKINGS ───────────────────────────────────────────────────────────────
 
     @GetMapping("/bookings")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getBookings(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
@@ -174,6 +176,7 @@ public class AdminDetailController {
     // ── ORDERS ─────────────────────────────────────────────────────────────────
 
     @GetMapping("/orders")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getOrders(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
@@ -231,6 +234,7 @@ public class AdminDetailController {
     // ── PITCHES ────────────────────────────────────────────────────────────────
 
     @GetMapping("/pitches")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getPitches(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
@@ -281,6 +285,7 @@ public class AdminDetailController {
     // ── REVIEWS ────────────────────────────────────────────────────────────────
 
     @GetMapping("/reviews/stats")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getReviewStats() {
         long total = reviewRepository.count();
         Double avg = reviewRepository.findOverallAverageRating();

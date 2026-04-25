@@ -58,6 +58,8 @@ public class ProductResponseDTO{
 
     private Integer totalSold;
 
+    private List<String> appliedDiscountCodes;
+
     public static ProductResponseDTO fromEntity(Product product) {
         return ProductResponseDTO.builder()
                 .id(product.getProductId())

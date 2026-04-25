@@ -19,8 +19,8 @@ public class InteractionLog {
     @Id
     private String logId;
 
-    private String userId;       // UUID của user (nếu đã login)
-    private String sessionId;    // Session ID hoặc IP (nếu là khách)
+    private String userId;
+    private String sessionId;
 
     private Instant timestamp;
     private int dayOfWeek;       // 1 = Monday, 7 = Sunday

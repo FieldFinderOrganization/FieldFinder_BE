@@ -28,6 +28,8 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @Component
@@ -49,7 +51,7 @@ public class AIChat {
     private final RedisService redisService;
 
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 4000;
-    private long lastCallTime = 0;
+    private final AtomicLong nextAvailableTime = new AtomicLong(0);
 
     private final OpenWeatherService weatherService;
 
@@ -164,7 +166,6 @@ public class AIChat {
 
     public List<Double> getEmbedding(String text) {
         try {
-            waitIfNeeded();
             ObjectNode rootNode = mapper.createObjectNode();
 
             ObjectNode content = rootNode.putObject("content");
@@ -175,9 +176,7 @@ public class AIChat {
                     .post(RequestBody.create(mapper.writeValueAsString(rootNode), MediaType.parse("application/json")))
                     .build();
 
-            try (Response response = client.newCall(request).execute()) {
-                if (!response.isSuccessful()) return new ArrayList<>();
-
+            try (Response response = callWithRetry(request, "Embedding")) {
                 JsonNode root = mapper.readTree(response.body().string());
                 JsonNode valuesNode = root.path("embedding").path("values");
 
@@ -195,13 +194,47 @@ public class AIChat {
         }
     }
 
-    private synchronized void waitIfNeeded() throws InterruptedException {
+    private void waitIfNeeded() throws InterruptedException {
         long now = System.currentTimeMillis();
-        long waitTime = MIN_INTERVAL_BETWEEN_CALLS_MS - (now - lastCallTime);
+        long myTurn;
+        while (true) {
+            long currentNext = nextAvailableTime.get();
+            myTurn = Math.max(now, currentNext);
+            if (nextAvailableTime.compareAndSet(currentNext, myTurn + MIN_INTERVAL_BETWEEN_CALLS_MS)) {
+                break;
+            }
+        }
+        long waitTime = myTurn - now;
         if (waitTime > 0) {
             Thread.sleep(waitTime);
         }
-        lastCallTime = System.currentTimeMillis();
+    }
+
+    private Response callWithRetry(Request request, String description) throws IOException, InterruptedException {
+        int maxRetries = 3;
+        long backoff = 4000; // Khởi đầu bằng 4s vì Gemini 429 thường cần thời gian hồi
+
+        for (int i = 0; i <= maxRetries; i++) {
+            waitIfNeeded();
+            Response response = client.newCall(request).execute();
+
+            if (response.isSuccessful()) {
+                return response;
+            }
+
+            String errorBody = response.body() != null ? response.body().string() : "No body";
+            if (response.code() == 429 && i < maxRetries) {
+                System.err.println("⚠️ [" + description + "] Gemini trả về 429 (Too Many Requests). Đang thử lại lần " + (i + 1) + " sau " + backoff + "ms...");
+                response.close();
+                Thread.sleep(backoff);
+                backoff *= 2;
+                continue;
+            }
+
+            // Nếu không phải 429 hoặc đã hết lượt retry
+            throw new IOException("Gemini API Error [" + response.code() + "]: " + errorBody);
+        }
+        throw new IOException("Gemini API call failed after retries.");
     }
 
     private String buildSystemPrompt(List<PitchResponseDTO> allPitches) {
@@ -223,8 +256,6 @@ public class AIChat {
     }
 
     private String callGeminiAPI(String userInput, String systemPrompt) throws IOException, InterruptedException {
-        waitIfNeeded();
-
         ObjectNode rootNode = mapper.createObjectNode();
         ObjectNode systemInstNode = rootNode.putObject("system_instruction");
         systemInstNode.putObject("parts").put("text", systemPrompt);
@@ -243,10 +274,7 @@ public class AIChat {
                 .post(RequestBody.create(mapper.writeValueAsString(rootNode), MediaType.parse("application/json")))
                 .build();
 
-        try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new IOException("Gemini API Error: " + response.code() + " " + response.body().string());
-            }
+        try (Response response = callWithRetry(request, "Chat")) {
             return cleanJson(extractGeminiResponse(response.body().string()));
         }
     }
@@ -258,8 +286,6 @@ public class AIChat {
         result.pitchType = "ALL";
 
         try {
-            waitIfNeeded();
-
             ObjectNode rootNode = mapper.createObjectNode();
 
             ObjectNode systemInstNode = rootNode.putObject("system_instruction");
@@ -298,9 +324,7 @@ public class AIChat {
                     .post(RequestBody.create(mapper.writeValueAsString(rootNode), MediaType.parse("application/json")))
                     .build();
 
-            try (Response response = client.newCall(request).execute()) {
-                if (!response.isSuccessful()) { /* ... */ }
-
+            try (Response response = callWithRetry(request, "Image Analysis")) {
                 String rawJson = extractGeminiResponse(response.body().string());
                 String cleanJson = cleanJson(rawJson);
 
@@ -349,6 +373,42 @@ public class AIChat {
         } catch (Exception e) {
             e.printStackTrace();
             result.message = "Lỗi khi xử lý ảnh: " + e.getMessage();
+        }
+
+        try {
+            String userId = null;
+            if (sessionId != null) {
+                UUID uid = userService.getUserIdBySession(sessionId);
+                if (uid != null) userId = uid.toString();
+            }
+
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("image_search_action", "process_image");
+            metadata.put("ai_message", result.message);
+
+            if (result.data != null) {
+                metadata.put("extracted_tags", result.data.get("extractedTags"));
+                if (result.data.get("products") instanceof List) {
+                    List<?> products = (List<?>) result.data.get("products");
+                    metadata.put("result_count", products.size());
+                    // Log top 5 products as requested
+                    List<String> top5Names = products.stream()
+                            .limit(5)
+                            .filter(p -> p instanceof ProductResponseDTO)
+                            .map(p -> ((ProductResponseDTO) p).getName())
+                            .collect(Collectors.toList());
+                    metadata.put("top_5_results", top5Names);
+                }
+            }
+
+            logPublisherService.publishEvent(
+                    userId, sessionId,
+                    "CHAT_IMAGE_SEARCH",
+                    null, null,
+                    metadata, "AI_Chatbot"
+            );
+        } catch (Exception e) {
+            System.err.println("Không thể ghi log CHAT_IMAGE_SEARCH: " + e.getMessage());
         }
         return result;
     }
@@ -455,6 +515,7 @@ public class AIChat {
                 query.message = String.format("Hiện tại shop có %d sản phẩm đang giảm giá. Tôi đã gửi danh sách cho bạn 👇", onSaleProducts.size());
                 query.data.put("products", onSaleProducts);
             }
+            logProductQuery(userId, sessionId, action, productName, query.message, null);
             return query;
         }
 
@@ -463,6 +524,7 @@ public class AIChat {
                     .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
                     .count();
             query.message = "Hiện tại shop có " + count + " sản phẩm đang giảm giá.";
+            logProductQuery(userId, sessionId, action, productName, query.message, null);
             return query;
         }
 
@@ -778,7 +840,33 @@ public class AIChat {
             query.data.put("showImage", shouldShowImage);
         }
 
+        logProductQuery(userId, sessionId, action, productName, query.message, foundProduct);
+
         return query;
+    }
+
+    private void logProductQuery(UUID userId, String sessionId, String action, String productName, String aiMessage, ProductResponseDTO foundProduct) {
+        try {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("product_action", action);
+            metadata.put("product_name_query", productName);
+            metadata.put("ai_message", aiMessage);
+
+            if (foundProduct != null) {
+                metadata.put("found_product_id", foundProduct.getId());
+                metadata.put("found_product_name", foundProduct.getName());
+            }
+
+            logPublisherService.publishEvent(
+                    userId != null ? userId.toString() : null,
+                    sessionId,
+                    "CHAT_PRODUCT_QUERY",
+                    null, null,
+                    metadata, "AI_Chatbot"
+            );
+        } catch (Exception e) {
+            System.err.println("Không thể ghi log CHAT_PRODUCT_QUERY: " + e.getMessage());
+        }
     }
 
     private String buildPriceRangeMessage(Double minPrice, Double maxPrice) {
@@ -862,7 +950,7 @@ public class AIChat {
         return String.format("%,.0f", amount);
     }
 
-    private BookingQuery handleWeatherQuery(BookingQuery query) {
+    private BookingQuery handleWeatherQuery(BookingQuery query, String sessionId) {
         if (query.data == null) {
             query.data = new HashMap<>();
         }
@@ -894,14 +982,29 @@ public class AIChat {
             query.data.put("environment", env.name());
             query.data.put("pitches", suggestedPitches);
 
-            return query;
-
         } catch (Exception e) {
             e.printStackTrace();
             query.message = "Không thể lấy dữ liệu thời tiết lúc này.";
             query.data.clear();
-            return query;
         }
+
+        try {
+            UUID userId = userService.getUserIdBySession(sessionId);
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("weather_city", city);
+            metadata.put("ai_message", query.message);
+            logPublisherService.publishEvent(
+                    userId != null ? userId.toString() : null,
+                    sessionId,
+                    "CHAT_WEATHER_QUERY",
+                    null, null,
+                    metadata, "AI_Chatbot"
+            );
+        } catch (Exception ex) {
+            System.err.println("Không thể ghi log CHAT_WEATHER_QUERY: " + ex.getMessage());
+        }
+
+        return query;
     }
 
     @SuppressWarnings("unchecked")
@@ -975,6 +1078,23 @@ public class AIChat {
         query.data.put("action", "recommend_by_activity");
         query.data.put("showImage", true);
 
+        try {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("activity", activity);
+            metadata.put("tags", tags);
+            metadata.put("ai_message", query.message);
+            metadata.put("result_count", results.size());
+            logPublisherService.publishEvent(
+                    userId != null ? userId.toString() : null,
+                    sessionId,
+                    "CHAT_ACTIVITY_RECOMMEND",
+                    null, null,
+                    metadata, "AI_Chatbot"
+            );
+        } catch (Exception e) {
+            System.err.println("Không thể ghi log CHAT_ACTIVITY_RECOMMEND: " + e.getMessage());
+        }
+
         return query;
     }
 
@@ -1023,7 +1143,7 @@ public class AIChat {
             }
 
             if ("get_weather".equals(action)) {
-                return handleWeatherQuery(query);
+                return handleWeatherQuery(query, sessionId);
             }
             if ("recommend_by_activity".equals(action)) {
                 return handleRecommendByActivity(query, sessionId);
@@ -1081,31 +1201,6 @@ public class AIChat {
         }
 
         processSpecialCases(userInput, sessionId, query, allPitches);
-
-        try {
-            String userId = null;
-            if (sessionId != null) {
-                UUID uid = userService.getUserIdBySession(sessionId);
-                if (uid != null) userId = uid.toString();
-            }
-
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("raw_user_input", userInput);
-            if (query.data != null && query.data.containsKey("action")) {
-                metadata.put("intent_action", query.data.get("action"));
-            }
-            if (query.pitchType != null) metadata.put("requested_pitch_type", query.pitchType);
-            if (query.environment != null) metadata.put("requested_environment", query.environment);
-
-            logPublisherService.publishEvent(
-                    userId, sessionId,
-                    "CHAT_INTENT_RESOLVED",
-                    null, null,
-                    metadata, "AI_Chatbot"
-            );
-        } catch (Exception e) {
-            System.err.println("Không thể ghi log AI Chat: " + e.getMessage());
-        }
 
         if (query.message == null || query.message.isBlank()) {
             query.message = "Mình chưa hiểu rõ yêu cầu. Bạn muốn tìm sân bóng, đặt sân, hay mua sản phẩm thể thao? Ví dụ: \"cho xem các sân 5 người\" hoặc \"giày rẻ nhất\".";
@@ -1333,12 +1428,13 @@ public class AIChat {
             metadata.put("pitch_action", action);
             metadata.put("matched_pitch_count", matched.size());
             metadata.put("requested_pitch_type", query.pitchType);
+            metadata.put("ai_message", query.message);
             if (requestedEnvironment != null) metadata.put("requested_environment", requestedEnvironment.name());
             if (query.bookingDate != null) metadata.put("booking_date", query.bookingDate);
             if (!query.slotList.isEmpty()) metadata.put("slot_list", query.slotList);
-            logPublisherService.publishEvent(userIdStr, sessionId, "CHAT_INTENT_RESOLVED", null, null, metadata, "AI_Chatbot");
+            logPublisherService.publishEvent(userIdStr, sessionId, "CHAT_PITCH_QUERY", null, null, metadata, "AI_Chatbot");
         } catch (Exception e) {
-            System.err.println("Không thể ghi log AI Chat (pitch): " + e.getMessage());
+            System.err.println("Không thể ghi log CHAT_PITCH_QUERY: " + e.getMessage());
         }
 
         if (query.message == null || query.message.isBlank()) {
@@ -1419,7 +1515,6 @@ public class AIChat {
 
     public List<String> generateTagsForProduct(String imageUrl) {
         try {
-            waitIfNeeded();
             String base64Image = downloadImageAsBase64(imageUrl);
             if (base64Image == null) return new ArrayList<>();
 
@@ -1446,8 +1541,7 @@ public class AIChat {
                     .post(RequestBody.create(mapper.writeValueAsString(rootNode), MediaType.parse("application/json")))
                     .build();
 
-            try (Response response = client.newCall(request).execute()) {
-                if (!response.isSuccessful()) return new ArrayList<>();
+            try (Response response = callWithRetry(request, "Product Tags Enrichment")) {
                 String jsonRes = cleanJson(extractGeminiResponse(response.body().string()));
                 JsonNode root = mapper.readTree(jsonRes);
                 List<String> tags = mapper.convertValue(root.path("tags"), new TypeReference<List<String>>(){});

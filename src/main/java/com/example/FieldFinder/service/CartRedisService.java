@@ -12,12 +12,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.example.FieldFinder.service.log.LogPublisherService;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -27,6 +26,8 @@ public class CartRedisService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ProductVariantRepository productVariantRepository;
     private final ProductService productService;
+    private final LogPublisherService logPublisherService;
+    private final HttpServletRequest request;
 
     private static final String CART_PREFIX = "cart:";
     private static final long CART_TTL_DAYS = 90;
@@ -47,6 +48,10 @@ public class CartRedisService {
     public void addItemToCart(UUID userId, Long productId, String size, int quantity) {
         ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Sản phẩm hoặc size không tồn tại!"));
+
+        // Đọc trước thông tin product (tránh LazyInitializationException khi log)
+        String productName = variant.getProduct().getName();
+        Double productPrice = variant.getProduct().getPrice();
 
         String cartKey = getCartKey(userId);
         String hashKey = getItemHashKey(productId, size);
@@ -72,6 +77,28 @@ public class CartRedisService {
 
         hashOps.put(cartKey, hashKey, newItem);
         redisTemplate.expire(cartKey, CART_TTL_DAYS, TimeUnit.DAYS);
+
+        // Ghi Log: Người dùng thêm sản phẩm vào giỏ
+        try {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("product_name", productName);
+            metadata.put("size", size);
+            metadata.put("quantity", quantity);
+            metadata.put("unit_price", productPrice);
+
+            logPublisherService.publishEvent(
+                    userId.toString(),
+                    null, // sessionId can be null here as we have userId
+                    "ADD_TO_CART",
+                    productId.toString(),
+                    "PRODUCT",
+                    metadata,
+                    request.getHeader("User-Agent")
+            );
+        } catch (Exception e) {
+            // Log error silently to not break the add-to-cart flow
+            System.err.println("Không thể ghi log ADD_TO_CART: " + e.getMessage());
+        }
     }
 
     public void updateCartItem(UUID userId, Long productId, String size, int quantity) {

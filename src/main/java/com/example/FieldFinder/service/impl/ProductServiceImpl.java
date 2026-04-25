@@ -23,7 +23,10 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import com.example.FieldFinder.Enum.CategoryType;
+import jakarta.annotation.PreDestroy;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 @Service
@@ -37,6 +40,7 @@ public class ProductServiceImpl implements ProductService {
     private final AIChat aiChat;
     private final CloudinaryService cloudinaryService;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final ExecutorService enrichmentExecutor = Executors.newFixedThreadPool(2);
 
     public ProductServiceImpl(
             ProductRepository productRepository,
@@ -199,7 +203,7 @@ public class ProductServiceImpl implements ProductService {
 
         // 3. Gọi tiến trình ngầm AI Enrich dựa trên URL đã có
         if (product.getImageUrl() != null && !product.getImageUrl().isEmpty()) {
-            new Thread(() -> enrichSingleProduct(product.getProductId(), product.getImageUrl())).start();
+            enrichmentExecutor.submit(() -> enrichSingleProduct(product.getProductId(), product.getImageUrl()));
         }
 
         return mapToResponse(product, Collections.emptyList());
@@ -315,7 +319,7 @@ public class ProductServiceImpl implements ProductService {
         productRepository.saveAndFlush(product);
 
         if (imageChanged && request.getImageUrl() != null) {
-            new Thread(() -> enrichSingleProduct(product.getProductId(), request.getImageUrl())).start();
+            enrichmentExecutor.submit(() -> enrichSingleProduct(product.getProductId(), request.getImageUrl()));
         }
 
         evictProductDetailCache(id);
@@ -522,9 +526,17 @@ public class ProductServiceImpl implements ProductService {
         List<Product> allProducts = productRepository.findAll();
         for (Product product : allProducts) {
             if (product.getImageUrl() != null && !product.getImageUrl().isEmpty()) {
-                new Thread(() -> enrichSingleProduct(product.getProductId(), product.getImageUrl())).start();
+                // Chỉ chạy nếu chưa có tags (hoặc bạn có thể thêm logic kiểm tra khác)
+                if (product.getTags() == null || product.getTags().isEmpty()) {
+                    enrichmentExecutor.submit(() -> enrichSingleProduct(product.getProductId(), product.getImageUrl()));
+                }
             }
         }
+    }
+
+    @PreDestroy
+    public void shutdownExecutor() {
+        enrichmentExecutor.shutdown();
     }
 
     private double cosineSimilarity(double[] vectorA, double[] vectorB) {
@@ -605,6 +617,8 @@ public class ProductServiceImpl implements ProductService {
 
         List<Discount> allDiscounts = getPublicDiscounts(product);
 
+        List<String> walletDiscountCodes = new ArrayList<>();
+
         if (userId != null) {
             List<UUID> usedDiscountIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
 
@@ -622,6 +636,7 @@ public class ProductServiceImpl implements ProductService {
 
                     allDiscounts.add(d);
                     addedIds.add(d.getDiscountId());
+                    walletDiscountCodes.add(d.getCode());
                 }
             }
         }
@@ -631,6 +646,9 @@ public class ProductServiceImpl implements ProductService {
         ProductResponseDTO dto = ProductResponseDTO.fromEntity(product);
         dto.setSalePrice(product.getSalePrice());
         dto.setSalePercent(product.getOnSalePercent());
+        if (!walletDiscountCodes.isEmpty()) {
+            dto.setAppliedDiscountCodes(walletDiscountCodes);
+        }
 
         return dto;
     }

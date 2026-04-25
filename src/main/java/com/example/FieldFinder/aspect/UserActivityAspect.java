@@ -27,7 +27,6 @@ public class UserActivityAspect {
     private final LogPublisherService logPublisherService;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    // 1. NGHE SỰ KIỆN XEM SÂN
     @AfterReturning(
             pointcut = "execution(* com.example.FieldFinder.controller.PitchController.getPitchById(..)) && args(pitchId)",
             returning = "result",
@@ -38,7 +37,6 @@ public class UserActivityAspect {
         }
     }
 
-    // 2. NGHE SỰ KIỆN XEM SẢN PHẨM
     @AfterReturning(
             pointcut = "execution(* com.example.FieldFinder.controller.ProductController.getById(..)) && args(productId, ..)",
             returning = "result",
@@ -49,7 +47,6 @@ public class UserActivityAspect {
         }
     }
 
-    // 3. NGHE SỰ KIỆN TẠO BOOKING
     @AfterReturning(
             pointcut = "execution(* com.example.FieldFinder.controller.BookingController.create*(..))",
             returning = "result"
@@ -81,7 +78,6 @@ public class UserActivityAspect {
         }
     }
 
-    // 4. NGHE SỰ KIỆN TẠO ĐƠN HÀNG
     @AfterReturning(
             pointcut = "execution(* com.example.FieldFinder.controller.OrderController.create*(..))",
             returning = "result"
@@ -111,13 +107,11 @@ public class UserActivityAspect {
         }
     }
 
-    // --- FIX LỖI THẦM LẶNG Ở ĐÂY ---
     private boolean isSuccessResponse(Object result) {
         if (result == null) return false;
         if (result instanceof ResponseEntity) {
             return ((ResponseEntity<?>) result).getStatusCode().is2xxSuccessful();
         }
-        // Trả về Object/DTO bình thường không báo lỗi -> Thành công
         return true;
     }
 

@@ -1,9 +1,12 @@
 package com.example.FieldFinder.controller;
 
+import com.example.FieldFinder.dto.req.AssignDiscountRequestDTO;
 import com.example.FieldFinder.dto.req.DiscountRequestDTO;
+import com.example.FieldFinder.dto.req.DiscountStatusRequestDTO;
 import com.example.FieldFinder.dto.req.UserDiscountRequestDTO;
 import com.example.FieldFinder.dto.res.DiscountResponseDTO;
 import com.example.FieldFinder.dto.res.UserDiscountResponseDTO;
+import com.example.FieldFinder.entity.Discount;
 import com.example.FieldFinder.service.DiscountService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -65,5 +68,28 @@ public class DiscountController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<UserDiscountResponseDTO>> getMyWallet(@PathVariable UUID userId) {
         return ResponseEntity.ok(discountService.getMyWallet(userId));
+    }
+
+    @PatchMapping("/{id}/status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
+    public ResponseEntity<DiscountResponseDTO> updateStatus(
+            @PathVariable String id,
+            @RequestBody DiscountStatusRequestDTO dto) {
+        Discount.DiscountStatus status;
+        try {
+            status = Discount.DiscountStatus.valueOf(dto.getStatus());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(discountService.updateStatus(id, status));
+    }
+
+    @PostMapping("/{id}/assign")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
+    public ResponseEntity<Void> assignToUsers(
+            @PathVariable String id,
+            @RequestBody AssignDiscountRequestDTO dto) {
+        discountService.assignToUsers(id, dto.getUserIds());
+        return ResponseEntity.ok().build();
     }
 }

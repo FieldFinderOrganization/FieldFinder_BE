@@ -69,6 +69,22 @@ public class DiscountServiceImpl implements DiscountService {
 
         Discount saved = discountRepository.save(discount);
 
+        // Tự động gán cho toàn bộ user nếu scope là GLOBAL
+        if (saved.getScope() == Discount.DiscountScope.GLOBAL) {
+            List<User> allUsers = userRepository.findAll();
+            for (User user : allUsers) {
+                if (!userDiscountRepository.existsByUserAndDiscount(user, saved)) {
+                    UserDiscount ud = UserDiscount.builder()
+                            .user(user)
+                            .discount(saved)
+                            .isUsed(false)
+                            .savedAt(java.time.LocalDateTime.now())
+                            .build();
+                    userDiscountRepository.save(ud);
+                }
+            }
+        }
+
         clearProductCacheByDiscount(saved);
 
         return DiscountResponseDTO.fromEntity(saved);
@@ -150,6 +166,7 @@ public class DiscountServiceImpl implements DiscountService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<DiscountResponseDTO> getAllDiscounts() {
         return discountRepository.findAll().stream()
                 .map(DiscountResponseDTO::fromEntity)
@@ -157,6 +174,7 @@ public class DiscountServiceImpl implements DiscountService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public DiscountResponseDTO getDiscountById(String id) {
         return discountRepository.findById(UUID.fromString(id))
                 .map(DiscountResponseDTO::fromEntity)
@@ -202,6 +220,7 @@ public class DiscountServiceImpl implements DiscountService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<UserDiscountResponseDTO> getMyWallet(UUID userId) {
         User user = userRepository.findById(UUID.fromString(String.valueOf(userId)))
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -209,5 +228,38 @@ public class DiscountServiceImpl implements DiscountService {
         return userDiscountRepository.findByUser_UserId(userId).stream()
                 .map(UserDiscountResponseDTO::fromEntity)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public DiscountResponseDTO updateStatus(String id, Discount.DiscountStatus status) {
+        Discount discount = discountRepository.findById(UUID.fromString(id))
+                .orElseThrow(() -> new RuntimeException("Discount not found!"));
+        discount.setStatus(status);
+        Discount updated = discountRepository.save(discount);
+        clearProductCacheByDiscount(updated);
+        return DiscountResponseDTO.fromEntity(updated);
+    }
+
+    @Override
+    @Transactional
+    public void assignToUsers(String id, List<UUID> userIds) {
+        Discount discount = discountRepository.findById(UUID.fromString(id))
+                .orElseThrow(() -> new RuntimeException("Discount not found!"));
+
+        for (UUID userId : userIds) {
+            User user = userRepository.findById(userId).orElse(null);
+            if (user == null) continue;
+            if (userDiscountRepository.existsByUserAndDiscount(user, discount)) continue;
+
+            UserDiscount ud = UserDiscount.builder()
+                    .user(user)
+                    .discount(discount)
+                    .isUsed(false)
+                    .savedAt(java.time.LocalDateTime.now())
+                    .build();
+            userDiscountRepository.save(ud);
+        }
+        clearProductCacheByDiscount(discount);
     }
 }
