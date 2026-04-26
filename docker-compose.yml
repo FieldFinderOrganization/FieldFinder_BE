@@ -16,12 +16,6 @@ services:
       - .env
     volumes:
       - ./.env:/app/.env
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
     environment:
       - TZ=Asia/Ho_Chi_Minh
       # Chạy Redis Sentinel
