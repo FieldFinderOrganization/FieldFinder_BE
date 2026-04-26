@@ -15,7 +15,6 @@ public class FirebaseConfig {
     @Bean
     public FirebaseApp firebaseApp() throws IOException {
         try {
-            // Đọc file từ classpath (bên trong file .jar)
             ClassPathResource resource = new ClassPathResource("firebase/serviceAccountKey.json");
             InputStream serviceAccount = resource.getInputStream();
 
