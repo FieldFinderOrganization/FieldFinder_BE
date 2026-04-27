@@ -69,20 +69,9 @@ public class DiscountServiceImpl implements DiscountService {
 
         Discount saved = discountRepository.save(discount);
 
-        // Tự động gán cho toàn bộ user nếu scope là GLOBAL
+        // Tự động gán cho toàn bộ user nếu scope là GLOBAL (bulk INSERT - O(1) round-trip)
         if (saved.getScope() == Discount.DiscountScope.GLOBAL) {
-            List<User> allUsers = userRepository.findAll();
-            for (User user : allUsers) {
-                if (!userDiscountRepository.existsByUserAndDiscount(user, saved)) {
-                    UserDiscount ud = UserDiscount.builder()
-                            .user(user)
-                            .discount(saved)
-                            .isUsed(false)
-                            .savedAt(java.time.LocalDateTime.now())
-                            .build();
-                    userDiscountRepository.save(ud);
-                }
-            }
+            userDiscountRepository.bulkAssignToAllUsers(saved.getDiscountId());
         }
 
         clearProductCacheByDiscount(saved);
