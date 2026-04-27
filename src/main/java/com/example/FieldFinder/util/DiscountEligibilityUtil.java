@@ -43,11 +43,22 @@ public final class DiscountEligibilityUtil {
         }
 
         if (discount.getScope() == Discount.DiscountScope.CATEGORY) {
-            Category productCategory = product.getCategory();
-            return productCategory != null
-                    && discount.getApplicableCategories() != null
-                    && discount.getApplicableCategories().stream()
-                    .anyMatch(c -> c.getCategoryId().equals(productCategory.getCategoryId()));
+            if (discount.getApplicableCategories() == null
+                    || discount.getApplicableCategories().isEmpty()) return false;
+
+            // Walk parent chain — match nếu BẤT KỲ ancestor nào của product
+            // có ID trùng với một category trong applicableCategories.
+            // Phải nhất quán với findApplicableDiscountsForProduct (cùng dùng parent chain).
+            java.util.Set<Long> applicableIds = discount.getApplicableCategories().stream()
+                    .map(Category::getCategoryId)
+                    .collect(java.util.stream.Collectors.toSet());
+
+            Category cur = product.getCategory();
+            while (cur != null) {
+                if (applicableIds.contains(cur.getCategoryId())) return true;
+                cur = cur.getParent();
+            }
+            return false;
         }
 
         return false;

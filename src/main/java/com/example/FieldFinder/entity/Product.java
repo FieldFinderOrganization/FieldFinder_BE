@@ -101,16 +101,20 @@ public class Product {
             return;
         }
 
-        double currentPrice = this.price;
+        // BEST-WINS: thử từng mã item-level trên GIÁ GỐC, giữ giá thấp nhất.
+        // Tránh stack 2 mã cùng item (CATEGORY + SPECIFIC_PRODUCT) → cộng dồn discount.
+        double bestPrice = this.price;
         if (availableDiscounts != null && !availableDiscounts.isEmpty()) {
             for (Discount d : availableDiscounts) {
+                if (d.getScope() == Discount.DiscountScope.GLOBAL) continue;
                 if (DiscountEligibilityUtil.isEligibleForProductPreview(d, this)) {
-                    currentPrice = applyDiscountLogic(currentPrice, d);
+                    double candidate = applyDiscountLogic(this.price, d);
+                    if (candidate < bestPrice) bestPrice = candidate;
                 }
             }
         }
 
-        this.salePrice = Math.max(0, currentPrice);
+        this.salePrice = Math.max(0, bestPrice);
 
         if (this.price > 0) {
             double totalReduction = this.price - this.salePrice;

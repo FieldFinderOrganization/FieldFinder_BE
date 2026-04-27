@@ -36,5 +36,7 @@ public class CartResponseDTO {
 
         private Long categoryId;
         private List<String> appliedDiscountCodes;
+        /** Mã GLOBAL eligible cho user nhưng chưa áp — FE gợi ý ở checkout */
+        private List<String> availableGlobalCodes;
     }
 }

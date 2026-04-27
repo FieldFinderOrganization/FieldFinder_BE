@@ -180,6 +180,7 @@ public class CartRedisService {
                         .salePercent(productInfo.getSalePercent())
                         .categoryId(productInfo.getCategoryId())
                         .appliedDiscountCodes(productInfo.getAppliedDiscountCodes())
+                        .availableGlobalCodes(productInfo.getAvailableGlobalCodes())
                         .build();
 
                 detailList.add(detail);

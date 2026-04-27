@@ -61,6 +61,9 @@ public class ProductResponseDTO{
 
     private List<String> appliedDiscountCodes;
 
+    /** Mã GLOBAL eligible cho user nhưng KHÔNG áp vào salePrice. FE dùng để gợi ý ở checkout. */
+    private List<String> availableGlobalCodes;
+
     public static ProductResponseDTO fromEntity(Product product) {
         return ProductResponseDTO.builder()
                 .id(product.getProductId())

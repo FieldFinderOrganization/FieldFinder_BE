@@ -136,13 +136,69 @@ public class ProductServiceImpl implements ProductService {
         return ids;
     }
 
+    /**
+     * Overload không có userId — dùng cho listing/anonymous. Không có wallet lookup.
+     */
     private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds) {
-        if (product == null)
-            return null;
-        calculateAndSetUserPrice(product, usedDiscountIds);
+        return mapToResponse(product, usedDiscountIds, null);
+    }
+
+    /**
+     * Full mapping với wallet lookup khi có userId.
+     * Set appliedDiscountCodes (item-level) và availableGlobalCodes.
+     */
+    private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds, UUID userId) {
+        if (product == null) return null;
+
+        List<Discount> allDiscounts = getPublicDiscounts(product);
+        if (usedDiscountIds != null && !usedDiscountIds.isEmpty()) {
+            allDiscounts.removeIf(d -> usedDiscountIds.contains(d.getDiscountId()));
+        }
+
+        List<String> walletDiscountCodes = new ArrayList<>();
+        List<String> availableGlobalCodes = new ArrayList<>();
+
+        if (userId != null) {
+            // findWalletByUserId JOIN FETCHes applicableCategories + applicableProducts
+            // → tránh lazy-load failure khi isApplicableToProduct kiểm tra category/product set
+            List<UserDiscount> userWallet = userDiscountRepository.findWalletByUserId(userId)
+                    .stream().filter(ud -> !ud.isUsed()).collect(Collectors.toList());
+            Set<UUID> addedIds = allDiscounts.stream().map(Discount::getDiscountId).collect(Collectors.toSet());
+
+            for (UserDiscount ud : userWallet) {
+                Discount d = ud.getDiscount();
+                if (usedDiscountIds != null && usedDiscountIds.contains(d.getDiscountId())) continue;
+                if (!DiscountEligibilityUtil.isEligibleForProductPreview(d, product)) continue;
+
+                // Add vào allDiscounts để tham gia tính salePrice (nếu chưa có)
+                if (!addedIds.contains(d.getDiscountId())
+                        && d.getScope() != Discount.DiscountScope.GLOBAL) {
+                    allDiscounts.add(d);
+                    addedIds.add(d.getDiscountId());
+                }
+
+                // Track code theo wallet — độc lập với allDiscounts.
+                // Mã CATEGORY/SPECIFIC có thể đã có trong allDiscounts qua public lookup,
+                // nhưng vẫn cần track để FE biết user đang dùng mã nào.
+                if (d.getScope() == Discount.DiscountScope.GLOBAL) {
+                    if (!availableGlobalCodes.contains(d.getCode())) {
+                        availableGlobalCodes.add(d.getCode());
+                    }
+                } else {
+                    if (!walletDiscountCodes.contains(d.getCode())) {
+                        walletDiscountCodes.add(d.getCode());
+                    }
+                }
+            }
+        }
+
+        product.calculateSalePriceForUser(allDiscounts);
+
         ProductResponseDTO dto = ProductResponseDTO.fromEntity(product);
         dto.setSalePrice(product.getSalePrice());
         dto.setSalePercent(product.getOnSalePercent());
+        if (!walletDiscountCodes.isEmpty()) dto.setAppliedDiscountCodes(walletDiscountCodes);
+        if (!availableGlobalCodes.isEmpty()) dto.setAvailableGlobalCodes(availableGlobalCodes);
         return dto;
     }
 
@@ -220,7 +276,8 @@ public class ProductServiceImpl implements ProductService {
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
 
-        return mapToResponse(product, usedDiscountIds);
+        // Pass userId để wallet lookup → set appliedDiscountCodes & availableGlobalCodes
+        return mapToResponse(product, usedDiscountIds, userId);
     }
 
     @Override
@@ -391,7 +448,7 @@ public class ProductServiceImpl implements ProductService {
             String existingSizes = allVariants.stream()
                     .map(v -> "'" + v.getSize() + "'")
                     .collect(java.util.stream.Collectors.joining(", "));
-            System.err.println("⚠️ Cannot release stock. Product ID: " + productId
+            System.err.println("Cannot release stock. Product ID: " + productId
                     + ", queried size: '" + size + "'"
                     + ", existing sizes in DB: [" + existingSizes + "]");
             // Fallback: nếu chỉ có 1 variant cho sản phẩm này (Freesize/one-size), dùng
@@ -616,42 +673,11 @@ public class ProductServiceImpl implements ProductService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Sản phẩm không tồn tại!"));
 
-        List<Discount> allDiscounts = getPublicDiscounts(product);
+        List<UUID> usedDiscountIds = (userId != null)
+                ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
+                : Collections.emptyList();
 
-        List<String> walletDiscountCodes = new ArrayList<>();
-
-        if (userId != null) {
-            List<UUID> usedDiscountIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
-
-            allDiscounts.removeIf(d -> usedDiscountIds.contains(d.getDiscountId()));
-
-            List<UserDiscount> userWallet = userDiscountRepository.findByUser_UserIdAndIsUsedFalse(userId);
-            Set<UUID> addedIds = allDiscounts.stream().map(Discount::getDiscountId).collect(Collectors.toSet());
-
-            for (UserDiscount ud : userWallet) {
-                Discount d = ud.getDiscount();
-
-                if (!addedIds.contains(d.getDiscountId())
-                        && !usedDiscountIds.contains(d.getDiscountId())
-                        && DiscountEligibilityUtil.isEligibleForProductPreview(d, product)) {
-
-                    allDiscounts.add(d);
-                    addedIds.add(d.getDiscountId());
-                    walletDiscountCodes.add(d.getCode());
-                }
-            }
-        }
-
-        product.calculateSalePriceForUser(allDiscounts);
-
-        ProductResponseDTO dto = ProductResponseDTO.fromEntity(product);
-        dto.setSalePrice(product.getSalePrice());
-        dto.setSalePercent(product.getOnSalePercent());
-        if (!walletDiscountCodes.isEmpty()) {
-            dto.setAppliedDiscountCodes(walletDiscountCodes);
-        }
-
-        return dto;
+        return mapToResponse(product, usedDiscountIds, userId);
     }
 
     private void evictProductDetailCache(Long productId) {
