@@ -22,6 +22,7 @@ public class ProductResponseDTO{
     private Long id;
     private String name;
     private String description;
+    private Long categoryId;
     private String categoryName;
     private Double price;
 
@@ -65,6 +66,7 @@ public class ProductResponseDTO{
                 .id(product.getProductId())
                 .name(product.getName())
                 .description(product.getDescription())
+                .categoryId(product.getCategory() != null ? product.getCategory().getCategoryId() : null)
                 .categoryName(product.getCategory() != null ? product.getCategory().getName() : null)
                 .price(product.getPrice())
 

@@ -33,5 +33,8 @@ public class CartResponseDTO {
         private Integer stockAvailable;
 
         private Integer salePercent;
+
+        private Long categoryId;
+        private List<String> appliedDiscountCodes;
     }
 }

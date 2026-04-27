@@ -49,7 +49,6 @@ public class CartRedisService {
         ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Sản phẩm hoặc size không tồn tại!"));
 
-        // Đọc trước thông tin product (tránh LazyInitializationException khi log)
         String productName = variant.getProduct().getName();
         Double productPrice = variant.getProduct().getPrice();
 
@@ -78,7 +77,6 @@ public class CartRedisService {
         hashOps.put(cartKey, hashKey, newItem);
         redisTemplate.expire(cartKey, CART_TTL_DAYS, TimeUnit.DAYS);
 
-        // Ghi Log: Người dùng thêm sản phẩm vào giỏ
         try {
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("product_name", productName);
@@ -88,7 +86,7 @@ public class CartRedisService {
 
             logPublisherService.publishEvent(
                     userId.toString(),
-                    null, // sessionId can be null here as we have userId
+                    null,
                     "ADD_TO_CART",
                     productId.toString(),
                     "PRODUCT",
@@ -96,7 +94,6 @@ public class CartRedisService {
                     request.getHeader("User-Agent")
             );
         } catch (Exception e) {
-            // Log error silently to not break the add-to-cart flow
             System.err.println("Không thể ghi log ADD_TO_CART: " + e.getMessage());
         }
     }
@@ -180,6 +177,8 @@ public class CartRedisService {
                         .quantity(redisItem.getQuantity())
                         .stockAvailable(currentStock)
                         .salePercent(productInfo.getSalePercent())
+                        .categoryId(productInfo.getCategoryId())
+                        .appliedDiscountCodes(productInfo.getAppliedDiscountCodes())
                         .build();
 
                 detailList.add(detail);

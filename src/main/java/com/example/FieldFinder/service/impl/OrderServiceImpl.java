@@ -22,7 +22,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -67,7 +69,6 @@ public class OrderServiceImpl implements OrderService {
         double subTotal = 0.0;
         List<OrderItem> orderItemsToSave = new ArrayList<>();
 
-        // Theo dõi các item đã lock thành công để compensation nếu lỗi giữa chừng
         List<LockedItem> lockedItems = new ArrayList<>();
 
         for (OrderItemRequestDTO itemDTO : request.getItems()) {
@@ -77,18 +78,15 @@ public class OrderServiceImpl implements OrderService {
             boolean redisAvailable = true;
 
             try {
-                // 1. Attempt Redis Lock
                 try {
                     isLocked = lock.tryLock(3, 10, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
-                    // Re-throw to be caught by the outer InterruptedException catch
                     throw e;
                 } catch (Exception redisEx) {
-                    System.err.println("⚠️ Redis unavailable, falling back to DB lock: " + redisEx.getMessage());
+                    System.err.println("Redis unavailable, falling back to DB lock: " + redisEx.getMessage());
                     redisAvailable = false;
                 }
 
-                // 2. Process Stock
                 if (redisAvailable && !isLocked) {
                     throw new RuntimeException("Hệ thống đang quá tải, vui lòng thử lại sau!");
                 }
@@ -102,7 +100,6 @@ public class OrderServiceImpl implements OrderService {
 
                 lockedItems.add(new LockedItem(itemDTO.getProductId(), itemDTO.getSize(), itemDTO.getQuantity()));
 
-                // Tạo OrderItem từ kết quả lock
                 OrderItem orderItem = OrderItem.builder()
                         .order(order)
                         .product(result.product())
@@ -128,59 +125,15 @@ public class OrderServiceImpl implements OrderService {
         }
         orderItemRepository.saveAll(orderItemsToSave);
 
-        double totalDiscountAmount = 0.0;
-
+        double finalAmount;
         try {
-            if (request.getDiscountCodes() != null && !request.getDiscountCodes().isEmpty() && user != null) {
-                for (String code : request.getDiscountCodes()) {
-                    Discount discount = discountRepository.findByCode(code)
-                            .orElseThrow(() -> new RuntimeException("Discount code not found: " + code));
-
-                    UserDiscount userDiscount = userDiscountRepository.findByUserAndDiscount(user, discount)
-                            .orElse(null);
-
-                    if (userDiscount == null) {
-                        if (discount.getScope() == Discount.DiscountScope.GLOBAL) {
-                            userDiscount = UserDiscount.builder()
-                                    .user(user)
-                                    .discount(discount)
-                                    .savedAt(LocalDateTime.now())
-                                    .isUsed(false)
-                                    .build();
-                            userDiscountRepository.save(userDiscount);
-                        } else {
-                            throw new RuntimeException("You don't own this voucher: " + code);
-                        }
-                    }
-
-                    if (userDiscount.isUsed()) {
-                        throw new RuntimeException("Voucher has already been used: " + code);
-                    }
-                    if (discount.getStatus() != Discount.DiscountStatus.ACTIVE ||
-                            LocalDate.now().isAfter(discount.getEndDate()) ||
-                            LocalDate.now().isBefore(discount.getStartDate())) {
-                        throw new RuntimeException("Voucher is not active or expired: " + code);
-                    }
-                    if (discount.getMinOrderValue() != null &&
-                            BigDecimal.valueOf(subTotal).compareTo(discount.getMinOrderValue()) < 0) {
-                        throw new RuntimeException("Order value is not enough for voucher: " + code);
-                    }
-
-                    double discountValueForCode = calculateDiscountAmount(discount, orderItemsToSave, subTotal);
-                    totalDiscountAmount += discountValueForCode;
-
-                    userDiscount.setUsed(true);
-                    userDiscount.setUsedAt(LocalDateTime.now());
-                    userDiscountRepository.save(userDiscount);
-                }
-            }
+            finalAmount = applyDiscountsTwoPhase(
+                    request.getDiscountCodes(), user, orderItemsToSave, subTotal);
         } catch (RuntimeException e) {
-            // Discount validation thất bại sau khi đã lock stock → hoàn tác
             compensateLockedItems(lockedItems);
             throw e;
         }
 
-        double finalAmount = Math.max(0, subTotal - totalDiscountAmount);
         order.setTotalAmount(finalAmount);
         order.setItems(orderItemsToSave);
 
@@ -219,60 +172,120 @@ public class OrderServiceImpl implements OrderService {
             try {
                 stockLockService.unlockStock(item.productId(), item.size(), item.quantity());
             } catch (Exception ex) {
-                System.err.println("❌ Lỗi khi hoàn tác lock tồn kho product="
+                System.err.println("Lỗi khi hoàn tác lock tồn kho product="
                         + item.productId() + " size=" + item.size() + ": " + ex.getMessage());
             }
         }
     }
 
-    private double calculateDiscountAmount(Discount discount, List<OrderItem> items, double orderSubTotal) {
-        double applicableAmount = 0.0;
+    private double applyDiscountsTwoPhase(
+            List<String> codes,
+            User user,
+            List<OrderItem> orderItemsToSave,
+            double subTotal) {
 
-        if (discount.getScope() == Discount.DiscountScope.GLOBAL) {
-            applicableAmount = orderSubTotal;
-        } else if (discount.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
-            List<Long> applicableProductIds = discount.getApplicableProducts().stream()
-                    .map(Product::getProductId).toList();
+        if (codes == null || codes.isEmpty() || user == null) {
+            return Math.max(0, subTotal);
+        }
 
-            for (OrderItem item : items) {
-                if (applicableProductIds.contains(item.getProduct().getProductId())) {
-                    applicableAmount += item.getPrice();
+        // Validate + load discounts
+        List<Discount> discounts = new ArrayList<>();
+        List<UserDiscount> userDiscounts = new ArrayList<>();
+        for (String code : codes) {
+            Discount discount = discountRepository.findByCode(code)
+                    .orElseThrow(() -> new RuntimeException("Discount code not found: " + code));
+
+            UserDiscount userDiscount = userDiscountRepository.findByUserAndDiscount(user, discount)
+                    .orElse(null);
+
+            if (userDiscount == null) {
+                if (discount.getScope() == Discount.DiscountScope.GLOBAL) {
+                    userDiscount = UserDiscount.builder()
+                            .user(user).discount(discount)
+                            .savedAt(LocalDateTime.now()).isUsed(false).build();
+                    userDiscountRepository.save(userDiscount);
+                } else {
+                    throw new RuntimeException("You don't own this voucher: " + code);
                 }
             }
-        } else if (discount.getScope() == Discount.DiscountScope.CATEGORY) {
-            List<Long> applicableCategoryIds = discount.getApplicableCategories().stream()
-                    .map(Category::getCategoryId).toList();
 
-            for (OrderItem item : items) {
-                Category prodCat = item.getProduct().getCategory();
-                if (prodCat != null && applicableCategoryIds.contains(prodCat.getCategoryId())) {
-                    applicableAmount += item.getPrice();
+            if (userDiscount.isUsed()) {
+                throw new RuntimeException("Voucher has already been used: " + code);
+            }
+            if (discount.getStatus() != Discount.DiscountStatus.ACTIVE ||
+                    LocalDate.now().isAfter(discount.getEndDate()) ||
+                    LocalDate.now().isBefore(discount.getStartDate())) {
+                throw new RuntimeException("Voucher is not active or expired: " + code);
+            }
+            discounts.add(discount);
+            userDiscounts.add(userDiscount);
+        }
+
+        Map<Integer, Double> itemDiscountMap = new HashMap<>();
+        for (Discount d : discounts) {
+            if (d.getScope() == Discount.DiscountScope.GLOBAL) continue;
+            for (int i = 0; i < orderItemsToSave.size(); i++) {
+                OrderItem item = orderItemsToSave.get(i);
+                if (matchesItem(d, item)) {
+                    double amt = calcDiscountForAmount(d, item.getPrice());
+                    itemDiscountMap.merge(i, amt, Math::max);
                 }
             }
         }
+        double specificTotal = itemDiscountMap.values().stream()
+                .mapToDouble(Double::doubleValue).sum();
+        double subAfterSpecific = subTotal - specificTotal;
 
-        if (applicableAmount == 0)
-            return 0.0;
-
-        double calculatedDiscount = 0.0;
-        BigDecimal val = discount.getValue();
-
-        if (discount.getDiscountType() == Discount.DiscountType.FIXED_AMOUNT) {
-            calculatedDiscount = val.doubleValue();
-            if (calculatedDiscount > applicableAmount) {
-                calculatedDiscount = applicableAmount;
+        double globalTotal = 0.0;
+        for (Discount d : discounts) {
+            if (d.getScope() != Discount.DiscountScope.GLOBAL) continue;
+            if (d.getMinOrderValue() != null &&
+                    BigDecimal.valueOf(subAfterSpecific).compareTo(d.getMinOrderValue()) < 0) {
+                throw new RuntimeException("Order value is not enough for voucher: " + d.getCode());
             }
+            globalTotal += calcDiscountForAmount(d, subAfterSpecific);
+        }
+
+        for (UserDiscount ud : userDiscounts) {
+            ud.setUsed(true);
+            ud.setUsedAt(LocalDateTime.now());
+            userDiscountRepository.save(ud);
+        }
+
+        return Math.max(0, subAfterSpecific - globalTotal);
+    }
+
+    private boolean matchesItem(Discount d, OrderItem item) {
+        if (d.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
+            return d.getApplicableProducts().stream()
+                    .map(Product::getProductId)
+                    .anyMatch(id -> id.equals(item.getProduct().getProductId()));
+        }
+        if (d.getScope() == Discount.DiscountScope.CATEGORY) {
+            Category cat = item.getProduct().getCategory();
+            if (cat == null) return false;
+            return d.getApplicableCategories().stream()
+                    .map(Category::getCategoryId)
+                    .anyMatch(id -> id.equals(cat.getCategoryId()));
+        }
+        return false;
+    }
+
+    private double calcDiscountForAmount(Discount d, double base) {
+        if (base <= 0) return 0.0;
+        BigDecimal val = d.getValue();
+        double result;
+        if (d.getDiscountType() == Discount.DiscountType.FIXED_AMOUNT) {
+            result = val.doubleValue();
         } else {
-            calculatedDiscount = (applicableAmount * val.doubleValue()) / 100.0;
-            if (discount.getMaxDiscountAmount() != null) {
-                double max = discount.getMaxDiscountAmount().doubleValue();
-                if (calculatedDiscount > max) {
-                    calculatedDiscount = max;
-                }
+            result = base * val.doubleValue() / 100.0;
+            if (d.getMaxDiscountAmount() != null) {
+                double max = d.getMaxDiscountAmount().doubleValue();
+                if (result > max) result = max;
             }
         }
-
-        return calculatedDiscount;
+        if (result > base) result = base;
+        return result;
     }
 
     @Override
@@ -340,7 +353,7 @@ public class OrderServiceImpl implements OrderService {
         try {
             emailService.sendOrderCancellation(order);
         } catch (Exception e) {
-            System.err.println("Lỗi gửi email hủy đơn hàng #" + order.getOrderId() + ": " + e.getMessage());
+            System.err.println(" Lỗi gửi email hủy đơn hàng #" + order.getOrderId() + ": " + e.getMessage());
         }
 
         return mapToResponse(order);
@@ -386,16 +399,15 @@ public class OrderServiceImpl implements OrderService {
     @Scheduled(fixedRate = 3600000) // 1h
     @Transactional
     public void processAutomatedOrderManagement() {
-        System.out.println("Starting Automated Order Management (Cleaning stale PENDING orders)...");
+        System.out.println(" Starting Automated Order Management (Cleaning stale PENDING orders)...");
         LocalDateTime threshold = LocalDateTime.now().minusHours(24);
         List<Order> staleOrders = orderRepository.findByStatusAndCreatedAtBefore(OrderStatus.PENDING, threshold);
 
         int count = 0;
         for (Order order : staleOrders) {
-            System.out.println("Cancelling stale Order #" + order.getOrderId());
+            System.out.println(" Cancelling stale Order #" + order.getOrderId());
             order.setStatus(OrderStatus.CANCELED);
 
-            // Release stock
             if (order.getItems() != null) {
                 for (OrderItem item : order.getItems()) {
                     productService.releaseStock(
@@ -409,7 +421,6 @@ public class OrderServiceImpl implements OrderService {
             orderRepository.save(order);
             count++;
 
-            // Send email
             try {
                 emailService.sendOrderCancellation(order);
             } catch (Exception e) {
