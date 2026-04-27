@@ -8,6 +8,7 @@ import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.CloudinaryService;
 import com.example.FieldFinder.service.ProductService;
 import com.example.FieldFinder.specification.ProductSpecification;
+import com.example.FieldFinder.util.DiscountEligibilityUtil;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
@@ -632,7 +633,7 @@ public class ProductServiceImpl implements ProductService {
 
                 if (!addedIds.contains(d.getDiscountId())
                         && !usedDiscountIds.contains(d.getDiscountId())
-                        && isApplicableToProduct(d, product)) {
+                        && DiscountEligibilityUtil.isEligibleForProductPreview(d, product)) {
 
                     allDiscounts.add(d);
                     addedIds.add(d.getDiscountId());
@@ -651,24 +652,6 @@ public class ProductServiceImpl implements ProductService {
         }
 
         return dto;
-    }
-
-    private boolean isApplicableToProduct(Discount d, Product p) {
-        if (d.getScope() == Discount.DiscountScope.GLOBAL)
-            return true;
-
-        if (d.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
-            return d.getApplicableProducts().stream().anyMatch(prod -> prod.getProductId().equals(p.getProductId()));
-        }
-
-        if (d.getScope() == Discount.DiscountScope.CATEGORY) {
-            if (p.getCategory() == null)
-                return false;
-            return d.getApplicableCategories().stream()
-                    .anyMatch(cat -> cat.getCategoryId().equals(p.getCategory().getCategoryId()));
-        }
-
-        return false;
     }
 
     private void evictProductDetailCache(Long productId) {

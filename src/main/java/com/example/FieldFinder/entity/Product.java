@@ -3,9 +3,9 @@ package com.example.FieldFinder.entity;
 import com.example.FieldFinder.converter.StringSetConverter;
 import jakarta.persistence.*;
 import lombok.*;
+import com.example.FieldFinder.util.DiscountEligibilityUtil;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.time.LocalDate;
 import java.math.BigDecimal;
 
 @Entity
@@ -102,11 +102,9 @@ public class Product {
         }
 
         double currentPrice = this.price;
-        LocalDate now = LocalDate.now();
-
         if (availableDiscounts != null && !availableDiscounts.isEmpty()) {
             for (Discount d : availableDiscounts) {
-                if (d != null && isValidDiscount(d, now)) {
+                if (DiscountEligibilityUtil.isEligibleForProductPreview(d, this)) {
                     currentPrice = applyDiscountLogic(currentPrice, d);
                 }
             }
@@ -120,14 +118,6 @@ public class Product {
         } else {
             this.onSalePercent = 0;
         }
-    }
-
-    private boolean isValidDiscount(Discount d, LocalDate now) {
-        boolean isActive = d.getStatus() == Discount.DiscountStatus.ACTIVE;
-        boolean isStarted = d.getStartDate() == null || !now.isBefore(d.getStartDate());
-        boolean isNotExpired = d.getEndDate() == null || !now.isAfter(d.getEndDate());
-        boolean isStockAvailable = d.getQuantity() > 0;
-        return isActive && isStarted && isNotExpired && isStockAvailable;
     }
 
     private double applyDiscountLogic(double currentPrice, Discount d) {

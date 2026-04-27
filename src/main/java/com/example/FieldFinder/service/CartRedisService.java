@@ -46,7 +46,8 @@ public class CartRedisService {
     }
 
     public void addItemToCart(UUID userId, Long productId, String size, int quantity) {
-        ProductVariant variant = productVariantRepository.findByProduct_ProductIdAndSize(productId, size)
+        // JOIN FETCH product để tránh LazyInitializationException khi truy cập getName()/getPrice()
+        ProductVariant variant = productVariantRepository.findWithProductByProductIdAndSize(productId, size)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Sản phẩm hoặc size không tồn tại!"));
 
         String productName = variant.getProduct().getName();

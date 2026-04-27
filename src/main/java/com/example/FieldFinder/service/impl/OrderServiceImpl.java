@@ -11,6 +11,7 @@ import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.OrderService;
 import com.example.FieldFinder.service.ProductService;
+import com.example.FieldFinder.util.DiscountEligibilityUtil;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -199,22 +200,17 @@ public class OrderServiceImpl implements OrderService {
                     .orElse(null);
 
             if (userDiscount == null) {
-                if (discount.getScope() == Discount.DiscountScope.GLOBAL) {
-                    userDiscount = UserDiscount.builder()
-                            .user(user).discount(discount)
-                            .savedAt(LocalDateTime.now()).isUsed(false).build();
-                    userDiscountRepository.save(userDiscount);
-                } else {
-                    throw new RuntimeException("You don't own this voucher: " + code);
-                }
+                // Tạo on-the-fly cho mọi scope (user đăng ký sau khi discount được tạo)
+                userDiscount = UserDiscount.builder()
+                        .user(user).discount(discount)
+                        .savedAt(LocalDateTime.now()).isUsed(false).build();
+                userDiscountRepository.save(userDiscount);
             }
 
             if (userDiscount.isUsed()) {
                 throw new RuntimeException("Voucher has already been used: " + code);
             }
-            if (discount.getStatus() != Discount.DiscountStatus.ACTIVE ||
-                    LocalDate.now().isAfter(discount.getEndDate()) ||
-                    LocalDate.now().isBefore(discount.getStartDate())) {
+            if (!DiscountEligibilityUtil.isUsable(discount, LocalDate.now())) {
                 throw new RuntimeException("Voucher is not active or expired: " + code);
             }
             discounts.add(discount);
@@ -224,12 +220,17 @@ public class OrderServiceImpl implements OrderService {
         Map<Integer, Double> itemDiscountMap = new HashMap<>();
         for (Discount d : discounts) {
             if (d.getScope() == Discount.DiscountScope.GLOBAL) continue;
+            boolean hasEligibleItem = false;
             for (int i = 0; i < orderItemsToSave.size(); i++) {
                 OrderItem item = orderItemsToSave.get(i);
-                if (matchesItem(d, item)) {
+                if (DiscountEligibilityUtil.isEligibleForOrderItem(d, item)) {
+                    hasEligibleItem = true;
                     double amt = calcDiscountForAmount(d, item.getPrice());
                     itemDiscountMap.merge(i, amt, Math::max);
                 }
+            }
+            if (!hasEligibleItem) {
+                throw new RuntimeException("Order item value is not enough for voucher: " + d.getCode());
             }
         }
         double specificTotal = itemDiscountMap.values().stream()
@@ -253,22 +254,6 @@ public class OrderServiceImpl implements OrderService {
         }
 
         return Math.max(0, subAfterSpecific - globalTotal);
-    }
-
-    private boolean matchesItem(Discount d, OrderItem item) {
-        if (d.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
-            return d.getApplicableProducts().stream()
-                    .map(Product::getProductId)
-                    .anyMatch(id -> id.equals(item.getProduct().getProductId()));
-        }
-        if (d.getScope() == Discount.DiscountScope.CATEGORY) {
-            Category cat = item.getProduct().getCategory();
-            if (cat == null) return false;
-            return d.getApplicableCategories().stream()
-                    .map(Category::getCategoryId)
-                    .anyMatch(id -> id.equals(cat.getCategoryId()));
-        }
-        return false;
     }
 
     private double calcDiscountForAmount(Discount d, double base) {

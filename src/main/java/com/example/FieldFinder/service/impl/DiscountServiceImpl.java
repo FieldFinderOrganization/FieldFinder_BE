@@ -12,11 +12,10 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.FieldFinder.Enum.CategoryType;
+
 import java.time.LocalDate;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -69,10 +68,8 @@ public class DiscountServiceImpl implements DiscountService {
 
         Discount saved = discountRepository.save(discount);
 
-        // Tự động gán cho toàn bộ user nếu scope là GLOBAL (bulk INSERT - O(1) round-trip)
-        if (saved.getScope() == Discount.DiscountScope.GLOBAL) {
-            userDiscountRepository.bulkAssignToAllUsers(saved.getDiscountId());
-        }
+        // Tự động gán cho toàn bộ user với mọi scope (GLOBAL, CATEGORY, SPECIFIC_PRODUCT)
+        userDiscountRepository.bulkAssignToAllUsers(saved.getDiscountId());
 
         clearProductCacheByDiscount(saved);
 
@@ -111,6 +108,45 @@ public class DiscountServiceImpl implements DiscountService {
         return DiscountResponseDTO.fromEntity(updated);
     }
 
+    /**
+     * Mở rộng danh sách category theo đúng logic ProductServiceImpl:
+     * - SUPER_CATEGORY → tìm tất cả category có tên chứa keyword, rồi lấy toàn bộ descendants (BFS)
+     * - STANDARD / BRAND → lấy toàn bộ descendants từ category đã chọn (BFS)
+     */
+    private Set<Long> expandCategoryIds(List<Category> selectedCategories) {
+        Set<Long> ids = new HashSet<>();
+        for (Category cat : selectedCategories) {
+            if (cat.getCategoryType() == CategoryType.SUPER_CATEGORY) {
+                // keyword-based expansion: tìm mọi category có tên chứa keyword rồi lấy cả cây
+                List<Category> matching = categoryRepository.findByNameContainingIgnoreCase(cat.getName());
+                for (Category match : matching) {
+                    ids.addAll(getAllDescendantIds(match.getCategoryId()));
+                }
+            } else {
+                ids.addAll(getAllDescendantIds(cat.getCategoryId()));
+            }
+        }
+        return ids;
+    }
+
+    /** BFS lấy toàn bộ descendant IDs (bao gồm cả chính nó). */
+    private Set<Long> getAllDescendantIds(Long categoryId) {
+        Set<Long> ids = new HashSet<>();
+        ids.add(categoryId);
+        Queue<Long> queue = new LinkedList<>();
+        queue.add(categoryId);
+        while (!queue.isEmpty()) {
+            Long current = queue.poll();
+            List<Category> children = categoryRepository.findByParent_CategoryId(current);
+            for (Category child : children) {
+                if (ids.add(child.getCategoryId())) {
+                    queue.add(child.getCategoryId());
+                }
+            }
+        }
+        return ids;
+    }
+
     private void handleScopeMapping(Discount discount, DiscountRequestDTO dto) {
 
         if (discount.getApplicableProducts() == null) {
@@ -131,8 +167,13 @@ public class DiscountServiceImpl implements DiscountService {
         }
         else if (discount.getScope() == Discount.DiscountScope.CATEGORY) {
             if (dto.getApplicableCategoryIds() != null && !dto.getApplicableCategoryIds().isEmpty()) {
-                List<Category> categories = categoryRepository.findAllById(dto.getApplicableCategoryIds());
-                discount.setApplicableCategories(new HashSet<>(categories));
+                List<Category> selectedCategories = categoryRepository.findAllById(dto.getApplicableCategoryIds());
+                // Mở rộng theo đúng logic ProductServiceImpl:
+                //   SUPER_CATEGORY → keyword expand (tìm tất cả category có tên chứa keyword, rồi lấy toàn bộ con cháu)
+                //   STANDARD/BRAND  → getAllDescendantIds (BFS toàn bộ cây con)
+                Set<Long> expandedIds = expandCategoryIds(selectedCategories);
+                List<Category> allCats = categoryRepository.findAllById(new ArrayList<>(expandedIds));
+                discount.setApplicableCategories(new HashSet<>(allCats));
             } else {
                 discount.getApplicableCategories().clear();
             }
@@ -214,7 +255,8 @@ public class DiscountServiceImpl implements DiscountService {
         User user = userRepository.findById(UUID.fromString(String.valueOf(userId)))
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        return userDiscountRepository.findByUser_UserId(userId).stream()
+        // JOIN FETCH đảm bảo applicableProducts/applicableCategories được load sẵn
+        return userDiscountRepository.findWalletByUserId(userId).stream()
                 .map(UserDiscountResponseDTO::fromEntity)
                 .collect(Collectors.toList());
     }

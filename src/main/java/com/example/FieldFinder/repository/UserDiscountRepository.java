@@ -21,6 +21,18 @@ public interface UserDiscountRepository extends JpaRepository<UserDiscount, UUID
 
     List<UserDiscount> findByUser_UserId(UUID userID);
 
+    /**
+     * Wallet query: JOIN FETCH discount + applicable collections để tránh lazy-loading
+     * trả về empty set khi serialize bên ngoài session.
+     * DISTINCT để tránh duplicate rows do LEFT JOIN FETCH trên ManyToMany.
+     */
+    @Query("SELECT DISTINCT ud FROM UserDiscount ud " +
+            "JOIN FETCH ud.discount d " +
+            "LEFT JOIN FETCH d.applicableProducts " +
+            "LEFT JOIN FETCH d.applicableCategories " +
+            "WHERE ud.user.userId = :userId")
+    List<UserDiscount> findWalletByUserId(@Param("userId") UUID userId);
+
     @Query("SELECT ud.discount.discountId FROM UserDiscount ud WHERE ud.user.userId = :userId AND ud.isUsed = true")
     List<UUID> findUsedDiscountIdsByUserId(@Param("userId") UUID userId);
 

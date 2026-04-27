@@ -16,6 +16,11 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
 
     Optional<ProductVariant> findByProduct_ProductIdAndSize(Long id, String size);
 
+    @Query("SELECT v FROM ProductVariant v JOIN FETCH v.product WHERE v.product.productId = :productId AND v.size = :size")
+    Optional<ProductVariant> findWithProductByProductIdAndSize(
+            @Param("productId") Long productId,
+            @Param("size") String size);
+
     List<ProductVariant> findAllByProduct_ProductId(Long productId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

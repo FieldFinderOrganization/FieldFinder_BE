@@ -3,6 +3,7 @@ package com.example.FieldFinder.dto.res;
 import com.example.FieldFinder.entity.Category;
 import com.example.FieldFinder.entity.Product;
 import com.example.FieldFinder.entity.UserDiscount;
+import com.example.FieldFinder.util.DiscountEligibilityUtil;
 import lombok.Builder;
 import lombok.Data;
 
@@ -37,6 +38,8 @@ public class UserDiscountResponseDTO {
             calculatedStatus = "USED";
         } else if (LocalDate.now().isAfter(userDiscount.getDiscount().getEndDate())) {
             calculatedStatus = "EXPIRED";
+        } else if (!DiscountEligibilityUtil.isUsable(userDiscount.getDiscount(), LocalDate.now())) {
+            calculatedStatus = "UNAVAILABLE";
         }
 
         return UserDiscountResponseDTO.builder()
