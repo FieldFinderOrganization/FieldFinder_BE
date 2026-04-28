@@ -15,14 +15,16 @@ public interface DiscountRepository extends JpaRepository<Discount, UUID> {
     Optional<Discount> findByCode(String discountCode);
 
     @Query("SELECT DISTINCT d FROM Discount d " +
-            "LEFT JOIN d.applicableProducts p " +
-            "LEFT JOIN d.applicableCategories c " +
+            "LEFT JOIN FETCH d.applicableProducts " +
+            "LEFT JOIN FETCH d.applicableCategories " +
             "WHERE d.status = 'ACTIVE' " +
             "AND CURRENT_DATE BETWEEN d.startDate AND d.endDate " +
             "AND (" +
             "   d.scope = 'GLOBAL' " +
-            "   OR (d.scope = 'SPECIFIC_PRODUCT' AND p.productId = :productId) " +
-            "   OR (d.scope = 'CATEGORY' AND c.categoryId IN :categoryIds) " +
+            "   OR (d.scope = 'SPECIFIC_PRODUCT' AND EXISTS (" +
+            "       SELECT 1 FROM d.applicableProducts p2 WHERE p2.productId = :productId)) " +
+            "   OR (d.scope = 'CATEGORY' AND EXISTS (" +
+            "       SELECT 1 FROM d.applicableCategories c2 WHERE c2.categoryId IN :categoryIds)) " +
             ")")
     List<Discount> findApplicableDiscountsForProduct(
             @Param("productId") Long productId,

@@ -61,7 +61,6 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
         ProviderAddress address = addressRepository.findById(addressId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Address not found!"));
 
-        // Check if any pitch in this address has bookings
         boolean hasBookedPitches = pitchRepository.findByProviderAddressProviderAddressId(addressId).stream()
                 .anyMatch(pitch -> bookingDetailRepository.existsByPitch_PitchId(pitch.getPitchId()));
 
