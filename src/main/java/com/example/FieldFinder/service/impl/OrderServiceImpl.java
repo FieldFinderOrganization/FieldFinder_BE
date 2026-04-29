@@ -2,6 +2,8 @@ package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.Enum.OrderStatus;
 import com.example.FieldFinder.Enum.PaymentMethod;
+import com.example.FieldFinder.Enum.PaymentStatus;
+import com.example.FieldFinder.Enum.RefundSourceType;
 import com.example.FieldFinder.dto.req.OrderItemRequestDTO;
 import com.example.FieldFinder.dto.req.OrderRequestDTO;
 import com.example.FieldFinder.dto.res.OrderItemResponseDTO;
@@ -11,6 +13,7 @@ import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.OrderService;
 import com.example.FieldFinder.service.ProductService;
+import com.example.FieldFinder.service.RefundService;
 import com.example.FieldFinder.util.DiscountEligibilityUtil;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
@@ -48,6 +51,11 @@ public class OrderServiceImpl implements OrderService {
     private final ProductService productService;
     private final EmailService emailService;
     private final StockLockService stockLockService;
+    private final PaymentRepository paymentRepository;
+    private final RefundService refundService;
+
+    /** Cửa sổ cho phép hủy + hoàn tiền sau khi đã thanh toán đơn hàng. */
+    private static final long ORDER_REFUND_WINDOW_HOURS = 24;
 
     @Override
     @Transactional
@@ -179,6 +187,14 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    /**
+     * Logic 2-pha:
+     *   Pha 1 (item-level, best-wins): SPECIFIC_PRODUCT + CATEGORY áp lên từng item.
+     *   Pha 2 (order-level): GLOBAL áp lên subtotal sau pha 1.
+     *
+     * TODO: extend thành 3-pha khi giới thiệu SHOP scope (mã của shop/provider)
+     *       — chèn pha SHOP giữa item-level và GLOBAL.
+     */
     private double applyDiscountsTwoPhase(
             List<String> codes,
             User user,
@@ -200,6 +216,10 @@ public class OrderServiceImpl implements OrderService {
                     .orElse(null);
 
             if (userDiscount == null) {
+                // REFUND_CREDIT phải thuộc về owner — không tạo on-the-fly
+                if (discount.getKind() == com.example.FieldFinder.Enum.DiscountKind.REFUND_CREDIT) {
+                    throw new RuntimeException("Mã hoàn tiền không thuộc về người dùng này: " + code);
+                }
                 // Tạo on-the-fly cho mọi scope (user đăng ký sau khi discount được tạo)
                 userDiscount = UserDiscount.builder()
                         .user(user).discount(discount)
@@ -215,6 +235,38 @@ public class OrderServiceImpl implements OrderService {
             }
             discounts.add(discount);
             userDiscounts.add(userDiscount);
+        }
+
+        // REFUND_CREDIT KHÔNG được stack với voucher khác và ngược lại
+        boolean hasRefund = discounts.stream()
+                .anyMatch(d -> d.getKind() == com.example.FieldFinder.Enum.DiscountKind.REFUND_CREDIT);
+        boolean hasPromo = discounts.stream()
+                .anyMatch(d -> d.getKind() != com.example.FieldFinder.Enum.DiscountKind.REFUND_CREDIT);
+        if (hasRefund && hasPromo) {
+            throw new RuntimeException("Mã hoàn tiền không thể dùng chung với voucher khuyến mãi khác!");
+        }
+
+        // Nhánh REFUND_CREDIT: trừ trực tiếp lên subTotal, hỗ trợ residual
+        if (hasRefund) {
+            double remainingSub = subTotal;
+            for (int i = 0; i < discounts.size(); i++) {
+                Discount d = discounts.get(i);
+                UserDiscount ud = userDiscounts.get(i);
+                BigDecimal balance = ud.getRemainingValue() != null
+                        ? ud.getRemainingValue() : d.getValue();
+                if (balance.signum() <= 0) continue;
+                double deduct = Math.min(remainingSub, balance.doubleValue());
+                remainingSub -= deduct;
+                BigDecimal newBalance = balance.subtract(BigDecimal.valueOf(deduct));
+                ud.setRemainingValue(newBalance);
+                if (newBalance.signum() <= 0) {
+                    ud.setUsed(true);
+                    ud.setUsedAt(LocalDateTime.now());
+                }
+                userDiscountRepository.save(ud);
+                if (remainingSub <= 0) break;
+            }
+            return Math.max(0, remainingSub);
         }
 
         Map<Integer, Double> itemDiscountMap = new HashMap<>();
@@ -316,8 +368,15 @@ public class OrderServiceImpl implements OrderService {
             throw new RuntimeException("Bạn không có quyền hủy đơn hàng này!");
         }
 
-        if (order.getStatus() != OrderStatus.PENDING) {
-            throw new RuntimeException("Chỉ có thể hủy đơn hàng đang ở trạng thái PENDING!");
+        boolean isPending = order.getStatus() == OrderStatus.PENDING;
+        boolean isPaidWithinWindow = isPaidOrder(order)
+                && order.getPaymentTime() != null
+                && order.getPaymentTime().plusHours(ORDER_REFUND_WINDOW_HOURS).isAfter(LocalDateTime.now());
+
+        if (!isPending && !isPaidWithinWindow) {
+            throw new RuntimeException(
+                    "Chỉ có thể hủy đơn PENDING hoặc đơn đã thanh toán trong vòng "
+                            + ORDER_REFUND_WINDOW_HOURS + "h!");
         }
 
         order.setStatus(OrderStatus.CANCELED);
@@ -335,6 +394,29 @@ public class OrderServiceImpl implements OrderService {
 
         orderRepository.save(order);
 
+        // Phát hành mã hoàn tiền nếu đơn đã thanh toán
+        if (isPaidWithinWindow) {
+            BigDecimal refundAmount = BigDecimal.valueOf(
+                    order.getTotalAmount() != null ? order.getTotalAmount() : 0.0);
+            if (refundAmount.signum() > 0) {
+                refundService.issueRefundCredit(
+                        order.getUser(),
+                        RefundSourceType.ORDER,
+                        String.valueOf(order.getOrderId()),
+                        refundAmount,
+                        "User cancel order within 24h refund window");
+
+                // Đánh dấu Payment REFUNDED
+                paymentRepository
+                        .findFirstByOrder_OrderIdOrderByCreatedAtDesc(order.getOrderId())
+                        .ifPresent(p -> {
+                            p.setPaymentStatus(PaymentStatus.REFUNDED);
+                            p.setProcessedAt(LocalDateTime.now());
+                            paymentRepository.save(p);
+                        });
+            }
+        }
+
         try {
             emailService.sendOrderCancellation(order);
         } catch (Exception e) {
@@ -342,6 +424,12 @@ public class OrderServiceImpl implements OrderService {
         }
 
         return mapToResponse(order);
+    }
+
+    private boolean isPaidOrder(Order order) {
+        OrderStatus s = order.getStatus();
+        // DELIVERED đã giao xong → không nằm trong cửa sổ hoàn tiền tự phục vụ
+        return s == OrderStatus.PAID || s == OrderStatus.CONFIRMED;
     }
 
     @Override

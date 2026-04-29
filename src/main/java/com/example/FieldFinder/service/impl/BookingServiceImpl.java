@@ -3,7 +3,9 @@ package com.example.FieldFinder.service.impl;
 import com.example.FieldFinder.Enum.BookingStatus;
 import com.example.FieldFinder.Enum.PaymentMethod;
 import com.example.FieldFinder.Enum.PaymentStatus;
+import com.example.FieldFinder.Enum.RefundSourceType;
 import com.example.FieldFinder.config.RabbitMQConfig;
+import com.example.FieldFinder.service.RefundService;
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
 import com.example.FieldFinder.dto.res.BookingResponseDTO;
@@ -46,6 +48,9 @@ public class BookingServiceImpl implements BookingService {
     private final PaymentRepository paymentRepository;
     private final ProviderRepository providerRepository;
     private final EmailService emailService;
+    private final RefundService refundService;
+
+    private static final long BOOKING_REFUND_MIN_MINUTES_BEFORE = 10;
 
     @Override
     public List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate) {
@@ -369,12 +374,51 @@ public class BookingServiceImpl implements BookingService {
             throw new RuntimeException("Bạn không có quyền hủy đặt sân này!");
         }
 
-        if (booking.getStatus() != BookingStatus.PENDING) {
-            throw new RuntimeException("Chỉ có thể hủy đặt sân đang ở trạng thái PENDING!");
+        boolean isPending = booking.getStatus() == BookingStatus.PENDING;
+        boolean isPaidConfirmed = booking.getStatus() == BookingStatus.CONFIRMED
+                && booking.getPaymentStatus() == PaymentStatus.PAID;
+
+        if (!isPending && !isPaidConfirmed) {
+            throw new RuntimeException("Trạng thái đặt sân không cho phép hủy!");
+        }
+
+        // Validate cửa sổ ≥10p trước slot đầu (chỉ áp với booking đã thanh toán)
+        if (isPaidConfirmed) {
+            LocalDateTime earliestStart = earliestSlotStart(booking);
+            if (earliestStart == null) {
+                throw new RuntimeException("Không xác định được giờ bắt đầu của slot!");
+            }
+            long minutesUntil = ChronoUnit.MINUTES.between(LocalDateTime.now(), earliestStart);
+            if (minutesUntil < BOOKING_REFUND_MIN_MINUTES_BEFORE) {
+                throw new RuntimeException(
+                        "Phải hủy trước ít nhất " + BOOKING_REFUND_MIN_MINUTES_BEFORE
+                                + " phút so với giờ bắt đầu để được hoàn tiền!");
+            }
         }
 
         // Save DB first (within transaction), unlock Redis AFTER commit
         cancelBooking(booking, "User requested cancellation");
+
+        // Phát hành mã hoàn tiền nếu booking đã thanh toán
+        if (isPaidConfirmed && booking.getTotalPrice() != null
+                && booking.getTotalPrice().signum() > 0) {
+            refundService.issueRefundCredit(
+                    booking.getUser(),
+                    RefundSourceType.BOOKING,
+                    booking.getBookingId().toString(),
+                    booking.getTotalPrice(),
+                    "User cancel booking ≥10m before start");
+
+            paymentRepository
+                    .findFirstByBooking_BookingIdOrderByCreatedAtDesc(booking.getBookingId())
+                    .ifPresent(p -> {
+                        p.setPaymentStatus(PaymentStatus.REFUNDED);
+                        p.setProcessedAt(LocalDateTime.now());
+                        paymentRepository.save(p);
+                    });
+            booking.setPaymentStatus(PaymentStatus.REFUNDED);
+            bookingRepository.save(booking);
+        }
 
         // Unlock Redis slots only after the transaction commits successfully
         // This prevents double-booking: if DB rollback occurs, Redis lock stays → slot remains locked
@@ -437,7 +481,7 @@ public class BookingServiceImpl implements BookingService {
                 // 2. Reminder Email at T-10m
                 if (!Boolean.TRUE.equals(booking.getIsReminderSent()) && minutesUntilStart <= 10
                         && minutesUntilStart > 5) {
-                    System.out.println("📧 Sending reminder for Booking #" + booking.getBookingId());
+                    System.out.println("Sending reminder for Booking #" + booking.getBookingId());
                     rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
                             RabbitMQConfig.BOOKING_REMINDER_EMAIL_ROUTING_KEY,
                             booking.getBookingId().toString());
@@ -465,6 +509,16 @@ public class BookingServiceImpl implements BookingService {
                         userId);
             }
         }
+    }
+
+    private LocalDateTime earliestSlotStart(Booking booking) {
+        if (booking.getBookingDetails() == null) return null;
+        return booking.getBookingDetails().stream()
+                .map(bd -> bd.getTimeSlot() != null ? bd.getTimeSlot().getStartTime() : null)
+                .filter(Objects::nonNull)
+                .min(LocalTime::compareTo)
+                .map(t -> LocalDateTime.of(booking.getBookingDate(), t))
+                .orElse(null);
     }
 
     private void cancelBooking(Booking booking, String reason) {

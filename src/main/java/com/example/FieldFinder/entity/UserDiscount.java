@@ -2,6 +2,7 @@ package com.example.FieldFinder.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -36,4 +37,7 @@ public class UserDiscount {
 
     @Column(name = "UsedAt")
     private LocalDateTime usedAt;
+
+    @Column(name = "RemainingValue")
+    private BigDecimal remainingValue;
 }

@@ -72,9 +72,9 @@ public class EmailServiceImpl implements EmailService {
 
         try {
             sendHtmlEmail(to, subject, content);
-            System.out.println("Email sent successfully to " + to);
+            System.out.println("📧 Email sent successfully to " + to);
         } catch (MessagingException e) {
-            System.err.println("Failed to send email: " + e.getMessage());
+            System.err.println("❌ Failed to send email: " + e.getMessage());
         }
     }
 
@@ -96,9 +96,9 @@ public class EmailServiceImpl implements EmailService {
 
         try {
             sendHtmlEmail(to, subject, content);
-            System.out.println("Cancellation Email sent to " + to);
+            System.out.println("📧 Cancellation Email sent to " + to);
         } catch (MessagingException e) {
-            System.err.println("Failed to send cancellation email: " + e.getMessage());
+            System.err.println("❌ Failed to send cancellation email: " + e.getMessage());
         }
     }
 
@@ -120,9 +120,9 @@ public class EmailServiceImpl implements EmailService {
 
         try {
             sendHtmlEmail(to, subject, content);
-            System.out.println("Booking Cancellation Email sent to " + to);
+            System.out.println("📧 Booking Cancellation Email sent to " + to);
         } catch (MessagingException e) {
-            System.err.println("Failed to send booking cancellation email: " + e.getMessage());
+            System.err.println("❌ Failed to send booking cancellation email: " + e.getMessage());
         }
     }
 
@@ -141,9 +141,11 @@ public class EmailServiceImpl implements EmailService {
 
         String to = liveBooking.getUser().getEmail();
 
+        // Dynamic Subject
         String subject;
         String bookingIdShort = liveBooking.getBookingId().toString().substring(0, 8);
 
+        // Lấy phương thức thanh toán từ PaymentRepository
         PaymentMethod method = paymentRepository.findFirstPaymentMethodByBookingId(liveBooking.getBookingId())
                 .orElse(PaymentMethod.BANK);
 
@@ -193,6 +195,40 @@ public class EmailServiceImpl implements EmailService {
         }
     }
 
+    @Override
+    @Async
+    @Transactional
+    public void sendRefundCodeIssued(RefundRequest req) {
+        if (req == null || req.getUser() == null || req.getUser().getEmail() == null) {
+            System.err.println("Cannot send refund email: missing user/email");
+            return;
+        }
+        if (req.getIssuedDiscount() == null) {
+            System.err.println("Cannot send refund email: discount not issued yet");
+            return;
+        }
+        String to = req.getUser().getEmail();
+        String subject = "FieldFinder - Mã hoàn tiền " + req.getIssuedDiscount().getCode();
+        NumberFormat fmt = NumberFormat.getCurrencyInstance(Locale.of("vi", "VN"));
+        String content = "<div style='font-family:Arial,sans-serif;max-width:560px;margin:auto;'>"
+                + "<h2 style='color:#0a7d3a;'>Hoàn tiền thành công</h2>"
+                + "<p>Đơn hàng/đặt sân của bạn (" + req.getSourceType() + " #" + req.getSourceId()
+                + ") đã được hủy.</p>"
+                + "<p>Số tiền hoàn: <b>" + fmt.format(req.getAmount()) + "</b></p>"
+                + "<p>Mã hoàn tiền: <b style='font-size:18px;color:#0a7d3a;'>"
+                + req.getIssuedDiscount().getCode() + "</b></p>"
+                + "<p>Hết hạn: <b>" + req.getIssuedDiscount().getEndDate() + "</b></p>"
+                + "<p>Bạn có thể dùng mã này trong các đơn hàng/đặt sân tiếp theo. "
+                + "Mã không dùng chung được với voucher khuyến mãi khác.</p>"
+                + "</div>";
+        try {
+            sendHtmlEmail(to, subject, content);
+            System.out.println("📧 Refund code email sent to " + to);
+        } catch (MessagingException e) {
+            System.err.println("❌ Failed to send refund email: " + e.getMessage());
+        }
+    }
+
     private void sendHtmlEmail(String to, String subject, String htmlBody) throws MessagingException {
         MimeMessage message = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
@@ -208,6 +244,7 @@ public class EmailServiceImpl implements EmailService {
         NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.of("vi", "VN"));
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
+        // Determine Header and Instruction based on status
         String headerTitle = "FieldFinder - Đặt sân thành công!";
         String instruction = "Chúc bạn có một trận đấu vui vẻ.";
         String headerColor = "#188862";
@@ -321,6 +358,7 @@ public class EmailServiceImpl implements EmailService {
                 .append(order.getPaymentMethod())
                 .append("</p>");
 
+        // Table Items
         html.append("<table style='width: 100%; border-collapse: collapse; margin-top: 20px;'>");
         html.append("<tr style='background-color: #f2f2f2;'>");
         html.append("<th style='padding: 12px; border: 1px solid #ddd; text-align: left;'>Sản phẩm</th>");
@@ -347,6 +385,7 @@ public class EmailServiceImpl implements EmailService {
             }
         }
 
+        // Total
         html.append("<tr>");
         html.append("<td colspan='3' style='padding: 12px; border: 1px solid #ddd; text-align: right;'><strong>Tổng cộng:</strong></td>");
         html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right; color: #d32f2f; font-weight: bold;'>")
@@ -494,9 +533,9 @@ public class EmailServiceImpl implements EmailService {
 
         try {
             sendHtmlEmail(to, subject, content);
-            System.out.println("Order Reminder Email sent successfully to " + to);
+            System.out.println("📧 Order Reminder Email sent successfully to " + to);
         } catch (MessagingException e) {
-            System.err.println("Failed to send order reminder email: " + e.getMessage());
+            System.err.println("❌ Failed to send order reminder email: " + e.getMessage());
         }
     }
 
@@ -517,7 +556,7 @@ public class EmailServiceImpl implements EmailService {
         html.append("<p>Bạn có đơn hàng đặt lúc <strong>")
                 .append(order.getCreatedAt().format(dateFormatter))
                 .append("</strong> chưa được thanh toán.</p>");
-        html.append("<p style='color: #d32f2f; font-weight: bold;'> Lưu ý: Đơn hàng sẽ tự động bị hủy nếu chưa thanh toán trong vòng 24 giờ.</p>");
+        html.append("<p style='color: #d32f2f; font-weight: bold;'>⚠️ Lưu ý: Đơn hàng sẽ tự động bị hủy nếu chưa thanh toán trong vòng 24 giờ.</p>");
 
         html.append("<h3 style='margin-top: 20px;'>Sản phẩm đã đặt:</h3>");
         html.append("<table style='width: 100%; border-collapse: collapse;'>");
