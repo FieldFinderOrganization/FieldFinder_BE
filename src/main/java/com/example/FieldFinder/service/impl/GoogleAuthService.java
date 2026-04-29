@@ -35,7 +35,6 @@ public class GoogleAuthService {
 
     @PostConstruct
     public void init() {
-        // Khởi tạo 1 lần khi bean được tạo — tái dùng cho mọi request
         verifier = new GoogleIdTokenVerifier.Builder(
                 new NetHttpTransport(),
                 GsonFactory.getDefaultInstance()

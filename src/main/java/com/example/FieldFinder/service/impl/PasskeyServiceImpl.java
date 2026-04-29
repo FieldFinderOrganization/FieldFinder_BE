@@ -311,14 +311,14 @@ public class PasskeyServiceImpl implements PasskeyService {
         assert authData.getAuthenticatorData() != null;
         long newSignCount = authData.getAuthenticatorData().getSignCount();
         if (newSignCount != 0 && newSignCount <= stored.getSignCount()) {
-            log.warn("⚠️ PassKey signCount anomaly — có thể thiết bị bị clone. " +
+            log.warn("PassKey signCount anomaly — có thể thiết bị bị clone. " +
                             "credentialId={}, stored={}, received={}. Proceeding.",
                     dto.getCredentialId(), stored.getSignCount(), newSignCount);
         }
         stored.setSignCount(Math.max(newSignCount, stored.getSignCount()));
         passkeyCredentialRepository.save(stored);
 
-        log.info("✅ PassKey login success for user={}", email);
+        log.info("PassKey login success for user={}", email);
         return jwtService.generateTokenPair(stored.getUser());
     }
 

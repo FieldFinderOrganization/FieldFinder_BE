@@ -28,7 +28,6 @@ public class AuthServiceImpl implements AuthService {
         generateAndSendOtp(email, LOGIN_OTP_PREFIX, "FieldFinder - Mã xác thực đăng nhập FieldFinder", "Mã OTP đăng nhập");
     }
 
-    // Thêm phương thức mới cho Reset Password
     public void sendResetPasswordOtp(String email) {
         generateAndSendOtp(email, RESET_PASSWORD_OTP_PREFIX, "FieldFinder - Mã đặt lại mật khẩu", "Mã OTP để đặt lại mật khẩu");
     }
@@ -56,8 +55,6 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public boolean verifyOtp(String email, String code) {
-        // Mặc định kiểm tra cả hai prefix hoặc bạn có thể truyền thêm tham số type vào đây
-        // Ở đây mình ưu tiên kiểm tra login trước, nếu không thấy thì kiểm tra reset
         if (checkAndVerify(email, code, LOGIN_OTP_PREFIX)) return true;
         if (checkAndVerify(email, code, RESET_PASSWORD_OTP_PREFIX)) return true;
 

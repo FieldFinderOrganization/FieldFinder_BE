@@ -65,7 +65,6 @@ public class JwtServiceImpl implements JwtService {
 
     @Override
     public String generateRefreshToken(User user) {
-        // Xóa token cũ của user trước khi tạo mới — tránh tích lũy nhiều hàng
         refreshTokenRepository.deleteByUser(user);
 
         String rawToken = UUID.randomUUID().toString();

@@ -31,17 +31,6 @@ public class FacebookAuthService {
     @Value("${facebook.app-secret}")
     private String appSecret;
 
-    /**
-     * Verify Facebook Access Token và trả về JWT nội bộ.
-     *
-     * <p>Flow:
-     * <ol>
-     *   <li>Gọi debug_token API → kiểm tra token hợp lệ + app_id đúng (chống token từ app khác)</li>
-     *   <li>Gọi /me API → lấy id, name, email, picture</li>
-     *   <li>Account Linking qua SocialLoginService</li>
-     *   <li>Trả về JWT nội bộ</li>
-     * </ol>
-     */
     public AuthTokenResponseDTO login(String accessToken) {
         // Bước 1: Verify token — check app_id và is_valid
         verifyToken(accessToken);
@@ -70,10 +59,6 @@ public class FacebookAuthService {
         return jwtService.generateTokenPair(user);
     }
 
-    /**
-     * Gọi Facebook debug_token API để xác minh token hợp lệ và thuộc đúng app.
-     * Bắt buộc check app_id để chống token từ app Facebook khác.
-     */
     private void verifyToken(String accessToken) {
         String appToken = appId + "|" + appSecret;
         String debugUrl = String.format(
@@ -94,7 +79,6 @@ public class FacebookAuthService {
                         "Facebook Access Token không hợp lệ hoặc đã hết hạn.");
             }
 
-            // Bắt buộc: check app_id khớp với app của mình
             if (!appId.equals(returnedAppId)) {
                 log.warn("Facebook token app_id mismatch: expected={}, got={}", appId, returnedAppId);
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
@@ -114,9 +98,7 @@ public class FacebookAuthService {
         }
     }
 
-    /**
-     * Gọi Facebook Graph API /me để lấy thông tin user.
-     */
+    // Gọi Facebook Graph API /me để lấy thông tin user.
     private FacebookUserInfo fetchUserInfo(String accessToken) {
         String meUrl = String.format(
                 "https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=%s",

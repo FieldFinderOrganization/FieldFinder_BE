@@ -19,7 +19,6 @@ import java.util.UUID;
 @Repository
 public interface PitchRepository extends JpaRepository<Pitch, UUID>, JpaSpecificationExecutor<Pitch> {
 
-    // Override findAll to use EntityGraph - eliminates N+1 queries for providerAddress->provider->user
     @Override
     @EntityGraph(value = "Pitch.withProviderDetails", type = EntityGraph.EntityGraphType.LOAD)
     Page<Pitch> findAll(Specification<Pitch> spec, Pageable pageable);

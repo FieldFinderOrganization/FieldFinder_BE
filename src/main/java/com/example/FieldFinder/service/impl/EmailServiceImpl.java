@@ -72,9 +72,9 @@ public class EmailServiceImpl implements EmailService {
 
         try {
             sendHtmlEmail(to, subject, content);
-            System.out.println("📧 Email sent successfully to " + to);
+            System.out.println("Email sent successfully to " + to);
         } catch (MessagingException e) {
-            System.err.println("❌ Failed to send email: " + e.getMessage());
+            System.err.println("Failed to send email: " + e.getMessage());
         }
     }
 
@@ -96,9 +96,9 @@ public class EmailServiceImpl implements EmailService {
 
         try {
             sendHtmlEmail(to, subject, content);
-            System.out.println("📧 Cancellation Email sent to " + to);
+            System.out.println("Cancellation Email sent to " + to);
         } catch (MessagingException e) {
-            System.err.println("❌ Failed to send cancellation email: " + e.getMessage());
+            System.err.println("Failed to send cancellation email: " + e.getMessage());
         }
     }
 
@@ -120,9 +120,9 @@ public class EmailServiceImpl implements EmailService {
 
         try {
             sendHtmlEmail(to, subject, content);
-            System.out.println("📧 Booking Cancellation Email sent to " + to);
+            System.out.println("Booking Cancellation Email sent to " + to);
         } catch (MessagingException e) {
-            System.err.println("❌ Failed to send booking cancellation email: " + e.getMessage());
+            System.err.println("Failed to send booking cancellation email: " + e.getMessage());
         }
     }
 
@@ -141,11 +141,9 @@ public class EmailServiceImpl implements EmailService {
 
         String to = liveBooking.getUser().getEmail();
 
-        // Dynamic Subject
         String subject;
         String bookingIdShort = liveBooking.getBookingId().toString().substring(0, 8);
 
-        // Lấy phương thức thanh toán từ PaymentRepository
         PaymentMethod method = paymentRepository.findFirstPaymentMethodByBookingId(liveBooking.getBookingId())
                 .orElse(PaymentMethod.BANK);
 
@@ -210,7 +208,6 @@ public class EmailServiceImpl implements EmailService {
         NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(Locale.of("vi", "VN"));
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
-        // Determine Header and Instruction based on status
         String headerTitle = "FieldFinder - Đặt sân thành công!";
         String instruction = "Chúc bạn có một trận đấu vui vẻ.";
         String headerColor = "#188862";
@@ -324,7 +321,6 @@ public class EmailServiceImpl implements EmailService {
                 .append(order.getPaymentMethod())
                 .append("</p>");
 
-        // Table Items
         html.append("<table style='width: 100%; border-collapse: collapse; margin-top: 20px;'>");
         html.append("<tr style='background-color: #f2f2f2;'>");
         html.append("<th style='padding: 12px; border: 1px solid #ddd; text-align: left;'>Sản phẩm</th>");
@@ -351,7 +347,6 @@ public class EmailServiceImpl implements EmailService {
             }
         }
 
-        // Total
         html.append("<tr>");
         html.append("<td colspan='3' style='padding: 12px; border: 1px solid #ddd; text-align: right;'><strong>Tổng cộng:</strong></td>");
         html.append("<td style='padding: 12px; border: 1px solid #ddd; text-align: right; color: #d32f2f; font-weight: bold;'>")
@@ -499,9 +494,9 @@ public class EmailServiceImpl implements EmailService {
 
         try {
             sendHtmlEmail(to, subject, content);
-            System.out.println("📧 Order Reminder Email sent successfully to " + to);
+            System.out.println("Order Reminder Email sent successfully to " + to);
         } catch (MessagingException e) {
-            System.err.println("❌ Failed to send order reminder email: " + e.getMessage());
+            System.err.println("Failed to send order reminder email: " + e.getMessage());
         }
     }
 
@@ -522,7 +517,7 @@ public class EmailServiceImpl implements EmailService {
         html.append("<p>Bạn có đơn hàng đặt lúc <strong>")
                 .append(order.getCreatedAt().format(dateFormatter))
                 .append("</strong> chưa được thanh toán.</p>");
-        html.append("<p style='color: #d32f2f; font-weight: bold;'>⚠️ Lưu ý: Đơn hàng sẽ tự động bị hủy nếu chưa thanh toán trong vòng 24 giờ.</p>");
+        html.append("<p style='color: #d32f2f; font-weight: bold;'> Lưu ý: Đơn hàng sẽ tự động bị hủy nếu chưa thanh toán trong vòng 24 giờ.</p>");
 
         html.append("<h3 style='margin-top: 20px;'>Sản phẩm đã đặt:</h3>");
         html.append("<table style='width: 100%; border-collapse: collapse;'>");

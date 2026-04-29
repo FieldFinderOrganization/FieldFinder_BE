@@ -454,10 +454,6 @@ public class BookingServiceImpl implements BookingService {
         }
     }
 
-    /**
-     * Defensively unlock Redis slots for a booking.
-     * Uses the booking owner's userId to match lock ownership.
-     */
     private void unlockRedisSlots(Booking booking) {
         String userId = booking.getUser().getUserId().toString();
         for (BookingDetail detail : booking.getBookingDetails()) {
@@ -490,7 +486,7 @@ public class BookingServiceImpl implements BookingService {
         try {
             emailService.sendBookingCancellation(booking);
         } catch (Exception e) {
-            System.err.println("❌ Lỗi gửi email hủy đặt sân: " + e.getMessage());
+            System.err.println("Lỗi gửi email hủy đặt sân: " + e.getMessage());
         }
     }
 }

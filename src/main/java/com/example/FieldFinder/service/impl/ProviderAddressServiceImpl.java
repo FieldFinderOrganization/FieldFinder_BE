@@ -87,5 +87,4 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
                 .map(addr -> new ProviderAddressResponseDTO(addr.getProviderAddressId(), addr.getAddress()))
                 .toList();
     }
-
 }
