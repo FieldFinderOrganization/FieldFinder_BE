@@ -360,7 +360,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public OrderResponseDTO cancelOrderByUser(Long orderId, UUID userId) {
+    public OrderResponseDTO cancelOrderByUser(Long orderId, UUID userId, String reason) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found!"));
 
@@ -404,7 +404,9 @@ public class OrderServiceImpl implements OrderService {
                         RefundSourceType.ORDER,
                         String.valueOf(order.getOrderId()),
                         refundAmount,
-                        "User cancel order within 24h refund window");
+                        reason != null && !reason.isBlank()
+                                ? reason
+                                : "User cancel order within 24h refund window");
 
                 // Đánh dấu Payment REFUNDED
                 paymentRepository

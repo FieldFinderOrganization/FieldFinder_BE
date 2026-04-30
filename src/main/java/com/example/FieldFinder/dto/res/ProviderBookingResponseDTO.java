@@ -36,6 +36,7 @@ public class ProviderBookingResponseDTO {
 
     private String pitchImageUrl;
     private List<Integer> slots;
+    private List<String> slotsName;
 
     private LocalDateTime createdAt;
     private LocalDateTime paidAt;

@@ -6,6 +6,7 @@ import com.example.FieldFinder.entity.RefundRequest;
 import com.example.FieldFinder.entity.User;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 
 public interface RefundService {
 
@@ -20,4 +21,6 @@ public interface RefundService {
     String CODE_PREFIX = "RF-";
 
     Discount generateRefundDiscount(BigDecimal amount);
+
+    Optional<RefundRequest> findBySource(RefundSourceType type, String sourceId);
 }

@@ -89,11 +89,12 @@ public class OrderController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<OrderResponseDTO> cancelOrder(
             @PathVariable Long id,
+            @RequestParam(value = "reason", required = false) String reason,
             Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
         if (userId == null) {
             return ResponseEntity.status(401).build();
         }
-        return ResponseEntity.ok(orderService.cancelOrderByUser(id, userId));
+        return ResponseEntity.ok(orderService.cancelOrderByUser(id, userId, reason));
     }
 }
