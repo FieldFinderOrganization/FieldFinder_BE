@@ -279,14 +279,17 @@ public class BookingController {
 
     @PutMapping("/{bookingId}/cancel")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Map<String, Object>> cancelBooking(@PathVariable UUID bookingId, Authentication authentication) {
+    public ResponseEntity<Map<String, Object>> cancelBooking(
+            @PathVariable UUID bookingId,
+            @RequestParam(value = "reason", required = false) String reason,
+            Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
 
         if (userId == null) {
             return ResponseEntity.status(401).body(Map.of("message","Không xác định được người dùng!"));
         }
 
-        bookingService.cancelBookingByUser(bookingId, userId);
+        bookingService.cancelBookingByUser(bookingId, userId, reason);
 
         Map<String, Object> response = new HashMap<>();
         response.put("message", "Hủy đặt sân thành công.");

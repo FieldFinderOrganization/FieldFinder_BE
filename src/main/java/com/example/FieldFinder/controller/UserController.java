@@ -128,6 +128,15 @@ public class UserController {
         return ResponseEntity.ok(updatedUser);
     }
 
+    @PatchMapping("/{userId}/profile")
+    @PreAuthorize("hasRole('ADMIN') or @securityChecker.isOwner(#userId, authentication.name)")
+    public ResponseEntity<UserResponseDTO> updateUserProfile(
+            @PathVariable UUID userId,
+            @RequestBody UserUpdateRequestDTO userUpdateRequestDTO) {
+        UserResponseDTO updatedUser = userService.updateUser(userId, userUpdateRequestDTO);
+        return ResponseEntity.ok(updatedUser);
+    }
+
     @GetMapping
     public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
         List<UserResponseDTO> users = userService.getAllUsers();

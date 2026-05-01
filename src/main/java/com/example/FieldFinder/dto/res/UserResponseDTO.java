@@ -1,8 +1,12 @@
 package com.example.FieldFinder.dto.res;
 
+import com.example.FieldFinder.Enum.Gender;
+import com.example.FieldFinder.Enum.PreferredPlayTime;
+import com.example.FieldFinder.entity.Pitch;
 import com.example.FieldFinder.entity.User;
 import lombok.*;
 
+import java.time.LocalDate;
 import java.util.Date;
 import java.util.UUID;
 
@@ -21,6 +25,17 @@ public class UserResponseDTO {
     private boolean hasPassword;
     private Date lastLoginAt;
 
+    private LocalDate dateOfBirth;
+    private Gender gender;
+    private String address;
+    private Double latitude;
+    private Double longitude;
+    private String province;
+    private String district;
+    private String occupation;
+    private Pitch.PitchType preferredPitchType;
+    private PreferredPlayTime preferredPlayTime;
+
     public static UserResponseDTO toDto(User user) {
         return new UserResponseDTO(
                 user.getUserId(),
@@ -31,7 +46,17 @@ public class UserResponseDTO {
                 user.getStatus(),
                 user.getImageUrl(),
                 user.getPassword() != null,
-                user.getLastLoginAt()
+                user.getLastLoginAt(),
+                user.getDateOfBirth(),
+                user.getGender(),
+                user.getAddress(),
+                user.getLatitude(),
+                user.getLongitude(),
+                user.getProvince(),
+                user.getDistrict(),
+                user.getOccupation(),
+                user.getPreferredPitchType(),
+                user.getPreferredPlayTime()
         );
     }
 }

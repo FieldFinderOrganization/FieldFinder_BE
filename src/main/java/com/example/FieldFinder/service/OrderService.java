@@ -14,7 +14,7 @@ public interface OrderService {
     List<OrderResponseDTO> getAllOrders();
     OrderResponseDTO updateOrderStatus(Long id, String status);
     void deleteOrder(Long id);
-    OrderResponseDTO cancelOrderByUser(Long id, UUID userId);
+    OrderResponseDTO cancelOrderByUser(Long id, UUID userId, String reason);
 
     List<OrderResponseDTO> getOrdersByUserId(UUID userId);
 }

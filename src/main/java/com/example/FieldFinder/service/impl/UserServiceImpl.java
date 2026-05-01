@@ -138,6 +138,17 @@ public class UserServiceImpl implements UserService {
             user.setImageUrl(userUpdateRequestDTO.getImageUrl());
         }
 
+        if (userUpdateRequestDTO.getDateOfBirth() != null) user.setDateOfBirth(userUpdateRequestDTO.getDateOfBirth());
+        if (userUpdateRequestDTO.getGender() != null) user.setGender(userUpdateRequestDTO.getGender());
+        if (userUpdateRequestDTO.getAddress() != null) user.setAddress(userUpdateRequestDTO.getAddress());
+        if (userUpdateRequestDTO.getLatitude() != null) user.setLatitude(userUpdateRequestDTO.getLatitude());
+        if (userUpdateRequestDTO.getLongitude() != null) user.setLongitude(userUpdateRequestDTO.getLongitude());
+        if (userUpdateRequestDTO.getProvince() != null) user.setProvince(userUpdateRequestDTO.getProvince());
+        if (userUpdateRequestDTO.getDistrict() != null) user.setDistrict(userUpdateRequestDTO.getDistrict());
+        if (userUpdateRequestDTO.getOccupation() != null) user.setOccupation(userUpdateRequestDTO.getOccupation());
+        if (userUpdateRequestDTO.getPreferredPitchType() != null) user.setPreferredPitchType(userUpdateRequestDTO.getPreferredPitchType());
+        if (userUpdateRequestDTO.getPreferredPlayTime() != null) user.setPreferredPlayTime(userUpdateRequestDTO.getPreferredPlayTime());
+
         User updatedUser = userRepository.save(user);
         return UserResponseDTO.toDto(updatedUser);
     }

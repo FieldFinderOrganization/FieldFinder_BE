@@ -31,6 +31,8 @@ public class UserDiscountResponseDTO {
     private String scope;
     private List<Long> applicableProductIds;
     private List<Long> applicableCategoryIds;
+    private String kind;
+    private BigDecimal remainingValue;
 
     public static UserDiscountResponseDTO fromEntity(UserDiscount userDiscount) {
         String calculatedStatus = "AVAILABLE";
@@ -69,6 +71,10 @@ public class UserDiscountResponseDTO {
                                 .collect(Collectors.toList())
                                 : new ArrayList<>()
                 )
+                .kind(userDiscount.getDiscount().getKind() != null
+                        ? userDiscount.getDiscount().getKind().name()
+                        : "PROMOTION")
+                .remainingValue(userDiscount.getRemainingValue())
                 .build();
     }
 }

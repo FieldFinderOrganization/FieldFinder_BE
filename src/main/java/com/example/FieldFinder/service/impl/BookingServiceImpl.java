@@ -50,6 +50,7 @@ public class BookingServiceImpl implements BookingService {
     private final EmailService emailService;
     private final RefundService refundService;
 
+    /** Khoảng thời gian tối thiểu trước slot đầu mới được hủy + hoàn tiền. */
     private static final long BOOKING_REFUND_MIN_MINUTES_BEFORE = 10;
 
     @Override
@@ -223,6 +224,12 @@ public class BookingServiceImpl implements BookingService {
                         .collect(Collectors.toList());
             }
 
+            List<String> slotsName = booking.getBookingDetails() == null ? new ArrayList<>()
+                    : booking.getBookingDetails().stream()
+                    .map(BookingDetail::getName)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
             User customer = booking.getUser();
             String userName = (customer != null) ? customer.getName() : "Khách hàng";
             UUID customerId = (customer != null) ? customer.getUserId() : null;
@@ -239,6 +246,7 @@ public class BookingServiceImpl implements BookingService {
                     .userName(userName)
                     .pitchName(pitchName)
                     .slots(slots)
+                    .slotsName(slotsName)
                     .build();
         }).collect(Collectors.toList());
     }
@@ -318,6 +326,12 @@ public class BookingServiceImpl implements BookingService {
                         .collect(Collectors.toList());
             }
 
+            List<String> slotsName = booking.getBookingDetails() == null ? new ArrayList<>()
+                    : booking.getBookingDetails().stream()
+                    .map(BookingDetail::getName)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
             String paymentMethod = paymentMap.getOrDefault(booking.getBookingId(), "PENDING");
 
             LocalDateTime paidAt = allPayments.stream()
@@ -344,6 +358,7 @@ public class BookingServiceImpl implements BookingService {
                     .userId(user.getUserId())
                     .userName(user.getName())
                     .slots(slots)
+                    .slotsName(slotsName)
                     .createdAt(booking.getCreatedAt())
                     .paidAt(paidAt)
                     .build();
@@ -366,7 +381,7 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     @Transactional
-    public void cancelBookingByUser(UUID bookingId, UUID userId) {
+    public void cancelBookingByUser(UUID bookingId, UUID userId, String reason) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new RuntimeException("Booking not found!"));
 
@@ -407,7 +422,9 @@ public class BookingServiceImpl implements BookingService {
                     RefundSourceType.BOOKING,
                     booking.getBookingId().toString(),
                     booking.getTotalPrice(),
-                    "User cancel booking ≥10m before start");
+                    reason != null && !reason.isBlank()
+                            ? reason
+                            : "User cancel booking ≥10m before start");
 
             paymentRepository
                     .findFirstByBooking_BookingIdOrderByCreatedAtDesc(booking.getBookingId())
@@ -421,7 +438,6 @@ public class BookingServiceImpl implements BookingService {
         }
 
         // Unlock Redis slots only after the transaction commits successfully
-        // This prevents double-booking: if DB rollback occurs, Redis lock stays → slot remains locked
         final String userIdStr = userId.toString();
         final LocalDate bookingDate = booking.getBookingDate();
         final List<BookingDetail> details = new ArrayList<>(booking.getBookingDetails());

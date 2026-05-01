@@ -45,12 +45,11 @@ public class FacebookAuthService {
         }
 
         // Bước 3: Account Linking
-        // Facebook email trả về qua Graph API đã được verify bởi Facebook
         User user = socialLoginService.findOrCreateUser(
                 ProviderName.FACEBOOK,
                 info.facebookId(),
                 info.email(),
-                true,   // Facebook email mặc định đã verified
+                true,
                 info.name(),
                 info.pictureUrl()
         );
@@ -98,7 +97,6 @@ public class FacebookAuthService {
         }
     }
 
-    // Gọi Facebook Graph API /me để lấy thông tin user.
     private FacebookUserInfo fetchUserInfo(String accessToken) {
         String meUrl = String.format(
                 "https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=%s",

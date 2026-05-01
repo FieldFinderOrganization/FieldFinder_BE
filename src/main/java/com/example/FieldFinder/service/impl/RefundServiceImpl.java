@@ -24,6 +24,7 @@ import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -91,7 +92,7 @@ public class RefundServiceImpl implements RefundService {
                     try {
                         emailService.sendRefundCodeIssued(saved);
                     } catch (Exception e) {
-                        System.err.println("❌ Lỗi gửi email mã hoàn tiền: " + e.getMessage());
+                        System.err.println("Lỗi gửi email mã hoàn tiền: " + e.getMessage());
                     }
                 }
             });
@@ -99,7 +100,7 @@ public class RefundServiceImpl implements RefundService {
             try {
                 emailService.sendRefundCodeIssued(saved);
             } catch (Exception e) {
-                System.err.println("❌ Lỗi gửi email mã hoàn tiền: " + e.getMessage());
+                System.err.println("Lỗi gửi email mã hoàn tiền: " + e.getMessage());
             }
         }
 
@@ -136,9 +137,11 @@ public class RefundServiceImpl implements RefundService {
         throw new RuntimeException("Không sinh được mã hoàn tiền duy nhất");
     }
 
-    /**
-     * Hourly job: đánh dấu các mã REFUND_CREDIT hết hạn → status=EXPIRED.
-     */
+    @Override
+    public Optional<RefundRequest> findBySource(RefundSourceType type, String sourceId) {
+        return refundRequestRepository.findBySourceTypeAndSourceId(type, sourceId);
+    }
+
     @Scheduled(fixedRate = 3_600_000L)
     @Transactional
     public void expireRefundCodes() {

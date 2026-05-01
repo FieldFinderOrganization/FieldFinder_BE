@@ -39,23 +39,14 @@ public class GoogleAuthService {
                 new NetHttpTransport(),
                 GsonFactory.getDefaultInstance()
         )
-                // Bắt buộc check audience == GOOGLE_CLIENT_ID của app
-                // Chống token từ app Google khác bắn vào server này
                 .setAudience(Collections.singletonList(googleClientId))
                 .build();
     }
 
-    /**
-     * Verify Google ID Token và trả về JWT nội bộ.
-     *
-     * @param idToken Google ID Token từ mobile/web (Google Sign-In SDK)
-     * @return cặp accessToken + refreshToken
-     * @throws ResponseStatusException 401 nếu token không hợp lệ / sai audience / hết hạn
-     */
     public AuthTokenResponseDTO login(String idToken) {
         GoogleIdToken.Payload payload = verifyToken(idToken);
 
-        String googleUid     = payload.getSubject();                      // Google user ID
+        String googleUid     = payload.getSubject();
         String email         = payload.getEmail();
         boolean emailVerified = Boolean.TRUE.equals(payload.getEmailVerified());
         String name          = (String) payload.get("name");
@@ -85,7 +76,6 @@ public class GoogleAuthService {
             GoogleIdToken googleIdToken = verifier.verify(idTokenString);
 
             if (googleIdToken == null) {
-                // null = signature sai, audience không khớp, hoặc token hết hạn
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
                         "Google ID Token không hợp lệ, sai audience, hoặc đã hết hạn.");
             }
