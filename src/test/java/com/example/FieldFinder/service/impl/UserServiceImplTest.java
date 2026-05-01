@@ -127,6 +127,79 @@ class UserServiceImplTest {
 
             assertThrows(ResponseStatusException.class, () -> service.updateUser(userId, req));
         }
+
+        @Test
+        void demographicFields_updatesAllFields() {
+            when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+            when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UserUpdateRequestDTO req = new UserUpdateRequestDTO();
+            req.setDateOfBirth(java.time.LocalDate.of(2000, 5, 15));
+            req.setGender(com.example.FieldFinder.Enum.Gender.MALE);
+            req.setAddress("123 Nguyen Hue");
+            req.setLatitude(10.7769);
+            req.setLongitude(106.7009);
+            req.setProvince("Hồ Chí Minh");
+            req.setDistrict("Quận 1");
+            req.setOccupation("Student");
+            req.setPreferredPitchType(com.example.FieldFinder.entity.Pitch.PitchType.FIVE_A_SIDE);
+            req.setPreferredPlayTime(com.example.FieldFinder.Enum.PreferredPlayTime.EVENING);
+
+            UserResponseDTO result = service.updateUser(userId, req);
+
+            assertNotNull(result);
+            assertEquals(java.time.LocalDate.of(2000, 5, 15), user.getDateOfBirth());
+            assertEquals(com.example.FieldFinder.Enum.Gender.MALE, user.getGender());
+            assertEquals("123 Nguyen Hue", user.getAddress());
+            assertEquals(10.7769, user.getLatitude());
+            assertEquals(106.7009, user.getLongitude());
+            assertEquals("Hồ Chí Minh", user.getProvince());
+            assertEquals("Quận 1", user.getDistrict());
+            assertEquals("Student", user.getOccupation());
+            assertEquals(com.example.FieldFinder.entity.Pitch.PitchType.FIVE_A_SIDE, user.getPreferredPitchType());
+            assertEquals(com.example.FieldFinder.Enum.PreferredPlayTime.EVENING, user.getPreferredPlayTime());
+        }
+
+        @Test
+        void partialDemographicUpdate_onlyUpdatesProvidedFields() {
+            user.setGender(com.example.FieldFinder.Enum.Gender.MALE);
+            user.setProvince("Hồ Chí Minh");
+            user.setOccupation("Student");
+
+            when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+            when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UserUpdateRequestDTO req = new UserUpdateRequestDTO();
+            req.setOccupation("Engineer");
+
+            service.updateUser(userId, req);
+
+            assertEquals("Engineer", user.getOccupation());
+            assertEquals(com.example.FieldFinder.Enum.Gender.MALE, user.getGender());
+            assertEquals("Hồ Chí Minh", user.getProvince());
+        }
+
+        @Test
+        void nullDemographics_doesNotOverwriteExisting() {
+            user.setDateOfBirth(java.time.LocalDate.of(1995, 1, 1));
+            user.setGender(com.example.FieldFinder.Enum.Gender.FEMALE);
+            user.setLatitude(10.80);
+            user.setLongitude(106.70);
+
+            when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+            when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UserUpdateRequestDTO req = new UserUpdateRequestDTO();
+            req.setName("New Name Only");
+
+            service.updateUser(userId, req);
+
+            assertEquals("New Name Only", user.getName());
+            assertEquals(java.time.LocalDate.of(1995, 1, 1), user.getDateOfBirth());
+            assertEquals(com.example.FieldFinder.Enum.Gender.FEMALE, user.getGender());
+            assertEquals(10.80, user.getLatitude());
+            assertEquals(106.70, user.getLongitude());
+        }
     }
 
     @Nested
