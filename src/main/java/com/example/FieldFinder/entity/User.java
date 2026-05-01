@@ -36,6 +36,7 @@ public class User {
 
     @Column(name = "Status", nullable = false)
     @Enumerated(EnumType.STRING)
+    @Builder.Default
     private Status status = Status.ACTIVE;
 
     public enum Status {

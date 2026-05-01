@@ -25,6 +25,7 @@ public class Category {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @Builder.Default
     private CategoryType categoryType = CategoryType.STANDARD;
 
     @ManyToOne

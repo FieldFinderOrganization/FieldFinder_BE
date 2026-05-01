@@ -54,6 +54,7 @@ public class Discount {
             joinColumns = @JoinColumn(name = "DiscountId"),
             inverseJoinColumns = @JoinColumn(name = "ProductId")
     )
+    @Builder.Default
     private Set<Product> applicableProducts = new HashSet<>();
 
     @ManyToMany(fetch = FetchType.LAZY)
@@ -62,6 +63,7 @@ public class Discount {
             joinColumns = @JoinColumn(name = "DiscountId"),
             inverseJoinColumns = @JoinColumn(name = "CategoryId")
     )
+    @Builder.Default
     private Set<Category> applicableCategories = new HashSet<>();
 
     @Column(name = "Quantity", nullable = false)

@@ -30,9 +30,11 @@ public class UserDiscount {
     private Discount discount;
 
     @Column(name = "IsUsed")
+    @Builder.Default
     private boolean isUsed = false;
 
     @Column(name = "SavedAt")
+    @Builder.Default
     private LocalDateTime savedAt = LocalDateTime.now();
 
     @Column(name = "UsedAt")

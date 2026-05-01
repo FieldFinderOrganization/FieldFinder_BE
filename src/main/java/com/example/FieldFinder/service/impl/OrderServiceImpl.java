@@ -187,14 +187,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    /**
-     * Logic 2-pha:
-     *   Pha 1 (item-level, best-wins): SPECIFIC_PRODUCT + CATEGORY áp lên từng item.
-     *   Pha 2 (order-level): GLOBAL áp lên subtotal sau pha 1.
-     *
-     * TODO: extend thành 3-pha khi giới thiệu SHOP scope (mã của shop/provider)
-     *       — chèn pha SHOP giữa item-level và GLOBAL.
-     */
     private double applyDiscountsTwoPhase(
             List<String> codes,
             User user,

@@ -58,6 +58,7 @@ public class Pitch {
 
     @Convert(converter = StringListConverter.class)
     @Column(name = "image_url", columnDefinition = "TEXT")
+    @Builder.Default
     private List<String> imageUrls = new ArrayList<>();
 
     public enum PitchType {

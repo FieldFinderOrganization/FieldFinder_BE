@@ -25,9 +25,11 @@ public class ProductVariant {
     private Integer stockQuantity;
 
     @Column(nullable = false)
+    @Builder.Default
     private Integer lockedQuantity = 0;
 
     @Column(nullable = false)
+    @Builder.Default
     private Integer soldQuantity = 0;
 
     public int getAvailableQuantity() {

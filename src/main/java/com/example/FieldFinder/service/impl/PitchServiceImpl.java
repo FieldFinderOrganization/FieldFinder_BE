@@ -82,7 +82,8 @@ public class PitchServiceImpl implements PitchService {
     }
     @Override
     public Page<PitchResponseDTO> getAllPitches(Pageable pageable, String district, String type, String name) {
-        Specification<Pitch> spec = Specification.where(PitchSpecification.hasDistrict(district))
+        Specification<Pitch> spec = Specification.<Pitch>unrestricted()
+                .and(PitchSpecification.hasDistrict(district))
                 .and(PitchSpecification.hasType(type))
                 .and(PitchSpecification.hasName(name));
 

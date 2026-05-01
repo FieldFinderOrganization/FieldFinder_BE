@@ -35,9 +35,11 @@ public class ChatMessage {
     private Date timestamp;
 
     @Column(name = "is_read")
+    @Builder.Default
     private Boolean isRead = false;
 
     @Column(name = "message_type")
+    @Builder.Default
     private String type = "TEXT";
 
 }

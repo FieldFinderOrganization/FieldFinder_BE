@@ -24,6 +24,7 @@ public class Cart {
     private User user;
 
     @Column(name = "CreatedAt", nullable = false)
+    @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 
     @Enumerated(EnumType.STRING)

@@ -31,5 +31,6 @@ public class Provider {
     private String bank;
 
     @OneToMany(mappedBy = "provider", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
     private List<ProviderAddress> addresses = new ArrayList<>();
 }

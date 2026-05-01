@@ -30,6 +30,7 @@ public class Booking {
 
 
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL)
+    @Builder.Default
     private List<BookingDetail> bookingDetails = new ArrayList<>();
 
     @ManyToOne

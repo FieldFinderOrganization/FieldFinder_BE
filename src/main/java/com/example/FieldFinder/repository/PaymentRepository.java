@@ -1,7 +1,6 @@
 package com.example.FieldFinder.repository;
 
 import com.example.FieldFinder.Enum.PaymentMethod;
-import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.entity.Payment;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -13,7 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public interface PaymentRepository extends JpaRepository<Payment, UUID> {
+public interface PaymentRepository extends JpaRepository<Payment, Long> {
     List<Payment> findByUser_UserId(UUID userId);
     //    List<Payment> findByPaymentStatus(Booking.PaymentStatus status);
     Optional<Payment> findByTransactionId(String transactionId);

@@ -302,7 +302,8 @@ public class ProductServiceImpl implements ProductService {
             }
         }
 
-        Specification<Product> spec = Specification.where(ProductSpecification.hasCategoryIds(categoryIds))
+        Specification<Product> spec = Specification.<Product>unrestricted()
+                .and(ProductSpecification.hasCategoryIds(categoryIds))
                 .and(ProductSpecification.hasSex(genders))
                 .and(ProductSpecification.hasBrand(effectiveBrand));
 
