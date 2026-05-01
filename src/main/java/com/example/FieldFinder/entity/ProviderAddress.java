@@ -6,11 +6,11 @@ import lombok.*;
 import java.util.UUID;
 
 @Entity
-@Getter
-@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Table(name = "provider_address")
+@Builder
+@Data
 public class ProviderAddress {
 
     @Id

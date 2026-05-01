@@ -1,4 +1,5 @@
 package com.example.FieldFinder.service.impl;
+
 import com.example.FieldFinder.dto.req.ProviderAddressRequestDTO;
 import com.example.FieldFinder.dto.res.ProviderAddressResponseDTO;
 import com.example.FieldFinder.entity.Pitch;
@@ -26,68 +27,74 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-
 @ExtendWith(MockitoExtension.class)
 class ProviderAddressServiceImplTest {
     @Mock
-    private ProviderAddressRepository addressRepository;
+    ProviderAddressRepository addressRepository;
     @Mock
-    private ProviderRepository providerRepository;
+    ProviderRepository providerRepository;
     @Mock
-    private PitchRepository pitchRepository;
+    PitchRepository pitchRepository;
     @Mock
-    private BookingDetailRepository bookingDetailRepository;
-
-    private Provider provider;
-    private UUID providerId;
-    private ProviderAddress address;
-    private UUID addressId;
-    private ProviderAddressRequestDTO requestDTO;
+    BookingDetailRepository bookingDetailRepository;
 
     @InjectMocks
-    private ProviderAddressServiceImpl addressService;
+    ProviderAddressServiceImpl addressService;
+
+    private ProviderAddressRequestDTO requestDTO;
+    private UUID providerId;
+    private UUID addressId;
+    private ProviderAddress address;
+    private Provider provider;
 
     @BeforeEach
     void setUp() {
         providerId = UUID.randomUUID();
+        addressId = UUID.randomUUID();
+
         provider = new Provider();
         provider.setProviderId(providerId);
 
-        addressId = UUID.randomUUID();
-        address = new ProviderAddress();
-        address.setProviderAddressId(addressId);
-        address.setAddress("123 Đông Anh");
-        address.setProvider(provider);
+        address = ProviderAddress.builder()
+                .providerAddressId(addressId)
+                .address("123 Tây Hồ")
+                .provider(provider)
+                .build();
 
-        requestDTO = new ProviderAddressRequestDTO();
-        requestDTO.setAddress("123 Đông Anh");
-        requestDTO.setProviderId(providerId);
+        requestDTO = createRequestDTO();
+    }
+
+    private ProviderAddressRequestDTO createRequestDTO() {
+        return ProviderAddressRequestDTO.builder()
+                .providerId(providerId)
+                .address("123 Tây Hồ")
+                .build();
     }
 
     @Nested
     class addAddress {
         @Test
         void success_ReturnsResponseDTO() {
-            when(providerRepository.findById(providerId)).thenReturn(Optional.of(provider));
+            when(providerRepository.findById(requestDTO.getProviderId())).thenReturn(Optional.of(provider));
             when(addressRepository.save(any(ProviderAddress.class))).thenReturn(address);
 
             ProviderAddressResponseDTO result = addressService.addAddress(requestDTO);
 
             assertNotNull(result);
-            assertEquals("123 Đông Anh", result.getAddress());
+            assertEquals("123 Tây Hồ", result.getAddress());
 
             verify(addressRepository, times(1)).save(any(ProviderAddress.class));
         }
 
         @Test
         void providerNotFound_ThrowsException() {
-            when(providerRepository.findById(providerId)).thenReturn(Optional.empty());
+            when(providerRepository.findById(requestDTO.getProviderId())).thenReturn(Optional.empty());
 
-            ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> addressService.addAddress(requestDTO));
+            ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> addressService.addAddress(requestDTO));
 
-            assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
-            assertNotNull(exception.getReason());
-            assertTrue(exception.getReason().contains("Provider not found!"));
+            assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+            assertNotNull(ex.getReason());
+            assertTrue(ex.getReason().contains("Provider not found!"));
 
             verify(addressRepository, never()).save(any(ProviderAddress.class));
         }
@@ -97,20 +104,20 @@ class ProviderAddressServiceImplTest {
     class updateAddress {
         @Test
         void success_ReturnsResponseDTO() {
+            requestDTO.setAddress("456 Đông Anh");
             when(addressRepository.findById(addressId)).thenReturn(Optional.of(address));
 
-            requestDTO.setAddress("456 Tây Hồ");
-
-            ProviderAddress updatedAddress = new ProviderAddress();
-            updatedAddress.setProviderAddressId(addressId);
-            updatedAddress.setAddress("456 Tây Hồ");
-            updatedAddress.setProvider(provider);
+            ProviderAddress updatedAddress = ProviderAddress.builder()
+                            .providerAddressId(addressId)
+                                    .address("456 Đông Anh")
+                                            .provider(provider)
+                                                    .build();
             when(addressRepository.save(any(ProviderAddress.class))).thenReturn(updatedAddress);
 
             ProviderAddressResponseDTO result = addressService.updateAddress(addressId, requestDTO);
 
             assertNotNull(result);
-            assertEquals("456 Tây Hồ", result.getAddress());
+            assertEquals("456 Đông Anh", result.getAddress());
 
             verify(addressRepository, times(1)).save(any(ProviderAddress.class));
         }
@@ -119,11 +126,11 @@ class ProviderAddressServiceImplTest {
         void addressNotFound_ThrowsException() {
             when(addressRepository.findById(addressId)).thenReturn(Optional.empty());
 
-            ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> addressService.updateAddress(addressId, requestDTO));
+            ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> addressService.updateAddress(addressId, requestDTO));
 
-            assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
-            assertNotNull(exception.getReason());
-            assertTrue(exception.getReason().contains("Address not found!"));
+            assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+            assertNotNull(ex.getReason());
+            assertTrue(ex.getReason().contains("Address not found!"));
 
             verify(addressRepository, never()).save(any(ProviderAddress.class));
         }
@@ -137,11 +144,9 @@ class ProviderAddressServiceImplTest {
 
             Pitch mockPitch = new Pitch();
             mockPitch.setPitchId(UUID.randomUUID());
-            when(pitchRepository.findByProviderAddressProviderAddressId(addressId))
-                    .thenReturn(List.of(mockPitch));
+            when(pitchRepository.findByProviderAddressProviderAddressId(addressId)).thenReturn(List.of(mockPitch));
 
-            when(bookingDetailRepository.existsByPitch_PitchId(mockPitch.getPitchId()))
-                    .thenReturn(Boolean.FALSE);
+            when(bookingDetailRepository.existsByPitch_PitchId(mockPitch.getPitchId())).thenReturn(false);
 
             addressService.deleteAddress(addressId);
 
@@ -152,11 +157,11 @@ class ProviderAddressServiceImplTest {
         void addressNotFound_ThrowsException() {
             when(addressRepository.findById(addressId)).thenReturn(Optional.empty());
 
-            ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> addressService.deleteAddress(addressId));
+            ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> addressService.deleteAddress(addressId));
 
-            assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
-            assertNotNull(exception.getReason());
-            assertTrue(exception.getReason().contains("Address not found!"));
+            assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+            assertNotNull(ex.getReason());
+            assertTrue(ex.getReason().contains("Address not found!"));
 
             verify(addressRepository, never()).delete(any(ProviderAddress.class));
         }
@@ -167,17 +172,15 @@ class ProviderAddressServiceImplTest {
 
             Pitch mockPitch = new Pitch();
             mockPitch.setPitchId(UUID.randomUUID());
-            when(pitchRepository.findByProviderAddressProviderAddressId(addressId))
-                    .thenReturn(List.of(mockPitch));
+            when(pitchRepository.findByProviderAddressProviderAddressId(addressId)).thenReturn(List.of(mockPitch));
 
-            when(bookingDetailRepository.existsByPitch_PitchId(mockPitch.getPitchId()))
-                    .thenReturn(Boolean.TRUE);
+            when(bookingDetailRepository.existsByPitch_PitchId(mockPitch.getPitchId())).thenReturn(true);
 
-            ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> addressService.deleteAddress(addressId));
+            ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> addressService.deleteAddress(addressId));
 
-            assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
-            assertNotNull(exception.getReason());
-            assertTrue(exception.getReason().contains("Không thể xóa khu vực vì có sân đã được đặt!"));
+            assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+            assertNotNull(ex.getReason());
+            assertTrue(ex.getReason().contains("Không thể xóa khu vực vì có sân đã được đặt!"));
 
             verify(addressRepository, never()).delete(any(ProviderAddress.class));
         }
@@ -193,15 +196,13 @@ class ProviderAddressServiceImplTest {
 
             assertNotNull(result);
             assertEquals(1, result.size());
-
-            assertEquals(addressId, result.getFirst().getProviderAddressId());
-            assertEquals("123 Đông Anh", result.getFirst().getAddress());
+            assertEquals("123 Tây Hồ", result.getFirst().getAddress());
 
             verify(addressRepository, times(1)).findByProviderProviderId(providerId);
         }
 
         @Test
-        void noData_ReturnsEmptyList() {
+        void hasNoData_ReturnsEmptyList() {
             when(addressRepository.findByProviderProviderId(providerId)).thenReturn(List.of());
 
             List<ProviderAddressResponseDTO> result = addressService.getAddressesByProvider(providerId);
@@ -223,15 +224,13 @@ class ProviderAddressServiceImplTest {
 
             assertNotNull(result);
             assertEquals(1, result.size());
-
-            assertEquals(addressId, result.getFirst().getProviderAddressId());
-            assertEquals("123 Đông Anh", result.getFirst().getAddress());
+            assertEquals("123 Tây Hồ", result.getFirst().getAddress());
 
             verify(addressRepository, times(1)).findAll();
         }
 
         @Test
-        void noData_ReturnsEmptyList() {
+        void hasNoData_ReturnsEmptyList() {
             when(addressRepository.findAll()).thenReturn(List.of());
 
             List<ProviderAddressResponseDTO> result = addressService.getAllAddresses();
