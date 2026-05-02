@@ -83,7 +83,14 @@ public class CartRedisService {
             metadata.put("product_name", productName);
             metadata.put("size", size);
             metadata.put("quantity", quantity);
-            metadata.put("unit_price", productPrice);
+            metadata.put("item_price_snapshot", productPrice);
+            metadata.put("item_brand", variant.getProduct().getBrand());
+            if (variant.getProduct().getCategory() != null) {
+                metadata.put("item_category", variant.getProduct().getCategory().getName());
+            }
+            if (variant.getProduct().getTags() != null) {
+                metadata.put("item_tags", variant.getProduct().getTags());
+            }
 
             logPublisherService.publishEvent(
                     userId.toString(),

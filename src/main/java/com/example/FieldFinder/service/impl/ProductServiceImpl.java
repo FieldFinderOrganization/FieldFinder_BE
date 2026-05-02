@@ -136,17 +136,10 @@ public class ProductServiceImpl implements ProductService {
         return ids;
     }
 
-    /**
-     * Overload không có userId — dùng cho listing/anonymous. Không có wallet lookup.
-     */
     private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds) {
         return mapToResponse(product, usedDiscountIds, null);
     }
 
-    /**
-     * Full mapping với wallet lookup khi có userId.
-     * Set appliedDiscountCodes (item-level) và availableGlobalCodes.
-     */
     private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds, UUID userId) {
         if (product == null) return null;
 
@@ -160,7 +153,6 @@ public class ProductServiceImpl implements ProductService {
 
         if (userId != null) {
             // findWalletByUserId JOIN FETCHes applicableCategories + applicableProducts
-            // → tránh lazy-load failure khi isApplicableToProduct kiểm tra category/product set
             List<UserDiscount> userWallet = userDiscountRepository.findWalletByUserId(userId)
                     .stream().filter(ud -> !ud.isUsed()).collect(Collectors.toList());
             Set<UUID> addedIds = allDiscounts.stream().map(Discount::getDiscountId).collect(Collectors.toSet());
@@ -177,9 +169,6 @@ public class ProductServiceImpl implements ProductService {
                     addedIds.add(d.getDiscountId());
                 }
 
-                // Track code theo wallet — độc lập với allDiscounts.
-                // Mã CATEGORY/SPECIFIC có thể đã có trong allDiscounts qua public lookup,
-                // nhưng vẫn cần track để FE biết user đang dùng mã nào.
                 if (d.getScope() == Discount.DiscountScope.GLOBAL) {
                     if (!availableGlobalCodes.contains(d.getCode())) {
                         availableGlobalCodes.add(d.getCode());
@@ -217,13 +206,10 @@ public class ProductServiceImpl implements ProductService {
         String imageUrl = request.getImageUrl();
         if (imageFile != null && !imageFile.isEmpty()) {
             try {
-                // Truyền tên danh mục vào list theo đúng signature của hàm uploadProductImage
                 List<String> categoryNames = List.of(category.getName());
 
-                // Gọi hàm upload của bạn và nhận về Map
                 Map<String, Object> uploadResult = cloudinaryService.uploadProductImage(imageFile, categoryNames);
 
-                // Trích xuất URL từ kết quả
                 imageUrl = (String) uploadResult.get("url");
 
             } catch (Exception e) {
@@ -452,8 +438,6 @@ public class ProductServiceImpl implements ProductService {
             System.err.println("Cannot release stock. Product ID: " + productId
                     + ", queried size: '" + size + "'"
                     + ", existing sizes in DB: [" + existingSizes + "]");
-            // Fallback: nếu chỉ có 1 variant cho sản phẩm này (Freesize/one-size), dùng
-            // variant đó
             if (allVariants.size() == 1) {
                 ProductVariant variant = allVariants.get(0);
                 System.err.println(
@@ -515,7 +499,6 @@ public class ProductServiceImpl implements ProductService {
                 .filter(p -> isValidCategory(p, majorCategory))
                 .sorted((p1, p2) -> Long.compare(calculateScore(p2, lowerKeywords), calculateScore(p1, lowerKeywords)))
                 .map(p -> mapToResponse(p, Collections.emptyList())) // Search ảnh chưa support user specific price để
-                // tối ưu tốc độ
                 .collect(Collectors.toList());
     }
 
@@ -613,7 +596,15 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public List<ProductResponseDTO> findProductsByVector(String descriptionFromImage) {
-        List<Double> queryVectorList = aiChat.getEmbedding(descriptionFromImage);
+        return findProductsByVectorWithScores(descriptionFromImage).stream()
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Map.Entry<ProductResponseDTO, Double>> findProductsByVectorWithScores(String description) {
+        List<Double> queryVectorList = aiChat.getEmbedding(description);
         if (queryVectorList.isEmpty())
             return new ArrayList<>();
         double[] queryVector = queryVectorList.stream().mapToDouble(d -> d).toArray();
@@ -624,7 +615,9 @@ public class ProductServiceImpl implements ProductService {
                 .filter(entry -> entry.getValue() > 0.6)
                 .sorted((e1, e2) -> Double.compare(e2.getValue(), e1.getValue()))
                 .limit(10)
-                .map(entry -> mapToResponse(entry.getKey(), Collections.emptyList()))
+                .map(entry -> (Map.Entry<ProductResponseDTO, Double>) new AbstractMap.SimpleEntry<>(
+                        mapToResponse(entry.getKey(), Collections.emptyList()),
+                        Math.round(entry.getValue() * 10000.0) / 10000.0)) // Round to 4 decimal places
                 .collect(Collectors.toList());
     }
 

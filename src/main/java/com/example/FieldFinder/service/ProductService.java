@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -27,6 +28,7 @@ public interface ProductService {
     List<ProductResponseDTO> findProductsByImage(List<String> keywords, String majorCategory);
     void enrichAllProductsData();
     List<ProductResponseDTO> findProductsByVector(String descriptionFromImage);
+    List<Map.Entry<ProductResponseDTO, Double>> findProductsByVectorWithScores(String description);
     ProductResponseDTO getProductByName(String productName);
 
     void applyDiscount(Long productId, String discountId);

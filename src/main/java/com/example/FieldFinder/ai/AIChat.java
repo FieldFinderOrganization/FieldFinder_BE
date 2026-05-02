@@ -41,6 +41,8 @@ public class AIChat {
 
     private static final String EMBEDDING_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=";
 
+    private static final String MODEL_VERSION = "gemini-2.0-flash";
+
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
     private final PitchService pitchService;
@@ -50,8 +52,13 @@ public class AIChat {
     private final BookingService bookingService;
     private final RedisService redisService;
 
-    private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 4000;
+    private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 5000; // Gemini free = 15 RPM → 4s min, +1s buffer
     private final AtomicLong nextAvailableTime = new AtomicLong(0);
+
+    // Pause flag: khi user đang chat thì tạm dừng background enrichment
+    private volatile boolean enrichmentPaused = false;
+    public void pauseEnrichment()  { this.enrichmentPaused = true; }
+    public void resumeEnrichment() { this.enrichmentPaused = false; }
 
     private final OpenWeatherService weatherService;
 
@@ -211,8 +218,8 @@ public class AIChat {
     }
 
     private Response callWithRetry(Request request, String description) throws IOException, InterruptedException {
-        int maxRetries = 3;
-        long backoff = 4000; // Khởi đầu bằng 4s vì Gemini 429 thường cần thời gian hồi
+        int maxRetries = 4;
+        long backoff = 6000; // 6s base — Gemini free tier cần nhiều thời gian hồi hơn 4s
 
         for (int i = 0; i <= maxRetries; i++) {
             waitIfNeeded();
@@ -224,17 +231,25 @@ public class AIChat {
 
             String errorBody = response.body() != null ? response.body().string() : "No body";
             if (response.code() == 429 && i < maxRetries) {
-                System.err.println("⚠️ [" + description + "] Gemini trả về 429 (Too Many Requests). Đang thử lại lần " + (i + 1) + " sau " + backoff + "ms...");
+                // Parse Retry-After header nếu Gemini gửi
+                String retryAfter = response.header("Retry-After");
+                long waitMs = backoff;
+                if (retryAfter != null) {
+                    try {
+                        waitMs = Math.max(backoff, Long.parseLong(retryAfter.trim()) * 1000);
+                    } catch (NumberFormatException ignored) {}
+                }
+                System.err.println("⚠️ [" + description + "] Gemini 429. Retry " + (i + 1) + "/" + maxRetries + " sau " + waitMs + "ms...");
                 response.close();
-                Thread.sleep(backoff);
-                backoff *= 2;
+                Thread.sleep(waitMs);
+                backoff = Math.min(backoff * 2, 30000); // Cap at 30s
                 continue;
             }
 
             // Nếu không phải 429 hoặc đã hết lượt retry
             throw new IOException("Gemini API Error [" + response.code() + "]: " + errorBody);
         }
-        throw new IOException("Gemini API call failed after retries.");
+        throw new IOException("Gemini API call failed after " + maxRetries + " retries.");
     }
 
     private String buildSystemPrompt(List<PitchResponseDTO> allPitches) {
@@ -345,10 +360,13 @@ public class AIChat {
 
                 String description = String.format("%s %s %s", majorCategory, productName, String.join(" ", cleanTags));
 
-                List<ProductResponseDTO> finalResults = productService.findProductsByVector(description);
+                List<Map.Entry<ProductResponseDTO, Double>> scoredResults = productService.findProductsByVectorWithScores(description);
+                List<ProductResponseDTO> finalResults = scoredResults.stream().map(Map.Entry::getKey).collect(Collectors.toList());
+                List<Double> retrievalScores = scoredResults.stream().map(Map.Entry::getValue).collect(Collectors.toList());
 
                 if (finalResults.isEmpty()) {
                     finalResults = productService.findProductsByImage(cleanTags, majorCategory);
+                    retrievalScores = Collections.nCopies(finalResults.size(), 0.0); // No vector scores for fallback
                 }
 
                 if (!finalResults.isEmpty()) {
@@ -362,6 +380,7 @@ public class AIChat {
                     result.data.put("action", "image_search_result");
                     result.data.put("products", finalResults);
                     result.data.put("extractedTags", cleanTags);
+                    result.data.put("retrievalScores", retrievalScores);
                 } else {
                     result.message = String.format("Tôi nhận diện được đây là %s màu %s. Tuy nhiên, hiện tại cửa hàng không có sản phẩm nào khớp.", productName, color);
                     result.data.put("extractedTags", expandedTags);
@@ -384,20 +403,30 @@ public class AIChat {
 
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("image_search_action", "process_image");
-            metadata.put("ai_message", result.message);
+            metadata.put("aiResponseText", result.message);
+            metadata.put("modelVersion", MODEL_VERSION);
 
             if (result.data != null) {
                 metadata.put("extracted_tags", result.data.get("extractedTags"));
                 if (result.data.get("products") instanceof List) {
                     List<?> products = (List<?>) result.data.get("products");
                     metadata.put("result_count", products.size());
-                    // Log top 5 products as requested
+                    // Log IDs for ML training
+                    List<Long> retrievedIds = products.stream()
+                            .filter(p -> p instanceof ProductResponseDTO)
+                            .map(p -> ((ProductResponseDTO) p).getId())
+                            .collect(Collectors.toList());
+                    metadata.put("retrievedItemIds", retrievedIds);
                     List<String> top5Names = products.stream()
                             .limit(5)
                             .filter(p -> p instanceof ProductResponseDTO)
                             .map(p -> ((ProductResponseDTO) p).getName())
                             .collect(Collectors.toList());
                     metadata.put("top_5_results", top5Names);
+                }
+                // Log retrieval scores from vector search
+                if (result.data.get("retrievalScores") instanceof List) {
+                    metadata.put("retrievalScore", result.data.get("retrievalScores"));
                 }
             }
 
@@ -850,18 +879,23 @@ public class AIChat {
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("product_action", action);
             metadata.put("product_name_query", productName);
-            metadata.put("ai_message", aiMessage);
+            metadata.put("aiResponseText", aiMessage);
+            metadata.put("modelVersion", MODEL_VERSION);
 
             if (foundProduct != null) {
                 metadata.put("found_product_id", foundProduct.getId());
                 metadata.put("found_product_name", foundProduct.getName());
+                metadata.put("retrievedItemIds", List.of(foundProduct.getId()));
+                metadata.put("item_price_snapshot", foundProduct.getPrice());
+                metadata.put("item_category", foundProduct.getCategoryName());
             }
 
             logPublisherService.publishEvent(
                     userId != null ? userId.toString() : null,
                     sessionId,
                     "CHAT_PRODUCT_QUERY",
-                    null, null,
+                    foundProduct != null ? foundProduct.getId().toString() : null,
+                    foundProduct != null ? "PRODUCT" : null,
                     metadata, "AI_Chatbot"
             );
         } catch (Exception e) {
@@ -992,7 +1026,18 @@ public class AIChat {
             UUID userId = userService.getUserIdBySession(sessionId);
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("weather_city", city);
-            metadata.put("ai_message", query.message);
+            metadata.put("aiResponseText", query.message);
+            metadata.put("modelVersion", MODEL_VERSION);
+            // Log suggested pitch IDs for ML
+            if (query.data.containsKey("pitches") && query.data.get("pitches") instanceof List) {
+                List<?> pitches = (List<?>) query.data.get("pitches");
+                List<String> pitchIds = pitches.stream()
+                        .filter(p -> p instanceof PitchResponseDTO)
+                        .map(p -> ((PitchResponseDTO) p).getPitchId().toString())
+                        .collect(Collectors.toList());
+                metadata.put("retrievedItemIds", pitchIds);
+                metadata.put("suggested_pitch_count", pitchIds.size());
+            }
             logPublisherService.publishEvent(
                     userId != null ? userId.toString() : null,
                     sessionId,
@@ -1027,7 +1072,9 @@ public class AIChat {
                 String.join(" ", tags)
         );
 
-        List<ProductResponseDTO> results = productService.findProductsByVector(description);
+        List<Map.Entry<ProductResponseDTO, Double>> scoredResults = productService.findProductsByVectorWithScores(description);
+        List<ProductResponseDTO> results = scoredResults.stream().map(Map.Entry::getKey).collect(Collectors.toList());
+        List<Double> retrievalScores = scoredResults.stream().map(Map.Entry::getValue).collect(Collectors.toList());
         List<String> resolvedCategories = CategoryMapper.resolveCategories(activity, aiCategories);
 
         if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
@@ -1036,6 +1083,7 @@ public class AIChat {
                             resolvedCategories.contains(p.getCategoryName()))
                     .limit(12)
                     .toList();
+            retrievalScores = Collections.nCopies(results.size(), 0.0); // No vector scores for category fallback
         }
 
         if (results == null || results.isEmpty()) {
@@ -1082,8 +1130,15 @@ public class AIChat {
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("activity", activity);
             metadata.put("tags", tags);
-            metadata.put("ai_message", query.message);
+            metadata.put("aiResponseText", query.message);
+            metadata.put("modelVersion", MODEL_VERSION);
             metadata.put("result_count", results.size());
+            // Log retrievedItemIds + scores for ML
+            List<Long> retrievedIds = results.stream()
+                    .map(ProductResponseDTO::getId)
+                    .collect(Collectors.toList());
+            metadata.put("retrievedItemIds", retrievedIds);
+            metadata.put("retrievalScore", retrievalScores);
             logPublisherService.publishEvent(
                     userId != null ? userId.toString() : null,
                     sessionId,
@@ -1428,10 +1483,16 @@ public class AIChat {
             metadata.put("pitch_action", action);
             metadata.put("matched_pitch_count", matched.size());
             metadata.put("requested_pitch_type", query.pitchType);
-            metadata.put("ai_message", query.message);
+            metadata.put("aiResponseText", query.message);
+            metadata.put("modelVersion", MODEL_VERSION);
             if (requestedEnvironment != null) metadata.put("requested_environment", requestedEnvironment.name());
             if (query.bookingDate != null) metadata.put("booking_date", query.bookingDate);
             if (!query.slotList.isEmpty()) metadata.put("slot_list", query.slotList);
+            // Log matched pitch IDs for ML
+            List<String> matchedPitchIds = matched.stream()
+                    .map(p -> p.getPitchId().toString())
+                    .collect(Collectors.toList());
+            metadata.put("retrievedItemIds", matchedPitchIds);
             logPublisherService.publishEvent(userIdStr, sessionId, "CHAT_PITCH_QUERY", null, null, metadata, "AI_Chatbot");
         } catch (Exception e) {
             System.err.println("Không thể ghi log CHAT_PITCH_QUERY: " + e.getMessage());
@@ -1515,6 +1576,10 @@ public class AIChat {
 
     public List<String> generateTagsForProduct(String imageUrl) {
         try {
+            // Yield to user chat requests — nếu user đang chat thì đợi
+            while (enrichmentPaused) {
+                Thread.sleep(2000);
+            }
             String base64Image = downloadImageAsBase64(imageUrl);
             if (base64Image == null) return new ArrayList<>();
 
