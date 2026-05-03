@@ -4,31 +4,55 @@ import java.util.*;
 
 public class CategoryMapper {
 
-    private static final Map<String, List<String>> ACTIVITY_CATEGORY_MAP = Map.of(
-            "football", List.of(
+    private static final Map<String, List<String>> ACTIVITY_CATEGORY_MAP = Map.ofEntries(
+            Map.entry("football", List.of(
                     "Football Shoes",
                     "Football Clothing",
                     "Football Accessories",
                     "Socks"
-            ),
-            "running", List.of(
+            )),
+            Map.entry("running", List.of(
                     "Running Shoes",
                     "Running Clothing",
                     "Running Accessories",
                     "Socks"
-            ),
-            "basketball", List.of(
+            )),
+            Map.entry("basketball", List.of(
                     "Basketball Shoes",
                     "Basketball Clothing",
                     "Basketball Accessories",
                     "Socks"
-            ),
-            "gym", List.of(
+            )),
+            Map.entry("gym", List.of(
                     "Gym And Training",
                     "Clothing",
                     "Shoes",
                     "Accessories"
-            )
+            )),
+            Map.entry("tennis", List.of(
+                    "Tennis Shoes",
+                    "Tennis Clothing",
+                    "Tennis Accessories",
+                    "Socks"
+            )),
+            Map.entry("đá bóng", List.of(
+                    "Football Shoes",
+                    "Football Clothing",
+                    "Football Accessories",
+                    "Socks"
+            )),
+            Map.entry("chạy bộ", List.of(
+                    "Running Shoes",
+                    "Running Clothing",
+                    "Running Accessories",
+                    "Socks"
+            )),
+            Map.entry("bóng rổ", List.of(
+                    "Basketball Shoes",
+                    "Basketball Clothing",
+                    "Basketball Accessories",
+                    "Socks"
+            ))
     );
 
     private static final Map<String, List<String>> AI_CATEGORY_ALIAS = Map.of(
@@ -50,7 +74,7 @@ public class CategoryMapper {
     ) {
         Set<String> resolved = new LinkedHashSet<>();
 
-        // 1️⃣ Ưu tiên theo activity
+        // Ưu tiên theo activity
         if (activity != null) {
             List<String> byActivity = ACTIVITY_CATEGORY_MAP.get(activity.toLowerCase());
             if (byActivity != null) {
@@ -58,7 +82,7 @@ public class CategoryMapper {
             }
         }
 
-        // 2️⃣ Map từ category AI
+        // Map từ category AI
         if (aiCategories != null) {
             for (String c : aiCategories) {
                 List<String> mapped = AI_CATEGORY_ALIAS.get(c.toLowerCase());

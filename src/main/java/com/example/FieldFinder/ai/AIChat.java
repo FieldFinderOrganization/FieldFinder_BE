@@ -1,10 +1,12 @@
 package com.example.FieldFinder.ai;
 
 import com.example.FieldFinder.Enum.PitchEnvironment;
+import com.example.FieldFinder.dto.res.MLItemResult;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.mapper.CategoryMapper;
 import com.example.FieldFinder.service.BookingService;
+import com.example.FieldFinder.service.MLRecommendationService;
 import com.example.FieldFinder.service.OpenWeatherService;
 import com.example.FieldFinder.service.PitchService;
 import com.example.FieldFinder.service.ProductService;
@@ -39,7 +41,7 @@ public class AIChat {
 
     private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=";
 
-    private static final String EMBEDDING_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=";
+    private static final String EMBEDDING_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=";
 
     private static final String MODEL_VERSION = "gemini-2.0-flash";
 
@@ -51,6 +53,7 @@ public class AIChat {
     private final LogPublisherService logPublisherService;
     private final BookingService bookingService;
     private final RedisService redisService;
+    private final MLRecommendationService mlService;
 
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 5000; // Gemini free = 15 RPM → 4s min, +1s buffer
     private final AtomicLong nextAvailableTime = new AtomicLong(0);
@@ -69,7 +72,7 @@ public class AIChat {
     private final Map<String, String> sessionLastSizes = new HashMap<>();
     private final Map<String, String> sessionLastActivity = new HashMap<>();
 
-    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService) {
+    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService) {
         this.pitchService = pitchService;
         this.productService = productService;
         this.userService = userService;
@@ -77,6 +80,73 @@ public class AIChat {
         this.logPublisherService = logPublisherService;
         this.bookingService = bookingService;
         this.redisService = redisService;
+        this.mlService = mlService;
+    }
+
+    /**
+     * ML-powered retrieval helper.
+     * Trả List<ProductResponseDTO> match theo query bằng FastAPI RAG.
+     * Trả null nếu ML fail / disabled → caller fallback retrieval cũ.
+     */
+    private List<ProductResponseDTO> retrieveProductsViaML(String query, UUID userId, int topK) {
+        try {
+            List<MLItemResult> hits = mlService.retrieve(query, userId != null ? userId.toString() : null, topK, "PRODUCT");
+            if (hits == null || hits.isEmpty()) return null;
+            List<ProductResponseDTO> out = new ArrayList<>();
+            for (MLItemResult h : hits) {
+                if (h.getItemId() == null) continue;
+                try {
+                    Long pid = Long.parseLong(h.getItemId());
+                    ProductResponseDTO p = productService.getProductById(pid, userId);
+                    if (p != null) out.add(p);
+                } catch (NumberFormatException ignored) {
+                    // ML có thể trả non-numeric ID — skip
+                }
+            }
+            return out.isEmpty() ? null : out;
+        } catch (Exception e) {
+            System.err.println("ML retrieveProducts fallback: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Score relevance: 2 = match category + sex, 1 = match 1 tiêu chí, 0 = không match.
+     */
+    private int relevanceScore(ProductResponseDTO p, java.util.Set<String> targetCats, String sexPref) {
+        int s = 0;
+        if (!targetCats.isEmpty() && p.getCategoryName() != null && targetCats.contains(p.getCategoryName())) {
+            s += 2;
+        }
+        if (sexPref != null && p.getSex() != null) {
+            String g = p.getSex().toUpperCase();
+            // sexPref = "WOMEN" / "MEN", sex value có thể "Women"/"Men"/"Unisex"
+            if (g.startsWith(sexPref.substring(0, 3)) || g.equals("UNISEX")) {
+                s += 1;
+            }
+        }
+        return s;
+    }
+
+    private List<PitchResponseDTO> retrievePitchesViaML(String query, UUID userId, int topK) {
+        try {
+            List<MLItemResult> hits = mlService.retrieve(query, userId != null ? userId.toString() : null, topK, "PITCH");
+            if (hits == null || hits.isEmpty()) return null;
+            List<PitchResponseDTO> out = new ArrayList<>();
+            for (MLItemResult h : hits) {
+                if (h.getItemId() == null) continue;
+                try {
+                    UUID pid = UUID.fromString(h.getItemId());
+                    PitchResponseDTO p = pitchService.getPitchById(pid);
+                    if (p != null) out.add(p);
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+            return out.isEmpty() ? null : out;
+        } catch (Exception e) {
+            System.err.println("ML retrievePitches fallback: " + e.getMessage());
+            return null;
+        }
     }
 
     private UUID resolveCurrentUserId(String sessionId) {
@@ -1072,10 +1142,80 @@ public class AIChat {
                 String.join(" ", tags)
         );
 
-        List<Map.Entry<ProductResponseDTO, Double>> scoredResults = productService.findProductsByVectorWithScores(description);
-        List<ProductResponseDTO> results = scoredResults.stream().map(Map.Entry::getKey).collect(Collectors.toList());
-        List<Double> retrievalScores = scoredResults.stream().map(Map.Entry::getValue).collect(Collectors.toList());
+        // Try ML retrieve first (Personalized RAG); fallback to local vector search
+        String retrievalSource = "VECTOR_LOCAL";
+        List<ProductResponseDTO> results = null;
+        List<Double> retrievalScores = null;
+
+        List<MLItemResult> mlHits = mlService.retrieve(description, userId != null ? userId.toString() : null, 30, "PRODUCT");
+        System.out.println("🟢 ML retrieve hits: " + (mlHits != null ? mlHits.size() : "null"));
+        if (mlHits != null && !mlHits.isEmpty()) {
+            results = new ArrayList<>();
+            retrievalScores = new ArrayList<>();
+            int matched = 0, missing = 0;
+            for (MLItemResult h : mlHits) {
+                try {
+                    Long pid = Long.parseLong(h.getItemId());
+                    ProductResponseDTO p = productService.getProductById(pid, userId);
+                    if (p != null) {
+                        results.add(p);
+                        retrievalScores.add(h.getFinalScore() != null ? h.getFinalScore() : (h.getScore() != null ? h.getScore() : 0.0));
+                        matched++;
+                    } else {
+                        missing++;
+                        System.out.println("  ⚠ ML returned product_id=" + pid + " not in DB");
+                    }
+                } catch (NumberFormatException ignored) {
+                    System.out.println("  ⚠ ML invalid product_id: " + h.getItemId());
+                }
+            }
+            System.out.println("🟢 ML match: " + matched + " / " + mlHits.size() + " (missing=" + missing + ")");
+            if (!results.isEmpty()) {
+                retrievalSource = "ML_RAG";
+            }
+        }
+
+        if (retrievalSource.equals("VECTOR_LOCAL")) {
+            List<Map.Entry<ProductResponseDTO, Double>> scoredResults = productService.findProductsByVectorWithScores(description);
+            results = scoredResults.stream().map(Map.Entry::getKey).collect(Collectors.toList());
+            retrievalScores = scoredResults.stream().map(Map.Entry::getValue).collect(Collectors.toList());
+        }
+
         List<String> resolvedCategories = CategoryMapper.resolveCategories(activity, aiCategories);
+
+        // Re-rank: ưu tiên (1) category match activity, (2) sex match tags ("nữ"/"nam")
+        if (results != null && !results.isEmpty()) {
+            String sexPref = null;
+            List<String> tagsLower = tags == null ? Collections.emptyList()
+                    : tags.stream().map(t -> t == null ? "" : t.toLowerCase()).toList();
+            if (tagsLower.contains("nữ") || tagsLower.contains("nu") || tagsLower.contains("women") || tagsLower.contains("woman")) {
+                sexPref = "WOMEN";
+            } else if (tagsLower.contains("nam") || tagsLower.contains("men") || tagsLower.contains("man")) {
+                sexPref = "MEN";
+            }
+            final String sexPrefFinal = sexPref;
+            final java.util.Set<String> catSet = resolvedCategories == null
+                    ? java.util.Collections.<String>emptySet()
+                    : new java.util.HashSet<>(resolvedCategories);
+
+            // Pair (product, originalScore)
+            List<Object[]> pairs = new ArrayList<>();
+            for (int i = 0; i < results.size(); i++) {
+                pairs.add(new Object[]{results.get(i), retrievalScores.get(i)});
+            }
+            pairs.sort((a, b) -> {
+                ProductResponseDTO pa = (ProductResponseDTO) a[0];
+                ProductResponseDTO pb = (ProductResponseDTO) b[0];
+                int sa = relevanceScore(pa, catSet, sexPrefFinal);
+                int sb = relevanceScore(pb, catSet, sexPrefFinal);
+                if (sa != sb) return Integer.compare(sb, sa);
+                double da = (Double) a[1];
+                double db = (Double) b[1];
+                return Double.compare(db, da);
+            });
+            results = pairs.stream().map(p -> (ProductResponseDTO) p[0]).collect(Collectors.toList());
+            retrievalScores = pairs.stream().map(p -> (Double) p[1]).collect(Collectors.toList());
+        }
 
         if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
             results = productService.getAllProducts(PageRequest.of(0, 500), null, null, null, userId).getContent().stream()
@@ -1139,6 +1279,7 @@ public class AIChat {
                     .collect(Collectors.toList());
             metadata.put("retrievedItemIds", retrievedIds);
             metadata.put("retrievalScore", retrievalScores);
+            metadata.put("retrievalSource", retrievalSource);
             logPublisherService.publishEvent(
                     userId != null ? userId.toString() : null,
                     sessionId,
@@ -1169,6 +1310,7 @@ public class AIChat {
         BookingQuery query;
         try {
             String cleanJson = callGeminiAPI(userInput, finalPrompt);
+            System.out.println("🟢 Gemini parsed JSON: " + (cleanJson != null && cleanJson.length() > 800 ? cleanJson.substring(0, 800) + "..." : cleanJson));
             query = parseAIResponse(cleanJson);
         } catch (IOException e) {
             System.err.println("❌ Lỗi gọi Gemini trong parseBookingInput: " + e.getMessage());
@@ -1187,11 +1329,27 @@ public class AIChat {
         if (query.data != null && query.data.containsKey("action")) {
             String action = (String) query.data.get("action");
             String productName = (String) query.data.get("productName");
+            Object activityObj = query.data.get("activity");
+            Object tagsObj = query.data.get("tags");
+
+            // Override: nếu Gemini set activity nhưng action = price_range với min=max=0 → đó là intent recommend
+            boolean hasActivity = activityObj != null && !((String) activityObj).isBlank();
+            boolean hasNonemptyTags = tagsObj instanceof List<?> && !((List<?>) tagsObj).isEmpty();
+            Number minP = (Number) query.data.getOrDefault("minPrice", 0);
+            Number maxP = (Number) query.data.getOrDefault("maxPrice", 0);
+            boolean priceRangeEmpty = minP.doubleValue() <= 0 && maxP.doubleValue() <= 0;
+            if (hasActivity && (action == null || ("search_by_price_range".equals(action) && priceRangeEmpty))) {
+                action = "recommend_by_activity";
+                query.data.put("action", "recommend_by_activity");
+            }
 
             if (action == null) {
                 if (productName != null && !productName.isEmpty()) {
                     action = "check_stock";
                     query.data.put("action", "check_stock");
+                } else if (hasActivity || hasNonemptyTags) {
+                    action = "recommend_by_activity";
+                    query.data.put("action", "recommend_by_activity");
                 } else {
                     return query;
                 }
