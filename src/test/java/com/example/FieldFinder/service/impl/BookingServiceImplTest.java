@@ -10,12 +10,7 @@ import com.example.FieldFinder.entity.Payment;
 import com.example.FieldFinder.entity.RefundRequest;
 import com.example.FieldFinder.entity.TimeSlot;
 import com.example.FieldFinder.entity.User;
-import com.example.FieldFinder.repository.BookingDetailRepository;
-import com.example.FieldFinder.repository.BookingRepository;
-import com.example.FieldFinder.repository.PaymentRepository;
-import com.example.FieldFinder.repository.PitchRepository;
-import com.example.FieldFinder.repository.ProviderRepository;
-import com.example.FieldFinder.repository.UserRepository;
+import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.PitchRedisLockService;
 import com.example.FieldFinder.service.RefundService;
@@ -61,6 +56,8 @@ class BookingServiceImplTest {
     @Mock ProviderRepository providerRepository;
     @Mock EmailService emailService;
     @Mock RefundService refundService;
+    @Mock DiscountRepository discountRepository;
+    @Mock UserDiscountRepository userDiscountRepository;
 
     BookingServiceImpl service;
 
@@ -73,7 +70,7 @@ class BookingServiceImplTest {
                 bookingRepository, bookingDetailRepository, pitchRepository,
                 userRepository, restTemplate, rabbitTemplate,
                 pitchRedisLockService, entityManager, paymentRepository,
-                providerRepository, emailService, refundService);
+                providerRepository, emailService, refundService, discountRepository, userDiscountRepository);
 
         userId = UUID.randomUUID();
         user = new User();

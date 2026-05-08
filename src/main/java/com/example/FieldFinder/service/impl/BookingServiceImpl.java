@@ -1,6 +1,7 @@
 package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.Enum.BookingStatus;
+import com.example.FieldFinder.Enum.DiscountKind;
 import com.example.FieldFinder.Enum.PaymentMethod;
 import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.Enum.RefundSourceType;
@@ -49,6 +50,8 @@ public class BookingServiceImpl implements BookingService {
     private final ProviderRepository providerRepository;
     private final EmailService emailService;
     private final RefundService refundService;
+    private final DiscountRepository discountRepository;
+    private final UserDiscountRepository userDiscountRepository;
 
     /** Khoảng thời gian tối thiểu trước slot đầu mới được hủy + hoàn tiền. */
     private static final long BOOKING_REFUND_MIN_MINUTES_BEFORE = 10;
@@ -126,13 +129,84 @@ public class BookingServiceImpl implements BookingService {
         }
 
         try {
+            BigDecimal subtotal = bookingRequest.getBookingDetails().stream()
+                    .map(BookingRequestDTO.BookingDetailDTO::getPriceDetail)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal finalPrice = subtotal;
+            List<UserDiscount> consumedDiscounts = new ArrayList<>();
+            List<String> codes = bookingRequest.getDiscountCodes();
+            if (codes != null && !codes.isEmpty()) {
+                for (String code : codes) {
+                    if (code == null || code.isBlank()) continue;
+                    Discount d = discountRepository.findByCode(code)
+                            .orElseThrow(() -> new RuntimeException("Mã không tồn tại: " + code));
+                    if (d.getStatus() != Discount.DiscountStatus.ACTIVE) {
+                        throw new RuntimeException("Mã không còn hiệu lực: " + code);
+                    }
+                    LocalDate today = LocalDate.now();
+                    if (today.isBefore(d.getStartDate()) || today.isAfter(d.getEndDate())) {
+                        throw new RuntimeException("Mã ngoài thời hạn: " + code);
+                    }
+                    boolean isRefund = d.getKind() == DiscountKind.REFUND_CREDIT;
+                    boolean isPromoGlobal = d.getKind() == DiscountKind.PROMOTION
+                            && d.getScope() == Discount.DiscountScope.GLOBAL;
+                    if (!isRefund && !isPromoGlobal) {
+                        throw new RuntimeException("Mã không áp dụng cho đặt sân: " + code);
+                    }
+                    UserDiscount ud = userDiscountRepository.findByUserAndDiscount(user, d)
+                            .orElseThrow(() -> new RuntimeException("Bạn chưa sở hữu mã: " + code));
+                    if (ud.isUsed()) {
+                        throw new RuntimeException("Mã đã sử dụng: " + code);
+                    }
+
+                    BigDecimal discountAmount;
+                    if (isRefund) {
+                        BigDecimal remaining = ud.getRemainingValue() != null
+                                ? ud.getRemainingValue() : d.getValue();
+                        if (remaining.signum() <= 0) {
+                            throw new RuntimeException("Mã hết số dư: " + code);
+                        }
+                        discountAmount = remaining.min(finalPrice);
+                        ud.setRemainingValue(remaining.subtract(discountAmount));
+                        if (ud.getRemainingValue().signum() <= 0) {
+                            ud.setUsed(true);
+                            ud.setUsedAt(LocalDateTime.now());
+                        }
+                    } else {
+                        if (d.getDiscountType() == Discount.DiscountType.PERCENTAGE) {
+                            discountAmount = finalPrice.multiply(d.getValue())
+                                    .divide(BigDecimal.valueOf(100));
+                            if (d.getMaxDiscountAmount() != null
+                                    && discountAmount.compareTo(d.getMaxDiscountAmount()) > 0) {
+                                discountAmount = d.getMaxDiscountAmount();
+                            }
+                        } else {
+                            discountAmount = d.getValue();
+                        }
+                        if (d.getMinOrderValue() != null
+                                && finalPrice.compareTo(d.getMinOrderValue()) < 0) {
+                            throw new RuntimeException("Đơn chưa đạt giá trị tối thiểu: " + code);
+                        }
+                        discountAmount = discountAmount.min(finalPrice);
+                        ud.setUsed(true);
+                        ud.setUsedAt(LocalDateTime.now());
+                    }
+                    finalPrice = finalPrice.subtract(discountAmount);
+                    if (finalPrice.signum() < 0) finalPrice = BigDecimal.ZERO;
+                    consumedDiscounts.add(ud);
+                }
+                userDiscountRepository.saveAll(consumedDiscounts);
+            }
+
             Booking booking = Booking.builder()
                     .user(user)
                     .bookingDate(bookingRequest.getBookingDate())
                     .createdAt(LocalDateTime.now())
                     .status(BookingStatus.PENDING)
                     .paymentStatus(PaymentStatus.PENDING)
-                    .totalPrice(bookingRequest.getTotalPrice())
+                    .totalPrice(finalPrice)
                     .build();
 
             if (bookingRequest.getPaymentMethod() != null &&
@@ -163,7 +237,7 @@ public class BookingServiceImpl implements BookingService {
                 Payment payment = Payment.builder()
                         .booking(savedBooking)
                         .user(user)
-                        .amount(bookingRequest.getTotalPrice())
+                        .amount(savedBooking.getTotalPrice())
                         .paymentMethod(PaymentMethod.CASH)
                         .paymentStatus(PaymentStatus.PAID)
                         .createdAt(LocalDateTime.now())
@@ -226,9 +300,9 @@ public class BookingServiceImpl implements BookingService {
 
             List<String> slotsName = booking.getBookingDetails() == null ? new ArrayList<>()
                     : booking.getBookingDetails().stream()
-                    .map(BookingDetail::getName)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+                      .map(BookingDetail::getName)
+                      .filter(Objects::nonNull)
+                      .collect(Collectors.toList());
 
             User customer = booking.getUser();
             String userName = (customer != null) ? customer.getName() : "Khách hàng";
@@ -328,9 +402,9 @@ public class BookingServiceImpl implements BookingService {
 
             List<String> slotsName = booking.getBookingDetails() == null ? new ArrayList<>()
                     : booking.getBookingDetails().stream()
-                    .map(BookingDetail::getName)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+                      .map(BookingDetail::getName)
+                      .filter(Objects::nonNull)
+                      .collect(Collectors.toList());
 
             String paymentMethod = paymentMap.getOrDefault(booking.getBookingId(), "PENDING");
 

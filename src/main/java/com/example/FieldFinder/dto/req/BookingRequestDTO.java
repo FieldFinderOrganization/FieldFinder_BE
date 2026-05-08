@@ -31,6 +31,7 @@ public class BookingRequestDTO {
     private BigDecimal totalPrice;
     private List<BookingDetailDTO> bookingDetails;
     private String paymentMethod;
+    private List<String> discountCodes;
 
     @Setter
     @Getter
