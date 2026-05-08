@@ -31,7 +31,6 @@ services:
       #      - SPRING_REDIS_REDISSON_FILE=classpath:redisson-docker.yml
       - SPRING_REDIS_REDISSON_FILE=classpath:redisson-docker-standalone.yml
       - SPRING_RABBITMQ_HOST=rabbitmq
-      # ML API (FastAPI chạy trên host machine)
       - ML_API_BASE_URL=http://host.docker.internal:8000
       - ML_API_ENABLED=true
     extra_hosts:

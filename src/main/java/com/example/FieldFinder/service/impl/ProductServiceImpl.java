@@ -25,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import com.example.FieldFinder.Enum.CategoryType;
 import jakarta.annotation.PreDestroy;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -42,6 +44,9 @@ public class ProductServiceImpl implements ProductService {
     private final CloudinaryService cloudinaryService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ExecutorService enrichmentExecutor = Executors.newFixedThreadPool(2);
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public ProductServiceImpl(
             ProductRepository productRepository,
@@ -64,12 +69,7 @@ public class ProductServiceImpl implements ProductService {
 
     private List<Discount> getPublicDiscounts(Product product) {
         List<Discount> publicDiscounts = new ArrayList<>();
-
-        if (product.getDiscounts() != null) {
-            publicDiscounts.addAll(product.getDiscounts().stream()
-                    .map(ProductDiscount::getDiscount)
-                    .toList());
-        }
+        Set<UUID> existingIds = new HashSet<>();
 
         if (product.getCategory() != null) {
             List<Long> categoryIds = new ArrayList<>();
@@ -84,17 +84,24 @@ public class ProductServiceImpl implements ProductService {
                         product.getProductId(),
                         categoryIds);
 
-                Set<UUID> existingIds = publicDiscounts.stream()
-                        .map(Discount::getDiscountId)
-                        .collect(Collectors.toSet());
-
                 for (Discount d : implicitDiscounts) {
-                    if (!existingIds.contains(d.getDiscountId())) {
+                    if (existingIds.add(d.getDiscountId())) {
                         publicDiscounts.add(d);
                     }
                 }
             }
         }
+
+        // Bổ sung từ product.discounts (ProductDiscount) cho các discount chưa có
+        if (product.getDiscounts() != null) {
+            for (ProductDiscount pd : product.getDiscounts()) {
+                Discount d = pd.getDiscount();
+                if (d != null && existingIds.add(d.getDiscountId())) {
+                    publicDiscounts.add(d);
+                }
+            }
+        }
+
         return publicDiscounts;
     }
 
@@ -206,10 +213,13 @@ public class ProductServiceImpl implements ProductService {
         String imageUrl = request.getImageUrl();
         if (imageFile != null && !imageFile.isEmpty()) {
             try {
+                // Truyền tên danh mục vào list theo đúng signature của hàm uploadProductImage
                 List<String> categoryNames = List.of(category.getName());
 
+                // Gọi hàm upload của bạn và nhận về Map
                 Map<String, Object> uploadResult = cloudinaryService.uploadProductImage(imageFile, categoryNames);
 
+                // Trích xuất URL từ kết quả
                 imageUrl = (String) uploadResult.get("url");
 
             } catch (Exception e) {
@@ -262,7 +272,6 @@ public class ProductServiceImpl implements ProductService {
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
 
-        // Pass userId để wallet lookup → set appliedDiscountCodes & availableGlobalCodes
         return mapToResponse(product, usedDiscountIds, userId);
     }
 
@@ -297,7 +306,7 @@ public class ProductServiceImpl implements ProductService {
 
         List<ProductResponseDTO> dtos = products.getContent()
                 .stream()
-                .map(p -> mapToResponse(p, usedDiscountIds))
+                .map(p -> mapToResponse(p, usedDiscountIds, userId))
                 .toList();
 
         return new PageImpl<>(dtos, pageable, products.getTotalElements());
@@ -397,26 +406,22 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.REQUIRED)
     @Caching(evict = {
             @CacheEvict(value = "product_detail", allEntries = true),
             @CacheEvict(value = "top_selling", allEntries = true),
             @CacheEvict(value = "products_category", allEntries = true)
     })
     public void commitStock(Long productId, String size, int quantity) {
-        Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId,
-                size);
-        if (optionalVariant.isEmpty()) {
+        int updated = productVariantRepository.commitStockAtomic(productId, size, quantity);
+        if (updated == 0) {
             System.err.println("⚠️ Warning: Cannot commit stock. Variant not found for Product ID: " + productId
                     + ", Size: " + size);
             return;
         }
-
-        ProductVariant variant = optionalVariant.get();
-        variant.setStockQuantity(variant.getStockQuantity() - quantity);
-        variant.setLockedQuantity(variant.getLockedQuantity() - quantity);
-        variant.setSoldQuantity(variant.getSoldQuantity() + quantity);
-        productVariantRepository.save(variant);
+        System.out.println(String.format(
+                "[commitStock] productId=%d size=%s qty=%d (atomic UPDATE rows=%d)",
+                productId, size, quantity, updated));
     }
 
     @Override
@@ -430,7 +435,6 @@ public class ProductServiceImpl implements ProductService {
         Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId,
                 size);
         if (optionalVariant.isEmpty()) {
-            // Log tất cả variant hiện có để chẩn đoán size mismatch
             List<ProductVariant> allVariants = productVariantRepository.findAllByProduct_ProductId(productId);
             String existingSizes = allVariants.stream()
                     .map(v -> "'" + v.getSize() + "'")
@@ -456,6 +460,20 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRED)
+    @Caching(evict = {
+            @CacheEvict(value = "product_detail", allEntries = true),
+            @CacheEvict(value = "top_selling", allEntries = true),
+            @CacheEvict(value = "products_category", allEntries = true)
+    })
+    public void restoreStock(Long productId, String size, int quantity) {
+        int updated = productVariantRepository.restoreStockAtomic(productId, size, quantity);
+        if (updated == 0) {
+            System.err.println("⚠️ Cannot restore stock. Variant not found Product=" + productId + " Size=" + size);
+        }
+    }
+
+    @Override
     @Transactional(readOnly = true)
     @Cacheable(value = "top_selling", key = "'top5_' + (#userId != null ? #userId.toString() : 'anon')")
     public List<ProductResponseDTO> getTopSellingProducts(int limit, UUID userId) {
@@ -467,7 +485,7 @@ public class ProductServiceImpl implements ProductService {
 
         return productRepository.findTopSellingProducts(pageable)
                 .stream()
-                .map(p -> mapToResponse(p, usedDiscountIds))
+                .map(p -> mapToResponse(p, usedDiscountIds, userId))
                 .collect(Collectors.toList());
     }
 
@@ -481,7 +499,7 @@ public class ProductServiceImpl implements ProductService {
         return productRepository.findAll().stream()
                 .filter(p -> p.getCategory() != null && categories.contains(p.getCategory().getName()))
                 .limit(12)
-                .map(p -> mapToResponse(p, usedDiscountIds))
+                .map(p -> mapToResponse(p, usedDiscountIds, userId))
                 .collect(Collectors.toList());
     }
 

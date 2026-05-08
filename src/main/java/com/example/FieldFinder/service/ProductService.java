@@ -24,6 +24,7 @@ public interface ProductService {
     void holdStock(Long productId, String size, int quantity);
     void commitStock(Long productId, String size, int quantity);
     void releaseStock(Long productId, String size, int quantity);
+    void restoreStock(Long productId, String size, int quantity);
 
     List<ProductResponseDTO> findProductsByImage(List<String> keywords, String majorCategory);
     void enrichAllProductsData();

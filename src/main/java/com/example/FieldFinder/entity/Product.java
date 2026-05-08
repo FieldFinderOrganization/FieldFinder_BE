@@ -92,7 +92,8 @@ public class Product {
         double totalReduction = this.price - finalPrice;
         if (totalReduction <= 0) return 0;
 
-        return (int) Math.round((totalReduction / this.price) * 100);
+        int pct = (int) Math.round((totalReduction / this.price) * 100);
+        return Math.max(pct, 1);
     }
 
     public void calculateSalePriceForUser(List<Discount> availableDiscounts) {
@@ -118,7 +119,12 @@ public class Product {
 
         if (this.price > 0) {
             double totalReduction = this.price - this.salePrice;
-            this.onSalePercent = totalReduction <= 0 ? 0 : (int) Math.round((totalReduction / this.price) * 100);
+            if (totalReduction <= 0) {
+                this.onSalePercent = 0;
+            } else {
+                int pct = (int) Math.round((totalReduction / this.price) * 100);
+                this.onSalePercent = Math.max(pct, 1);
+            }
         } else {
             this.onSalePercent = 0;
         }

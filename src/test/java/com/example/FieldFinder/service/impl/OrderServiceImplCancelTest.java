@@ -26,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.redisson.api.RedissonClient;
+import org.springframework.cache.CacheManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -54,6 +55,7 @@ class OrderServiceImplCancelTest {
     @Mock StockLockService stockLockService;
     @Mock PaymentRepository paymentRepository;
     @Mock RefundService refundService;
+    @Mock CacheManager cacheManager;
 
     OrderServiceImpl service;
 
@@ -66,7 +68,7 @@ class OrderServiceImplCancelTest {
                 orderRepository, orderItemRepository, userRepository,
                 discountRepository, userDiscountRepository,
                 redissonClient, productService, emailService,
-                stockLockService, paymentRepository, refundService);
+                stockLockService, paymentRepository, refundService, cacheManager);
 
         userId = UUID.randomUUID();
         user = new User();
