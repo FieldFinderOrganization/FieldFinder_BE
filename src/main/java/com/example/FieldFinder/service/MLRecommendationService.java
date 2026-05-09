@@ -2,6 +2,7 @@ package com.example.FieldFinder.service;
 
 import com.example.FieldFinder.dto.req.MLRecommendCtrRequest;
 import com.example.FieldFinder.dto.req.MLRecommendNextRequest;
+import com.example.FieldFinder.dto.req.MLRetrieveByImageRequest;
 import com.example.FieldFinder.dto.req.MLRetrieveRequest;
 import com.example.FieldFinder.dto.res.MLItemResult;
 import com.example.FieldFinder.dto.res.MLRecommendCtrResponse;
@@ -23,6 +24,10 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * Wrapper gọi FastAPI ML service.
+ * Có circuit breaker đơn giản: nếu fail liên tục → tạm tắt 60s, fallback null.
+ */
 @Slf4j
 @Service
 public class MLRecommendationService {
@@ -160,19 +165,22 @@ public class MLRecommendationService {
     }
 
     public List<MLItemResult> retrieveByImage(String base64Image, int topK, String itemType) {
+        return retrieveByImage(MLRetrieveByImageRequest.builder()
+                .imageBase64(base64Image)
+                .topK(topK)
+                .itemType(itemType)
+                .build());
+    }
+
+    public List<MLItemResult> retrieveByImage(MLRetrieveByImageRequest req) {
         if (!enabled || circuitOpen()) return null;
         try {
-            Map<String, Object> req = new HashMap<>();
-            req.put("image_base64", base64Image);
-            req.put("top_k", topK);
-            if (itemType != null) req.put("item_type", itemType);
-
             MLRetrieveResponse res = mlWebClient.post()
                     .uri("/retrieve/image")
                     .bodyValue(req)
                     .retrieve()
                     .bodyToMono(MLRetrieveResponse.class)
-                    .timeout(Duration.ofMillis(Math.max(timeoutMs, 15_000)))
+                    .timeout(Duration.ofMillis(Math.max(timeoutMs, 30_000)))
                     .block();
             recordSuccess();
             return res != null ? res.getResults() : null;

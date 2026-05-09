@@ -6,6 +6,8 @@ import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.mapper.CategoryMapper;
 import com.example.FieldFinder.service.BookingService;
+import com.example.FieldFinder.dto.req.MLRetrieveByImageRequest;
+import com.example.FieldFinder.service.CategoryService;
 import com.example.FieldFinder.service.MLRecommendationService;
 import com.example.FieldFinder.service.OpenWeatherService;
 import com.example.FieldFinder.service.PhashIndex;
@@ -64,6 +66,7 @@ public class AIChat {
     private final RedisService redisService;
     private final MLRecommendationService mlService;
     private final PhashIndex phashIndex;
+    private final CategoryService categoryService;
 
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 5000; // Gemini free = 15 RPM → 4s min, +1s buffer
     private final AtomicLong nextAvailableTime = new AtomicLong(0);
@@ -82,7 +85,7 @@ public class AIChat {
     private final Map<String, String> sessionLastSizes = new HashMap<>();
     private final Map<String, String> sessionLastActivity = new HashMap<>();
 
-    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService, PhashIndex phashIndex) {
+    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService, PhashIndex phashIndex, CategoryService categoryService) {
         this.pitchService = pitchService;
         this.productService = productService;
         this.userService = userService;
@@ -92,6 +95,7 @@ public class AIChat {
         this.redisService = redisService;
         this.phashIndex = phashIndex;
         this.mlService = mlService;
+        this.categoryService = categoryService;
     }
 
     /**
@@ -386,6 +390,51 @@ public class AIChat {
         }
     }
 
+    /** Gọi Gemini Vision parse JSON. Trả null nếu fail. */
+    private JsonNode callGeminiVisionParse(String base64Image) {
+        try {
+            ObjectNode rootNode = mapper.createObjectNode();
+            ObjectNode systemInstNode = rootNode.putObject("system_instruction");
+            systemInstNode.putObject("parts").put("text", IMAGE_ANALYSIS_SYSTEM_PROMPT);
+
+            ArrayNode contentsArray = rootNode.putArray("contents");
+            ObjectNode userMessage = contentsArray.addObject();
+            userMessage.put("role", "user");
+            ArrayNode parts = userMessage.putArray("parts");
+            parts.addObject().put("text", "Phân tích ảnh này và trích xuất Tags.");
+
+            if (base64Image != null && !base64Image.isEmpty()) {
+                ObjectNode inlineData = parts.addObject().putObject("inline_data");
+                String mimeType = "image/jpeg";
+                String cleanB64 = base64Image;
+                if (base64Image.contains(",")) {
+                    String[] tokens = base64Image.split(",");
+                    if (tokens[0].contains("png")) mimeType = "image/png";
+                    cleanB64 = tokens[1];
+                }
+                inlineData.put("mime_type", mimeType);
+                inlineData.put("data", cleanB64);
+            }
+
+            ObjectNode generationConfig = rootNode.putObject("generationConfig");
+            generationConfig.put("response_mime_type", "application/json");
+
+            Request request = new Request.Builder()
+                    .url(GEMINI_API_URL + GOOGLE_API_KEY)
+                    .post(RequestBody.create(mapper.writeValueAsString(rootNode), MediaType.parse("application/json")))
+                    .build();
+
+            try (Response response = callWithRetry(request, "Image Analysis")) {
+                String rawJson = extractGeminiResponse(response.body().string());
+                String cleanJson = cleanJson(rawJson);
+                return mapper.readTree(cleanJson);
+            }
+        } catch (Exception e) {
+            System.err.println("callGeminiVisionParse fail: " + e.getMessage());
+            return null;
+        }
+    }
+
     public BookingQuery processImageSearchWithGemini(String base64Image, String sessionId) {
         BookingQuery result = new BookingQuery();
         result.data = new HashMap<>();
@@ -428,23 +477,74 @@ public class AIChat {
             }
         }
 
-        // ========== Stage 1: CLIP image embedding via ML /retrieve/image ==========
+        // ========== Stage 1: Gemini Vision context + Hybrid CLIP (RRF + filter + MMR) ==========
+        String cleanBase64 = base64Image;
+        if (cleanBase64 != null && cleanBase64.contains(",")) {
+            cleanBase64 = cleanBase64.substring(cleanBase64.indexOf(',') + 1);
+        }
+
+        // Pre-call Gemini Vision để lấy caption/category/tags/productType. Nếu fail → context empty.
+        String parsedCategory = null, parsedProductName = null, parsedColor = null, parsedProductType = null;
+        List<String> parsedTags = new ArrayList<>();
         try {
-            String cleanBase64 = base64Image;
-            if (cleanBase64 != null && cleanBase64.contains(",")) {
-                cleanBase64 = cleanBase64.substring(cleanBase64.indexOf(',') + 1);
+            JsonNode visionJson = callGeminiVisionParse(base64Image);
+            if (visionJson != null) {
+                List<String> rawTags = mapper.convertValue(visionJson.path("tags"),
+                        new TypeReference<List<String>>(){});
+                parsedTags = sanitizeTags(rawTags);
+                parsedCategory = visionJson.path("majorCategory").asText("");
+                parsedProductName = visionJson.path("productName").asText("");
+                parsedColor = visionJson.path("color").asText("");
+                parsedProductType = visionJson.path("productType").asText("");
             }
-            List<MLItemResult> clipHits = mlService.retrieveByImage(cleanBase64, 10, "PRODUCT");
+        } catch (Exception e) {
+            System.err.println("⚠️ Gemini Vision pre-parse fail: " + e.getMessage());
+        }
+
+        try {
+            // Tier 1: narrower productType (SHOES/TOP/BOTTOM/DRESS...) → STANDARD-level
+            // Tier 2: fallback majorCategory SUPER_CATEGORY
+            List<Long> typeIds = parsedProductType != null
+                    ? categoryService.expandByProductType(parsedProductType)
+                    : new ArrayList<>();
+            List<Long> superIds = parsedCategory != null
+                    ? categoryService.expandToSuperCategoryDescendants(parsedCategory)
+                    : new ArrayList<>();
+            List<Long> categoryIds = !typeIds.isEmpty() ? typeIds : superIds;
+            System.out.println("🔍 Gemini parsed: category='" + parsedCategory
+                    + "' productType='" + parsedProductType
+                    + "' productName='" + parsedProductName + "' tags=" + parsedTags
+                    + " → typeIds=" + typeIds.size() + " superIds=" + superIds.size()
+                    + " → using=" + categoryIds.size() + " " + categoryIds);
+            String caption = String.join(" ",
+                    parsedCategory != null ? parsedCategory : "",
+                    parsedProductName != null ? parsedProductName : "",
+                    parsedColor != null ? parsedColor : "",
+                    String.join(" ", parsedTags)
+            ).trim();
+
+            MLRetrieveByImageRequest mlReq = MLRetrieveByImageRequest.builder()
+                    .imageBase64(cleanBase64)
+                    .caption(caption)
+                    .geminiTags(parsedTags)
+                    .categoryIds(categoryIds)
+                    .topK(10)
+                    .retrieveK(30)
+                    .itemType("PRODUCT")
+                    .build();
+
+            List<MLItemResult> clipHits = mlService.retrieveByImage(mlReq);
             if (clipHits != null && !clipHits.isEmpty()) {
-                System.out.println("🔍 CLIP raw top10 scores: " + clipHits.stream()
-                        .map(h -> h.getItemId() + "=" + String.format("%.3f", h.getScore() != null ? h.getScore() : 0.0))
-                        .collect(Collectors.joining(", ")));
-                final double CLIP_THRESHOLD = 0.70;
+                System.out.println("🔍 Hybrid CLIP top scores: " + clipHits.stream()
+                        .map(h -> h.getItemId() + "=" + String.format("%.4f", h.getScore() != null ? h.getScore() : 0.0))
+                        .collect(Collectors.joining(", "))
+                        + " | categoryIds=" + categoryIds.size());
+                final double THRESHOLD = 0.005; // RRF score, không phải cosine
                 List<ProductResponseDTO> products = new ArrayList<>();
                 List<Double> scores = new ArrayList<>();
                 for (MLItemResult h : clipHits) {
                     if (h.getItemId() == null) continue;
-                    if (h.getScore() == null || h.getScore() < CLIP_THRESHOLD) continue;
+                    if (h.getScore() == null || h.getScore() < THRESHOLD) continue;
                     try {
                         Long pid = Long.parseLong(h.getItemId());
                         ProductResponseDTO p = productService.getProductById(pid, null);
@@ -456,19 +556,24 @@ public class AIChat {
                 }
                 if (!products.isEmpty()) {
                     if (sessionId != null) sessionLastProducts.put(sessionId, products.get(0));
-                    System.out.println("✅ CLIP image hit: " + products.size()
-                            + " product(s), topScore=" + (scores.isEmpty() ? "-" : scores.get(0)));
-                    result.message = String.format("Tôi tìm thấy %d sản phẩm tương tự với ảnh bạn gửi:",
-                            products.size());
+                    Double topClipCosine = clipHits.get(0).getClipScore();
+                    System.out.println("✅ Hybrid CLIP hit: " + products.size()
+                            + " product(s), topRRF=" + (scores.isEmpty() ? "-" : scores.get(0))
+                            + " topCLIP=" + topClipCosine);
+                    boolean exactMatch = topClipCosine != null && topClipCosine >= 0.85;
+                    result.message = exactMatch
+                            ? String.format("Tôi tìm thấy %d sản phẩm tương tự với ảnh bạn gửi:", products.size())
+                            : "Rất tiếc nhưng hiện tại shop không có sản phẩm mà bạn đang tìm kiếm, hãy xem qua danh sách sản phẩm gần giống dưới đây nhé:";
                     result.data.put("action", "image_search_result");
                     result.data.put("products", products);
                     result.data.put("retrievalScores", scores);
-                    result.data.put("retrievalSource", "CLIP");
+                    result.data.put("extractedTags", parsedTags);
+                    result.data.put("retrievalSource", "CLIP_HYBRID");
                     return result;
                 }
             }
         } catch (Exception e) {
-            System.err.println("CLIP image retrieve fallback: " + e.getMessage());
+            System.err.println("Hybrid CLIP image retrieve fallback: " + e.getMessage());
         }
 
         try {
@@ -488,18 +593,18 @@ public class AIChat {
                 ObjectNode inlineData = parts.addObject().putObject("inline_data");
 
                 String mimeType = "image/jpeg";
-                String cleanBase64 = base64Image;
+                String b64 = base64Image;
 
                 if (base64Image.contains(",")) {
                     String[] tokens = base64Image.split(",");
                     if (tokens[0].contains("png")) {
                         mimeType = "image/png";
                     }
-                    cleanBase64 = tokens[1];
+                    b64 = tokens[1];
                 }
 
                 inlineData.put("mime_type", mimeType);
-                inlineData.put("data", cleanBase64);
+                inlineData.put("data", b64);
             }
 
             ObjectNode generationConfig = rootNode.putObject("generationConfig");
@@ -1902,22 +2007,33 @@ public class AIChat {
     private static final String IMAGE_ANALYSIS_SYSTEM_PROMPT = """
         Bạn là chuyên gia thời trang (Sneakerhead).
         Nhiệm vụ: Phân tích ảnh để tìm kiếm sản phẩm.
-        
+
         1. XÁC ĐỊNH LOẠI SẢN PHẨM (`majorCategory`):
         - `FOOTWEAR` (Giày, Dép), `CLOTHING` (Quần, Áo, Váy), `ACCESSORY` (Balo, Nón, Túi...).
-        
-        2. PHÂN TÍCH MÀU SẮC (RẤT QUAN TRỌNG):
+
+        2. XÁC ĐỊNH LOẠI CỤ THỂ (`productType`) — BẮT BUỘC chọn đúng 1:
+        - `SHOES` — giày thể thao, giày tây, sneaker, boot
+        - `SANDAL` — dép, sandal
+        - `TOP` — áo (T-shirt, polo, hoodie, jacket, sơ mi)
+        - `BOTTOM` — quần (short, jeans, kaki, jogger)
+        - `DRESS` — váy, đầm
+        - `BAG` — balo, túi xách, túi đeo chéo
+        - `HAT` — nón, mũ, cap, beanie
+        - `OTHER` — phụ kiện khác (kính, găng tay, vớ...)
+
+        3. PHÂN TÍCH MÀU SẮC (RẤT QUAN TRỌNG):
         - Đừng chỉ chọn 1 màu. Hãy liệt kê TẤT CẢ màu sắc nhìn thấy.
         - Phân biệt: Màu chủ đạo (Dominant) và Màu phối (Accent).
         - Ví dụ: Giày trắng logo đỏ -> Tags phải có cả "trắng", "white", "đỏ", "red".
         - Các màu tương đồng: Nếu thấy "kem/cream/beige" -> Hãy thêm tag "trắng/white". Nếu thấy "xanh dương/navy" -> Thêm tag "xanh/blue".
-        
-        3. ĐỌC CHỮ (OCR):
+
+        4. ĐỌC CHỮ (OCR):
         - Cố gắng đọc tên dòng sản phẩm trên thân/lưỡi gà (VD: Air Max, Jordan, Ultraboost).
-        
+
         YÊU CẦU OUTPUT JSON:
         {
           "majorCategory": "FOOTWEAR",
+          "productType": "SHOES",
           "productName": "Tên gợi ý (VD: Nike Air Max 1 White/Orange)",
           "color": "Mô tả màu (VD: Trắng phối Cam)",
           "tags": ["danh sách tags: nike, air max, trắng, white, cam, orange, giày, sneaker..."]

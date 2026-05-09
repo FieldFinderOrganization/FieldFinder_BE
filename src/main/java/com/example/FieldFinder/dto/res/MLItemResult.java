@@ -46,4 +46,7 @@ public class MLItemResult {
 
     @JsonProperty("final_score")
     private Double finalScore;
+
+    @JsonProperty("clip_score")
+    private Double clipScore;
 }

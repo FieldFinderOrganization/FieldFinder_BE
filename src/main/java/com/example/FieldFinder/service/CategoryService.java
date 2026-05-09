@@ -13,4 +13,8 @@ public interface CategoryService {
     CategoryResponseDTO getCategoryById(Long id);
     CategoryResponseDTO updateCategory(Long id, CategoryRequestDTO request);
     void deleteCategory(Long id);
+
+    List<Long> expandToSuperCategoryDescendants(String name);
+
+    List<Long> expandByProductType(String productType);
 }
