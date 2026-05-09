@@ -42,6 +42,7 @@ public class ProductServiceImpl implements ProductService {
     private final UserDiscountRepository userDiscountRepository;
     private final AIChat aiChat;
     private final CloudinaryService cloudinaryService;
+    private final com.example.FieldFinder.service.PhashIndex phashIndex;
     private final RedisTemplate<String, Object> redisTemplate;
     private final ExecutorService enrichmentExecutor = Executors.newFixedThreadPool(2);
 
@@ -56,7 +57,8 @@ public class ProductServiceImpl implements ProductService {
             UserDiscountRepository userDiscountRepository,
             CloudinaryService cloudinaryService,
             @Lazy AIChat aiChat,
-            RedisTemplate<String, Object> redisTemplate) {
+            RedisTemplate<String, Object> redisTemplate,
+            com.example.FieldFinder.service.PhashIndex phashIndex) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.productVariantRepository = productVariantRepository;
@@ -65,6 +67,7 @@ public class ProductServiceImpl implements ProductService {
         this.cloudinaryService = cloudinaryService;
         this.aiChat = aiChat;
         this.redisTemplate = redisTemplate;
+        this.phashIndex = phashIndex;
     }
 
     private List<Discount> getPublicDiscounts(Product product) {
@@ -563,6 +566,24 @@ public class ProductServiceImpl implements ProductService {
         } catch (Exception e) {
             e.printStackTrace();
         }
+        try {
+            Long phash = com.example.FieldFinder.util.PhashUtil.computeFromUrl(imageUrl);
+            if (phash != null) {
+                updateProductPhashInBackGround(productId, phash);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Transactional
+    protected void updateProductPhashInBackGround(Long productId, Long phash) {
+        Product p = productRepository.findById(productId).orElse(null);
+        if (p != null) {
+            p.setImagePhash(phash);
+            productRepository.save(p);
+            if (phashIndex != null) phashIndex.put(productId, phash);
+        }
     }
 
     @Transactional
@@ -590,6 +611,14 @@ public class ProductServiceImpl implements ProductService {
                 if (product.getTags() == null || product.getTags().isEmpty()) {
                     enrichmentExecutor.submit(() -> enrichSingleProduct(product.getProductId(), product.getImageUrl()));
                 }
+                if (product.getImagePhash() == null) {
+                    Long pid = product.getProductId();
+                    String url = product.getImageUrl();
+                    enrichmentExecutor.submit(() -> {
+                        Long h = com.example.FieldFinder.util.PhashUtil.computeFromUrl(url);
+                        if (h != null) updateProductPhashInBackGround(pid, h);
+                    });
+                }
             }
         }
     }
@@ -597,6 +626,27 @@ public class ProductServiceImpl implements ProductService {
     @PreDestroy
     public void shutdownExecutor() {
         enrichmentExecutor.shutdown();
+    }
+
+    @jakarta.annotation.PostConstruct
+    public void backfillPhashOnStartup() {
+        new Thread(() -> {
+            try {
+                Thread.sleep(5000);
+                List<Product> need = productRepository.findAllNeedingPhashBackfill();
+                System.out.println("🟢 pHash backfill on startup: " + need.size() + " product(s)");
+                for (Product p : need) {
+                    Long pid = p.getProductId();
+                    String url = p.getImageUrl();
+                    enrichmentExecutor.submit(() -> {
+                        Long h = com.example.FieldFinder.util.PhashUtil.computeFromUrl(url);
+                        if (h != null) updateProductPhashInBackGround(pid, h);
+                    });
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }, "phash-backfill").start();
     }
 
     private double cosineSimilarity(double[] vectorA, double[] vectorB) {

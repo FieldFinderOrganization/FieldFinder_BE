@@ -12,6 +12,7 @@ import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.ProductVariantRepository;
 import com.example.FieldFinder.repository.UserDiscountRepository;
 import com.example.FieldFinder.service.CloudinaryService;
+import com.example.FieldFinder.service.PhashIndex;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,7 @@ class ProductServiceImplTest {
     @Mock CloudinaryService cloudinaryService;
     @Mock AIChat aiChat;
     @Mock RedisTemplate<String, Object> redisTemplate;
+    @Mock PhashIndex phashIndex;
 
     ProductServiceImpl service;
 
@@ -53,7 +55,7 @@ class ProductServiceImplTest {
         service = new ProductServiceImpl(
                 productRepository, categoryRepository, productVariantRepository,
                 discountRepository, userDiscountRepository,
-                cloudinaryService, aiChat, redisTemplate);
+                cloudinaryService, aiChat, redisTemplate, phashIndex);
 
         product = Product.builder()
                 .productId(1L)

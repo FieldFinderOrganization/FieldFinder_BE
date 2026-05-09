@@ -29,4 +29,10 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
             "OR LOWER(p.tags) LIKE CONCAT('%', :firstKeyword, '%')", nativeQuery = true)
     List<Product> findByKeywords(@Param("keywords") List<String> keywords,
                                  @Param("firstKeyword") String firstKeyword);
+
+    @Query("SELECT p.productId, p.imagePhash FROM Product p WHERE p.imagePhash IS NOT NULL")
+    List<Object[]> findAllProductIdAndPhash();
+
+    @Query("SELECT p FROM Product p WHERE p.imageUrl IS NOT NULL AND p.imagePhash IS NULL")
+    List<Product> findAllNeedingPhashBackfill();
 }

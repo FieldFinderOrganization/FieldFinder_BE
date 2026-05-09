@@ -44,6 +44,9 @@ public class Product {
     @Column(columnDefinition = "TEXT")
     private String embedding;
 
+    @Column(name = "image_phash")
+    private Long imagePhash;
+
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @Builder.Default
     private List<ProductDiscount> discounts = new ArrayList<>();

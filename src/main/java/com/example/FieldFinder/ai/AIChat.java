@@ -8,10 +8,12 @@ import com.example.FieldFinder.mapper.CategoryMapper;
 import com.example.FieldFinder.service.BookingService;
 import com.example.FieldFinder.service.MLRecommendationService;
 import com.example.FieldFinder.service.OpenWeatherService;
+import com.example.FieldFinder.service.PhashIndex;
 import com.example.FieldFinder.service.PitchService;
 import com.example.FieldFinder.service.ProductService;
 import com.example.FieldFinder.service.RedisService;
 import com.example.FieldFinder.service.UserService;
+import com.example.FieldFinder.util.PhashUtil;
 import com.example.FieldFinder.service.log.LogPublisherService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -27,6 +29,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
@@ -45,7 +49,12 @@ public class AIChat {
 
     private static final String MODEL_VERSION = "gemini-2.0-flash";
 
-    private final OkHttpClient client = new OkHttpClient();
+    private final OkHttpClient client = new OkHttpClient.Builder()
+            .connectTimeout(Duration.ofSeconds(15))
+            .readTimeout(Duration.ofSeconds(60))
+            .writeTimeout(Duration.ofSeconds(30))
+            .callTimeout(Duration.ofSeconds(90))
+            .build();
     private final ObjectMapper mapper = new ObjectMapper();
     private final PitchService pitchService;
     private final ProductService productService;
@@ -54,6 +63,7 @@ public class AIChat {
     private final BookingService bookingService;
     private final RedisService redisService;
     private final MLRecommendationService mlService;
+    private final PhashIndex phashIndex;
 
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 5000; // Gemini free = 15 RPM → 4s min, +1s buffer
     private final AtomicLong nextAvailableTime = new AtomicLong(0);
@@ -72,7 +82,7 @@ public class AIChat {
     private final Map<String, String> sessionLastSizes = new HashMap<>();
     private final Map<String, String> sessionLastActivity = new HashMap<>();
 
-    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService) {
+    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService, PhashIndex phashIndex) {
         this.pitchService = pitchService;
         this.productService = productService;
         this.userService = userService;
@@ -80,6 +90,7 @@ public class AIChat {
         this.logPublisherService = logPublisherService;
         this.bookingService = bookingService;
         this.redisService = redisService;
+        this.phashIndex = phashIndex;
         this.mlService = mlService;
     }
 
@@ -293,7 +304,18 @@ public class AIChat {
 
         for (int i = 0; i <= maxRetries; i++) {
             waitIfNeeded();
-            Response response = client.newCall(request).execute();
+            Response response;
+            try {
+                response = client.newCall(request).execute();
+            } catch (SocketTimeoutException ste) {
+                if (i < maxRetries) {
+                    System.err.println("⚠️ [" + description + "] timeout. Retry " + (i + 1) + "/" + maxRetries + " sau " + backoff + "ms...");
+                    Thread.sleep(backoff);
+                    backoff = Math.min(backoff * 2, 30000);
+                    continue;
+                }
+                throw new IOException("Gemini timeout sau " + maxRetries + " retries: " + ste.getMessage(), ste);
+            }
 
             if (response.isSuccessful()) {
                 return response;
@@ -369,6 +391,85 @@ public class AIChat {
         result.data = new HashMap<>();
         result.slotList = new ArrayList<>();
         result.pitchType = "ALL";
+
+        // ========== Stage 0: pHash near-duplicate match ==========
+        Long uploadHash = PhashUtil.computeFromBase64(base64Image);
+        System.out.println("🔍 pHash debug: uploadHash=" + uploadHash + " indexSize=" + phashIndex.size());
+        if (uploadHash != null && phashIndex.size() > 0) {
+            List<PhashIndex.Hit> debugTop = phashIndex.findWithin(uploadHash, 64, 3);
+            System.out.println("🔍 pHash top3 distances: " + debugTop.stream()
+                    .map(h -> h.productId + "=" + h.distance)
+                    .collect(java.util.stream.Collectors.joining(", ")));
+            List<PhashIndex.Hit> hits = phashIndex.findWithin(uploadHash, 8, 5);
+            if (!hits.isEmpty()) {
+                List<ProductResponseDTO> products = new ArrayList<>();
+                List<Double> scores = new ArrayList<>();
+                for (PhashIndex.Hit h : hits) {
+                    ProductResponseDTO p = productService.getProductById(h.productId, null);
+                    if (p != null) {
+                        products.add(p);
+                        scores.add(1.0 - (h.distance / 64.0));
+                    }
+                }
+                if (!products.isEmpty()) {
+                    if (sessionId != null) {
+                        sessionLastProducts.put(sessionId, products.get(0));
+                    }
+                    System.out.println("✅ pHash hit: " + products.size() + " product(s), top distance="
+                            + hits.get(0).distance);
+                    result.message = String.format("Tôi nhận ra ảnh này là %s. Đây là sản phẩm khớp:",
+                            products.get(0).getName());
+                    result.data.put("action", "image_search_result");
+                    result.data.put("products", products);
+                    result.data.put("retrievalScores", scores);
+                    result.data.put("retrievalSource", "PHASH");
+                    return result;
+                }
+            }
+        }
+
+        // ========== Stage 1: CLIP image embedding via ML /retrieve/image ==========
+        try {
+            String cleanBase64 = base64Image;
+            if (cleanBase64 != null && cleanBase64.contains(",")) {
+                cleanBase64 = cleanBase64.substring(cleanBase64.indexOf(',') + 1);
+            }
+            List<MLItemResult> clipHits = mlService.retrieveByImage(cleanBase64, 10, "PRODUCT");
+            if (clipHits != null && !clipHits.isEmpty()) {
+                System.out.println("🔍 CLIP raw top10 scores: " + clipHits.stream()
+                        .map(h -> h.getItemId() + "=" + String.format("%.3f", h.getScore() != null ? h.getScore() : 0.0))
+                        .collect(Collectors.joining(", ")));
+                final double CLIP_THRESHOLD = 0.70;
+                List<ProductResponseDTO> products = new ArrayList<>();
+                List<Double> scores = new ArrayList<>();
+                for (MLItemResult h : clipHits) {
+                    if (h.getItemId() == null) continue;
+                    if (h.getScore() == null || h.getScore() < CLIP_THRESHOLD) continue;
+                    try {
+                        Long pid = Long.parseLong(h.getItemId());
+                        ProductResponseDTO p = productService.getProductById(pid, null);
+                        if (p != null) {
+                            products.add(p);
+                            scores.add(h.getScore());
+                        }
+                    } catch (NumberFormatException ignored) {}
+                }
+                if (!products.isEmpty()) {
+                    if (sessionId != null) sessionLastProducts.put(sessionId, products.get(0));
+                    System.out.println("✅ CLIP image hit: " + products.size()
+                            + " product(s), topScore=" + (scores.isEmpty() ? "-" : scores.get(0)));
+                    result.message = String.format("Tôi tìm thấy %d sản phẩm tương tự với ảnh bạn gửi:",
+                            products.size());
+                    result.data.put("action", "image_search_result");
+                    result.data.put("products", products);
+                    result.data.put("retrievalScores", scores);
+                    result.data.put("retrievalSource", "CLIP");
+                    return result;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("CLIP image retrieve fallback: " + e.getMessage());
+        }
 
         try {
             ObjectNode rootNode = mapper.createObjectNode();
@@ -1140,14 +1241,16 @@ public class AIChat {
         String description = String.join(" ",
                 activity != null ? activity : "",
                 String.join(" ", tags)
-        );
+        ).trim();
 
         // Try ML retrieve first (Personalized RAG); fallback to local vector search
         String retrievalSource = "VECTOR_LOCAL";
         List<ProductResponseDTO> results = null;
         List<Double> retrievalScores = null;
 
-        List<MLItemResult> mlHits = mlService.retrieve(description, userId != null ? userId.toString() : null, 30, "PRODUCT");
+        List<MLItemResult> mlHits = description.isEmpty()
+                ? null
+                : mlService.retrieve(description, userId != null ? userId.toString() : null, 20, "PRODUCT");
         System.out.println("🟢 ML retrieve hits: " + (mlHits != null ? mlHits.size() : "null"));
         if (mlHits != null && !mlHits.isEmpty()) {
             results = new ArrayList<>();
