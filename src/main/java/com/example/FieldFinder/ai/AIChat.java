@@ -2,6 +2,7 @@ package com.example.FieldFinder.ai;
 
 import com.example.FieldFinder.Enum.PitchEnvironment;
 import com.example.FieldFinder.dto.res.MLItemResult;
+import com.example.FieldFinder.dto.res.MLRetrieveResponse;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.mapper.CategoryMapper;
@@ -531,15 +532,19 @@ public class AIChat {
                     .topK(10)
                     .retrieveK(30)
                     .itemType("PRODUCT")
+                    .userId(sessionId != null ? String.valueOf(userService.getUserIdBySession(sessionId)) : null)
                     .build();
 
-            List<MLItemResult> clipHits = mlService.retrieveByImage(mlReq);
+            MLRetrieveResponse mlRes = mlService.retrieveByImageFull(mlReq);
+            List<MLItemResult> clipHits = mlRes != null ? mlRes.getResults() : null;
             if (clipHits != null && !clipHits.isEmpty()) {
                 System.out.println("🔍 Hybrid CLIP top scores: " + clipHits.stream()
                         .map(h -> h.getItemId() + "=" + String.format("%.4f", h.getScore() != null ? h.getScore() : 0.0))
                         .collect(Collectors.joining(", "))
-                        + " | categoryIds=" + categoryIds.size());
-                final double THRESHOLD = 0.005; // RRF score, không phải cosine
+                        + " | categoryIds=" + categoryIds.size()
+                        + " | ml_latency=" + (mlRes.getLatencyMs() != null ? mlRes.getLatencyMs() + "ms" : "n/a"));
+                // Use ML-configured threshold (centralized in ml/config.py), fallback 0.005
+                final double THRESHOLD = (mlRes.getRrfThreshold() != null) ? mlRes.getRrfThreshold() : 0.005;
                 List<ProductResponseDTO> products = new ArrayList<>();
                 List<Double> scores = new ArrayList<>();
                 for (MLItemResult h : clipHits) {
@@ -555,114 +560,80 @@ public class AIChat {
                     } catch (NumberFormatException ignored) {}
                 }
                 if (!products.isEmpty()) {
-                    if (sessionId != null) sessionLastProducts.put(sessionId, products.get(0));
                     Double topClipCosine = clipHits.get(0).getClipScore();
                     System.out.println("✅ Hybrid CLIP hit: " + products.size()
                             + " product(s), topRRF=" + (scores.isEmpty() ? "-" : scores.get(0))
                             + " topCLIP=" + topClipCosine);
-                    boolean exactMatch = topClipCosine != null && topClipCosine >= 0.85;
-                    result.message = exactMatch
-                            ? String.format("Tôi tìm thấy %d sản phẩm tương tự với ảnh bạn gửi:", products.size())
-                            : "Rất tiếc nhưng hiện tại shop không có sản phẩm mà bạn đang tìm kiếm, hãy xem qua danh sách sản phẩm gần giống dưới đây nhé:";
-                    result.data.put("action", "image_search_result");
-                    result.data.put("products", products);
-                    result.data.put("retrievalScores", scores);
-                    result.data.put("extractedTags", parsedTags);
-                    result.data.put("retrievalSource", "CLIP_HYBRID");
-                    return result;
+
+                    // Low-confidence guard: cosine < 0.50 AND ≤ 2 results → likely unrelated image
+                    // → fall through to Stage 2 (tag/vector fallback) instead of returning bad results
+                    boolean tooLowConf = topClipCosine != null && topClipCosine < 0.50 && products.size() <= 2;
+                    if (tooLowConf) {
+                        System.out.println("⚠️ CLIP low-confidence (cosine=" + topClipCosine
+                                + ", size=" + products.size() + ") → skip to Stage 2");
+                        // fall through
+                    } else {
+                        if (sessionId != null) sessionLastProducts.put(sessionId, products.get(0));
+                        boolean exactMatch = topClipCosine != null && topClipCosine >= 0.85;
+                        boolean lowConf    = topClipCosine == null  || topClipCosine < 0.55;
+                        result.message = exactMatch
+                                ? String.format("Tôi tìm thấy %d sản phẩm tương tự với ảnh bạn gửi:", products.size())
+                                : lowConf
+                                  ? "Tôi không chắc về sản phẩm trong ảnh, nhưng đây là một số sản phẩm có thể phù hợp:"
+                                  : "Rất tiếc nhưng hiện tại shop không có sản phẩm mà bạn đang tìm kiếm, hãy xem qua danh sách sản phẩm gần giống dưới đây nhé:";
+                        result.data.put("action", "image_search_result");
+                        result.data.put("products", products);
+                        result.data.put("retrievalScores", scores);
+                        result.data.put("extractedTags", parsedTags);
+                        result.data.put("retrievalSource", "CLIP_HYBRID");
+                        return result;
+                    }
                 }
             }
         } catch (Exception e) {
             System.err.println("Hybrid CLIP image retrieve fallback: " + e.getMessage());
         }
 
+        // ========== Stage 2 Fallback: reuse Gemini-parsed data + vector/tag DB search ==========
+        // Runs when ML service is down or returns empty — uses already-parsed context from Stage 1
         try {
-            ObjectNode rootNode = mapper.createObjectNode();
+            List<String> cleanTags = parsedTags.isEmpty() ? parsedTags : sanitizeTags(parsedTags);
+            List<String> expandedTags = expandColorTags(cleanTags);
 
-            ObjectNode systemInstNode = rootNode.putObject("system_instruction");
-            systemInstNode.putObject("parts").put("text", IMAGE_ANALYSIS_SYSTEM_PROMPT);
+            String fallbackCategory = (parsedCategory != null && !parsedCategory.isEmpty()) ? parsedCategory : "ALL";
+            String fallbackProductName = (parsedProductName != null && !parsedProductName.isEmpty()) ? parsedProductName : "Sản phẩm";
+            String fallbackColor = (parsedColor != null) ? parsedColor : "";
 
-            ArrayNode contentsArray = rootNode.putArray("contents");
-            ObjectNode userMessage = contentsArray.addObject();
-            userMessage.put("role", "user");
-            ArrayNode parts = userMessage.putArray("parts");
+            String description = String.format("%s %s %s", fallbackCategory, fallbackProductName, String.join(" ", cleanTags));
 
-            parts.addObject().put("text", "Phân tích ảnh này và trích xuất Tags.");
+            List<Map.Entry<ProductResponseDTO, Double>> scoredResults = productService.findProductsByVectorWithScores(description);
+            List<ProductResponseDTO> finalResults = scoredResults.stream().map(Map.Entry::getKey).collect(Collectors.toList());
+            List<Double> retrievalScores = scoredResults.stream().map(Map.Entry::getValue).collect(Collectors.toList());
 
-            if (base64Image != null && !base64Image.isEmpty()) {
-                ObjectNode inlineData = parts.addObject().putObject("inline_data");
-
-                String mimeType = "image/jpeg";
-                String b64 = base64Image;
-
-                if (base64Image.contains(",")) {
-                    String[] tokens = base64Image.split(",");
-                    if (tokens[0].contains("png")) {
-                        mimeType = "image/png";
-                    }
-                    b64 = tokens[1];
-                }
-
-                inlineData.put("mime_type", mimeType);
-                inlineData.put("data", b64);
+            if (finalResults.isEmpty()) {
+                finalResults = productService.findProductsByImage(cleanTags, fallbackCategory);
+                retrievalScores = Collections.nCopies(finalResults.size(), 0.0);
             }
 
-            ObjectNode generationConfig = rootNode.putObject("generationConfig");
-            generationConfig.put("response_mime_type", "application/json");
-
-            Request request = new Request.Builder()
-                    .url(GEMINI_API_URL + GOOGLE_API_KEY)
-                    .post(RequestBody.create(mapper.writeValueAsString(rootNode), MediaType.parse("application/json")))
-                    .build();
-
-            try (Response response = callWithRetry(request, "Image Analysis")) {
-                String rawJson = extractGeminiResponse(response.body().string());
-                String cleanJson = cleanJson(rawJson);
-
-                JsonNode rootAiNode = mapper.readTree(cleanJson);
-
-                List<String> rawTags = mapper.convertValue(
-                        rootAiNode.path("tags"),
-                        new TypeReference<List<String>>(){}
-                );
-
-                List<String> cleanTags = sanitizeTags(rawTags);
-
-                List<String> expandedTags = expandColorTags(cleanTags);
-
-                String majorCategory = rootAiNode.path("majorCategory").asText("ALL");
-                String productName = rootAiNode.path("productName").asText("Sản phẩm");
-                String color = rootAiNode.path("color").asText("");
-
-                String description = String.format("%s %s %s", majorCategory, productName, String.join(" ", cleanTags));
-
-                List<Map.Entry<ProductResponseDTO, Double>> scoredResults = productService.findProductsByVectorWithScores(description);
-                List<ProductResponseDTO> finalResults = scoredResults.stream().map(Map.Entry::getKey).collect(Collectors.toList());
-                List<Double> retrievalScores = scoredResults.stream().map(Map.Entry::getValue).collect(Collectors.toList());
-
-                if (finalResults.isEmpty()) {
-                    finalResults = productService.findProductsByImage(cleanTags, majorCategory);
-                    retrievalScores = Collections.nCopies(finalResults.size(), 0.0); // No vector scores for fallback
+            if (!finalResults.isEmpty()) {
+                if (sessionId != null) {
+                    sessionLastProducts.put(sessionId, finalResults.get(0));
+                    System.out.println("✅ Image Search Fallback: Saved Context for Session " + sessionId + " -> " + finalResults.get(0).getName());
                 }
 
-                if (!finalResults.isEmpty()) {
-                    if (sessionId != null) {
-                        sessionLastProducts.put(sessionId, finalResults.get(0));
-                        System.out.println("✅ Image Search: Saved Context for Session " + sessionId + " -> " + finalResults.get(0).getName());
-                    }
-
-                    result.message = String.format("Dựa trên hình ảnh %s (%s), tôi tìm thấy %d sản phẩm tương tự:",
-                            productName, color, finalResults.size());
-                    result.data.put("action", "image_search_result");
-                    result.data.put("products", finalResults);
-                    result.data.put("extractedTags", cleanTags);
-                    result.data.put("retrievalScores", retrievalScores);
-                } else {
-                    result.message = String.format("Tôi nhận diện được đây là %s màu %s. Tuy nhiên, hiện tại cửa hàng không có sản phẩm nào khớp.", productName, color);
-                    result.data.put("extractedTags", expandedTags);
-                    result.data.put("products", new ArrayList<>());
-                    result.data.put("action", "image_search_result");
-                }
+                result.message = String.format("Dựa trên hình ảnh %s (%s), tôi tìm thấy %d sản phẩm tương tự:",
+                        fallbackProductName, fallbackColor, finalResults.size());
+                result.data.put("action", "image_search_result");
+                result.data.put("products", finalResults);
+                result.data.put("extractedTags", cleanTags);
+                result.data.put("retrievalScores", retrievalScores);
+                result.data.put("retrievalSource", "TAG_FALLBACK");
+            } else {
+                result.message = String.format("Tôi nhận diện được đây là %s màu %s. Tuy nhiên, hiện tại cửa hàng không có sản phẩm nào khớp.", fallbackProductName, fallbackColor);
+                result.data.put("extractedTags", expandedTags);
+                result.data.put("products", new ArrayList<>());
+                result.data.put("action", "image_search_result");
+                result.data.put("retrievalSource", "TAG_FALLBACK");
             }
 
         } catch (Exception e) {

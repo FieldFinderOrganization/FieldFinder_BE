@@ -24,4 +24,10 @@ public class MLRetrieveResponse {
 
     @JsonProperty("results")
     private List<MLItemResult> results;
+
+    @JsonProperty("latency_ms")
+    private Double latencyMs;
+
+    @JsonProperty("rrf_threshold")
+    private Double rrfThreshold;
 }

@@ -173,6 +173,14 @@ public class MLRecommendationService {
     }
 
     public List<MLItemResult> retrieveByImage(MLRetrieveByImageRequest req) {
+        MLRetrieveResponse res = retrieveByImageFull(req);
+        return res != null ? res.getResults() : null;
+    }
+
+    /**
+     * Full response variant — includes latency_ms + rrf_threshold from ML config.
+     */
+    public MLRetrieveResponse retrieveByImageFull(MLRetrieveByImageRequest req) {
         if (!enabled || circuitOpen()) return null;
         try {
             MLRetrieveResponse res = mlWebClient.post()
@@ -183,7 +191,7 @@ public class MLRecommendationService {
                     .timeout(Duration.ofMillis(Math.max(timeoutMs, 30_000)))
                     .block();
             recordSuccess();
-            return res != null ? res.getResults() : null;
+            return res;
         } catch (Exception e) {
             recordFailure("retrieveByImage", e);
             return null;

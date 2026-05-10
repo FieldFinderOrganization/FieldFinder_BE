@@ -40,4 +40,7 @@ public class MLRetrieveByImageRequest {
     @JsonProperty("item_type")
     @Builder.Default
     private String itemType = "PRODUCT";
+
+    @JsonProperty("user_id")
+    private String userId;
 }
