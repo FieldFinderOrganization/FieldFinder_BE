@@ -4,6 +4,7 @@ package com.example.FieldFinder.service.impl;
 import com.example.FieldFinder.dto.req.CategoryRequestDTO;
 import com.example.FieldFinder.Enum.CategoryType;
 import com.example.FieldFinder.dto.res.CategoryResponseDTO;
+import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.entity.Category;
 import com.example.FieldFinder.repository.CategoryRepository;
 import com.example.FieldFinder.service.CategoryService;
@@ -16,6 +17,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -181,6 +183,61 @@ public class CategoryServiceImpl implements CategoryService {
             }
         }
         return new ArrayList<>(acc);
+    }
+
+    @Override
+    public String detectProductTypeFromQuery(String query, List<String> tags, String categoryKeyword) {
+        // Hay (haystack) = query + tags + categoryKeyword, all lowercase
+        Set<String> hay = new HashSet<>();
+        if (query != null && !query.isBlank()) hay.add(query.toLowerCase());
+        if (tags != null) {
+            for (String t : tags) {
+                if (t != null && !t.isBlank()) hay.add(t.toLowerCase());
+            }
+        }
+        if (categoryKeyword != null && !categoryKeyword.isBlank()) hay.add(categoryKeyword.toLowerCase());
+        if (hay.isEmpty()) return null;
+
+        // Score each productType: count keywords hit, pick highest
+        String bestType = null;
+        int bestScore = 0;
+        for (Map.Entry<String, List<String>> entry : PRODUCT_TYPE_ALIASES.entrySet()) {
+            int hits = 0;
+            for (String kw : entry.getValue()) {
+                for (String h : hay) {
+                    if (h.contains(kw)) { hits++; break; }
+                }
+            }
+            if (hits > bestScore) {
+                bestScore = hits;
+                bestType = entry.getKey();
+            }
+        }
+        return bestType;
+    }
+
+    @Override
+    public boolean productMatchesType(ProductResponseDTO product, String productType) {
+        if (product == null || productType == null) return false;
+        List<String> kws = PRODUCT_TYPE_ALIASES.get(productType.toUpperCase());
+        if (kws == null || kws.isEmpty()) return false;
+
+        String name = product.getName() != null ? product.getName().toLowerCase() : "";
+        String catName = product.getCategoryName() != null ? product.getCategoryName().toLowerCase() : "";
+        Set<String> tagSet = product.getTags() == null ? Collections.emptySet()
+                : product.getTags().stream()
+                    .filter(t -> t != null)
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toSet());
+
+        for (String kw : kws) {
+            if (!name.isEmpty() && name.contains(kw)) return true;
+            if (!catName.isEmpty() && catName.contains(kw)) return true;
+            for (String t : tagSet) {
+                if (t.contains(kw)) return true;
+            }
+        }
+        return false;
     }
 
     private void collectDescendants(Category root, List<Category> all, Set<Long> acc) {

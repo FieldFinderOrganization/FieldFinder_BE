@@ -278,6 +278,28 @@ public class ProductServiceImpl implements ProductService {
         return mapToResponse(product, usedDiscountIds, userId);
     }
 
+    /** Batch fetch — avoid N+1 query when AI Chat needs many products at once. */
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, ProductResponseDTO> getProductsByIds(List<Long> ids, UUID userId) {
+        if (ids == null || ids.isEmpty()) return Collections.emptyMap();
+
+        List<Product> products = productRepository.findAllById(ids);
+        List<UUID> usedDiscountIds = (userId != null)
+                ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
+                : Collections.emptyList();
+
+        Map<Long, ProductResponseDTO> out = new LinkedHashMap<>();
+        for (Product p : products) {
+            try {
+                out.put(p.getProductId(), mapToResponse(p, usedDiscountIds, userId));
+            } catch (Exception e) {
+                System.err.println("getProductsByIds map fail pid=" + p.getProductId() + ": " + e.getMessage());
+            }
+        }
+        return out;
+    }
+
     @Override
     @Transactional(readOnly = true)
     public Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId) {

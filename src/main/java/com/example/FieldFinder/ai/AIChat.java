@@ -26,7 +26,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.cdimascio.dotenv.Dotenv;
 import okhttp3.*;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -37,7 +36,6 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
-import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -68,6 +66,7 @@ public class AIChat {
     private final MLRecommendationService mlService;
     private final PhashIndex phashIndex;
     private final CategoryService categoryService;
+    private final com.example.FieldFinder.ai.ranking.CompositeRanker compositeRanker;
 
     private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 5000; // Gemini free = 15 RPM → 4s min, +1s buffer
     private final AtomicLong nextAvailableTime = new AtomicLong(0);
@@ -86,7 +85,7 @@ public class AIChat {
     private final Map<String, String> sessionLastSizes = new HashMap<>();
     private final Map<String, String> sessionLastActivity = new HashMap<>();
 
-    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService, PhashIndex phashIndex, CategoryService categoryService) {
+    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService, PhashIndex phashIndex, CategoryService categoryService, com.example.FieldFinder.ai.ranking.CompositeRanker compositeRanker) {
         this.pitchService = pitchService;
         this.productService = productService;
         this.userService = userService;
@@ -97,6 +96,7 @@ public class AIChat {
         this.phashIndex = phashIndex;
         this.mlService = mlService;
         this.categoryService = categoryService;
+        this.compositeRanker = compositeRanker;
     }
 
     /**
@@ -565,17 +565,18 @@ public class AIChat {
                             + " product(s), topRRF=" + (scores.isEmpty() ? "-" : scores.get(0))
                             + " topCLIP=" + topClipCosine);
 
-                    // Low-confidence guard: cosine < 0.50 AND ≤ 2 results → likely unrelated image
+                    // Low-confidence guard: cosine < 0.65 AND ≤ 2 results → likely unrelated image
                     // → fall through to Stage 2 (tag/vector fallback) instead of returning bad results
-                    boolean tooLowConf = topClipCosine != null && topClipCosine < 0.50 && products.size() <= 2;
+                    // Thresholds tuned for jina-clip-v2 (cosine range higher than CLIP-B/32)
+                    boolean tooLowConf = topClipCosine != null && topClipCosine < 0.65 && products.size() <= 2;
                     if (tooLowConf) {
                         System.out.println("⚠️ CLIP low-confidence (cosine=" + topClipCosine
                                 + ", size=" + products.size() + ") → skip to Stage 2");
                         // fall through
                     } else {
                         if (sessionId != null) sessionLastProducts.put(sessionId, products.get(0));
-                        boolean exactMatch = topClipCosine != null && topClipCosine >= 0.85;
-                        boolean lowConf    = topClipCosine == null  || topClipCosine < 0.55;
+                        boolean exactMatch = topClipCosine != null && topClipCosine >= 0.90;
+                        boolean lowConf    = topClipCosine == null  || topClipCosine < 0.70;
                         result.message = exactMatch
                                 ? String.format("Tôi tìm thấy %d sản phẩm tương tự với ảnh bạn gửi:", products.size())
                                 : lowConf
@@ -1314,10 +1315,18 @@ public class AIChat {
             tags = (activity != null) ? List.of(activity) : List.of("sport");
         }
 
-        String description = String.join(" ",
-                activity != null ? activity : "",
-                String.join(" ", tags)
-        ).trim();
+        // Build description: prepend categoryKeyword × 3 (text repetition → FAISS embed lean về category)
+        // Tránh trường hợp query "giày bóng rổ" trả ra Basketball Clothing
+        String categoryKeyword = (String) query.data.get("categoryKeyword");
+        List<String> descParts = new ArrayList<>();
+        if (categoryKeyword != null && !categoryKeyword.isEmpty()) {
+            descParts.add(categoryKeyword);
+            descParts.add(categoryKeyword);
+            descParts.add(categoryKeyword);
+        }
+        if (activity != null) descParts.add(activity);
+        if (tags != null) descParts.addAll(tags);
+        String description = String.join(" ", descParts).trim();
 
         // Try ML retrieve first (Personalized RAG); fallback to local vector search
         String retrievalSource = "VECTOR_LOCAL";
@@ -1331,21 +1340,30 @@ public class AIChat {
         if (mlHits != null && !mlHits.isEmpty()) {
             results = new ArrayList<>();
             retrievalScores = new ArrayList<>();
+
+            // Batch fetch — avoid N+1 query (each getProductById = 3+ Hibernate queries)
+            List<Long> pids = new ArrayList<>();
+            for (MLItemResult h : mlHits) {
+                try { pids.add(Long.parseLong(h.getItemId())); } catch (NumberFormatException ignored) {}
+            }
+            Map<Long, ProductResponseDTO> productMap = productService.getProductsByIds(pids, userId);
+
             int matched = 0, missing = 0;
             for (MLItemResult h : mlHits) {
-                try {
-                    Long pid = Long.parseLong(h.getItemId());
-                    ProductResponseDTO p = productService.getProductById(pid, userId);
-                    if (p != null) {
-                        results.add(p);
-                        retrievalScores.add(h.getFinalScore() != null ? h.getFinalScore() : (h.getScore() != null ? h.getScore() : 0.0));
-                        matched++;
-                    } else {
-                        missing++;
-                        System.out.println("  ⚠ ML returned product_id=" + pid + " not in DB");
-                    }
-                } catch (NumberFormatException ignored) {
+                Long pid;
+                try { pid = Long.parseLong(h.getItemId()); }
+                catch (NumberFormatException e) {
                     System.out.println("  ⚠ ML invalid product_id: " + h.getItemId());
+                    continue;
+                }
+                ProductResponseDTO p = productMap.get(pid);
+                if (p != null) {
+                    results.add(p);
+                    retrievalScores.add(h.getFinalScore() != null ? h.getFinalScore() : (h.getScore() != null ? h.getScore() : 0.0));
+                    matched++;
+                } else {
+                    missing++;
+                    System.out.println("  ⚠ ML returned product_id=" + pid + " not in DB");
                 }
             }
             System.out.println("🟢 ML match: " + matched + " / " + mlHits.size() + " (missing=" + missing + ")");
@@ -1394,6 +1412,41 @@ public class AIChat {
             });
             results = pairs.stream().map(p -> (ProductResponseDTO) p[0]).collect(Collectors.toList());
             retrievalScores = pairs.stream().map(p -> (Double) p[1]).collect(Collectors.toList());
+        }
+
+        // Hard post-filter: detect productType từ query → match SP có name/category/tags chứa keyword
+        // Fix balo case: balo SP nằm cat "Football/Running/Tennis Accessories" → match name "backpack"/"bag" thay vì categoryName
+        if (results != null && !results.isEmpty()) {
+            // Composite ranking — 4-tier degrade chain replace simple post-filter
+            String detectedType = categoryService.detectProductTypeFromQuery(null, tags, categoryKeyword);
+
+            // sexPref derive from tags
+            String sexPrefForCtx = null;
+            List<String> tagsLowerCtx = tags == null ? Collections.emptyList()
+                    : tags.stream().map(t -> t == null ? "" : t.toLowerCase()).toList();
+            if (tagsLowerCtx.contains("nữ") || tagsLowerCtx.contains("nu") || tagsLowerCtx.contains("women") || tagsLowerCtx.contains("woman")) {
+                sexPrefForCtx = "WOMEN";
+            } else if (tagsLowerCtx.contains("nam") || tagsLowerCtx.contains("men") || tagsLowerCtx.contains("man")) {
+                sexPrefForCtx = "MEN";
+            }
+
+            // TODO B.3: userService.getUserTopBrands(userId, 3)
+            List<String> topBrands = Collections.emptyList();
+
+            com.example.FieldFinder.ai.ranking.RankingContext ctx =
+                    com.example.FieldFinder.ai.ranking.RankingContext.builder()
+                            .productType(detectedType)
+                            .activity(activity)
+                            .genderPref(sexPrefForCtx)
+                            .topBrands(topBrands)
+                            .activityCats(new HashSet<>(resolvedCategories))
+                            .build();
+
+            List<Map.Entry<ProductResponseDTO, Double>> ranked =
+                    compositeRanker.rank(results, retrievalScores, ctx);
+
+            results = ranked.stream().map(Map.Entry::getKey).collect(Collectors.toList());
+            retrievalScores = ranked.stream().map(Map.Entry::getValue).collect(Collectors.toList());
         }
 
         if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
@@ -2038,7 +2091,7 @@ public class AIChat {
           "message": "thông điệp mặc định" (hoặc null),
           "environment": "INDOOR" | "OUTDOOR" | null,
           "data": {
-            "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | "list_on_sale" | "count_on_sale" | "max_discount_product" | "best_selling_product" | "search_by_price_range" | "cheapest_product" | "most_expensive_product" | "product_detail" | "list_pitches" | "count_pitches_by_type" | "check_pitch_availability" | "book_pitch" | "list_my_bookings" | "cheapest_pitch" | "most_expensive_pitch" | null,
+            "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | "list_on_sale" | "count_on_sale" | "max_discount_product" | "best_selling_product" | "search_by_price_range" | "cheapest_product" | "most_expensive_product" | "product_detail" | "recommend_by_activity" | "list_pitches" | "count_pitches_by_type" | "check_pitch_availability" | "book_pitch" | "list_my_bookings" | "cheapest_pitch" | "most_expensive_pitch" | null,
             "productName": "...",
             "city": "...",
             "size": "...",
@@ -2073,16 +2126,40 @@ public class AIChat {
 
         ❗️ QUY TẮC XỬ LÝ SẢN PHẨM:
         - Nếu hỏi về giá sản phẩm (rẻ nhất/mắc nhất), dùng action "cheapest_product" hoặc "most_expensive_product".
-        - Cung cấp "categoryKeyword" dựa trên bảng mapping:
-          + nón, mũ -> "Hats And Headwears"
+        - Cung cấp "categoryKeyword" CỤ THỂ NHẤT có thể dựa trên bảng mapping:
+          + nón, mũ, cap -> "Hats And Headwears"
           + tất, vớ -> "Socks"
-          + balo, túi -> "Bags And Backpacks"
-          + áo khoác -> "Jackets And Gilets"
-          + hoodie -> "Hoodies And Sweatshirts"
-          + giày đá banh -> "Football Shoes"
-          + giày (chung) -> "Shoes"
-          + quần áo -> "Clothing"
+          + balo, túi, backpack -> "Bags And Backpacks"
+          + áo khoác, jacket, gilet -> "Jackets And Gilets"
+          + hoodie, áo nỉ, sweatshirt -> "Hoodies And Sweatshirts"
+          + áo, tee, t-shirt, polo -> "Tops And T-Shirts"
+          + quần, pants, leggings, jogger -> "Pants And Leggings"
+          + short, quần short -> "Shorts"
+          + dép, sandal, slide -> "Sandals And Slides"
+          + giày đá banh, giày bóng đá, football boot -> "Football Shoes"
+          + giày tennis, tennis shoe -> "Tennis Shoes"
+          + giày bóng rổ, basketball shoe -> "Basketball Shoes"
+          + giày chạy bộ, running shoe -> "Running Shoes"
+          + quần áo đá banh, áo bóng đá, jersey bóng đá -> "Football Clothing"
+          + quần áo tennis, áo tennis -> "Tennis Clothing"
+          + quần áo bóng rổ, jersey bóng rổ -> "Basketball Clothing"
+          + quần áo chạy bộ -> "Running Clothing"
+          + giày (chung không rõ loại) -> "Shoes"
+          + quần áo (chung) -> "Clothing"
         - Tìm kiếm theo giá: dùng action "search_by_price_range", cung cấp minPrice, maxPrice.
+
+        ❗️ QUY TẮC TÌM/GỢI Ý/GIỚI THIỆU SẢN PHẨM (RAG retrieve):
+        - Khi user nói "tìm", "cho xem", "giới thiệu", "gợi ý", "recommend", "show me", "có những...nào" + tên loại sản phẩm/môn thể thao:
+          → action: "recommend_by_activity"
+          → activity: tên môn thể thao nếu nhận được (tennis/football/basketball/running/gym), null nếu không
+          → tags: list các keyword liên quan (vd "tìm giày tennis" → ["tennis", "giày tennis", "tennis shoes"])
+          → suggestedCategories: list categoryKeyword phù hợp (vd ["Tennis Shoes"])
+          → categoryKeyword: cụ thể nhất từ bảng trên
+        - VÍ DỤ:
+          + "tìm giúp mình giày tennis" → action: "recommend_by_activity", activity: "tennis", tags: ["tennis", "giày tennis"], suggestedCategories: ["Tennis Shoes"], categoryKeyword: "Tennis Shoes"
+          + "giới thiệu giày đá banh" → action: "recommend_by_activity", activity: "football", tags: ["football", "đá banh", "giày bóng đá"], suggestedCategories: ["Football Shoes"], categoryKeyword: "Football Shoes"
+          + "có quần short nào không" → action: "recommend_by_activity", activity: null, tags: ["short", "quần short"], suggestedCategories: ["Shorts"], categoryKeyword: "Shorts"
+          + "cho xem balo" → action: "recommend_by_activity", activity: null, tags: ["balo", "túi"], suggestedCategories: ["Bags And Backpacks"], categoryKeyword: "Bags And Backpacks"
         
         ❗️ QUY TẮC ĐẶT HÀNG:
         - Nếu người dùng nói "đặt", "mua", "lấy", "cho mình X cái/đôi size Y" -> action: "prepare_order", điền "size" và "quantity" ngay trong cùng tin nhắn đó.

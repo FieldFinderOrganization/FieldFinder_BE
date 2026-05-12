@@ -4,6 +4,7 @@ package com.example.FieldFinder.service;
 
 import com.example.FieldFinder.dto.req.CategoryRequestDTO;
 import com.example.FieldFinder.dto.res.CategoryResponseDTO;
+import com.example.FieldFinder.dto.res.ProductResponseDTO;
 
 import java.util.List;
 
@@ -17,4 +18,10 @@ public interface CategoryService {
     List<Long> expandToSuperCategoryDescendants(String name);
 
     List<Long> expandByProductType(String productType);
+
+    /** Detect productType (SHOES/BAG/TOP/BOTTOM/DRESS/HAT/SANDAL/OTHER) from query keywords. */
+    String detectProductTypeFromQuery(String query, List<String> tags, String categoryKeyword);
+
+    /** True nếu product match productType via name/categoryName/tags. */
+    boolean productMatchesType(ProductResponseDTO product, String productType);
 }

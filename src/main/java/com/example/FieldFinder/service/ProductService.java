@@ -15,6 +15,7 @@ public interface ProductService {
     ProductResponseDTO createProduct(ProductRequestDTO request, MultipartFile imageFile);
 
     ProductResponseDTO getProductById(Long id, UUID userId);
+    Map<Long, ProductResponseDTO> getProductsByIds(List<Long> ids, UUID userId);
     Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId);
     List<ProductResponseDTO> getTopSellingProducts(int limit, UUID userId);
     List<ProductResponseDTO> findProductsByCategories(List<String> categories, UUID userId);
