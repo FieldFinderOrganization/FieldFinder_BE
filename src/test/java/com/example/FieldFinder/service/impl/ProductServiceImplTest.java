@@ -61,7 +61,7 @@ class ProductServiceImplTest {
         service = new ProductServiceImpl(
                 productRepository, categoryRepository, productVariantRepository,
                 discountRepository, userDiscountRepository,
-                cloudinaryService, aiChat, redisTemplate, cacheManager, null);
+                cloudinaryService, aiChat, redisTemplate, cacheManager, null, phashIndex);
         ReflectionTestUtils.setField(service, "self", service);
 
         product = Product.builder()
