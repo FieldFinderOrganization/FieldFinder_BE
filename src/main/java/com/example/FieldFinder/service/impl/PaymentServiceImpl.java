@@ -278,6 +278,7 @@ public class PaymentServiceImpl implements PaymentService {
                                             item.getSize(),
                                             item.getQuantity());
                                 }
+                                productService.evictAllListProductCaches();
                             }
 
                             System.out.println("📧 Sending confirmation email for Order #" + order.getOrderId());
@@ -307,6 +308,7 @@ public class PaymentServiceImpl implements PaymentService {
                                         item.getSize(),
                                         item.getQuantity());
                             }
+                            productService.evictAllListProductCaches();
                         }
                     }
                 }

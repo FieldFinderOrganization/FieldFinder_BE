@@ -9,6 +9,8 @@ import com.example.FieldFinder.service.CloudinaryService;
 import com.example.FieldFinder.service.ProductService;
 import com.example.FieldFinder.specification.ProductSpecification;
 import com.example.FieldFinder.util.DiscountEligibilityUtil;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
@@ -44,6 +46,8 @@ public class ProductServiceImpl implements ProductService {
     private final CloudinaryService cloudinaryService;
     private final com.example.FieldFinder.service.PhashIndex phashIndex;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final CacheManager cacheManager;
+    private ProductServiceImpl self;
     private final ExecutorService enrichmentExecutor = Executors.newFixedThreadPool(2);
 
     @PersistenceContext
@@ -58,6 +62,8 @@ public class ProductServiceImpl implements ProductService {
             CloudinaryService cloudinaryService,
             @Lazy AIChat aiChat,
             RedisTemplate<String, Object> redisTemplate,
+            CacheManager cacheManager,
+            @Lazy ProductServiceImpl self,
             com.example.FieldFinder.service.PhashIndex phashIndex) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
@@ -67,6 +73,8 @@ public class ProductServiceImpl implements ProductService {
         this.cloudinaryService = cloudinaryService;
         this.aiChat = aiChat;
         this.redisTemplate = redisTemplate;
+        this.cacheManager = cacheManager;
+        this.self = self;
         this.phashIndex = phashIndex;
     }
 
@@ -204,9 +212,9 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(value = "product_detail", allEntries = true),
             @CacheEvict(value = "top_selling", allEntries = true),
-            @CacheEvict(value = "products_category", allEntries = true)
+            @CacheEvict(value = "products_category", allEntries = true),
+            @CacheEvict(value = "ai_catalog", allEntries = true)
     })
     public ProductResponseDTO createProduct(ProductRequestDTO request, MultipartFile imageFile) {
         Category category = categoryRepository.findById(request.getCategoryId())
@@ -268,14 +276,7 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public ProductResponseDTO getProductById(Long id, UUID userId) {
-        Product product = productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Product not found!"));
-
-        List<UUID> usedDiscountIds = (userId != null)
-                ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
-                : Collections.emptyList();
-
-        return mapToResponse(product, usedDiscountIds, userId);
+        return self.getProductDetail(id, userId);
     }
 
     /** Batch fetch — avoid N+1 query when AI Chat needs many products at once. */
@@ -303,6 +304,12 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId) {
+        return self.getAllProductsCached(pageable, categoryId, genders, brand, userId);
+    }
+
+    @Transactional(readOnly = true)
+    @Cacheable(value = "products_category", keyGenerator = "productListCacheKeyGenerator")
+    public Page<ProductResponseDTO> getAllProductsCached(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId) {
         List<UUID> usedDiscountIds = (userId != null)
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
@@ -338,11 +345,47 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<ProductResponseDTO> getProductsForAiAssistant(UUID userId) {
+        return self.getProductsForAiAssistantCached(userId);
+    }
+
+    @Transactional(readOnly = true)
+    @Cacheable(value = "ai_catalog", key = "'ai_' + (#userId != null ? #userId.toString() : 'anon')")
+    public List<ProductResponseDTO> getProductsForAiAssistantCached(UUID userId) {
+        List<ProductResponseDTO> all = new ArrayList<>();
+        int pageIdx = 0;
+        final int pageSize = 100;
+        Page<ProductResponseDTO> chunk;
+        do {
+            chunk = self.getAllProductsCached(PageRequest.of(pageIdx, pageSize), null, null, null, userId);
+            all.addAll(chunk.getContent());
+            pageIdx++;
+        } while (chunk.hasNext());
+        return all;
+    }
+
+    @Override
+    public void evictProductDetailForId(Long productId) {
+        evictProductDetailCache(productId);
+    }
+
+    @Override
+    public void evictAllListProductCaches() {
+        for (String name : new String[]{"products_category", "ai_catalog", "top_selling"}) {
+            Cache c = cacheManager.getCache(name);
+            if (c != null) {
+                c.clear();
+            }
+        }
+    }
+
+    @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(value = "product_detail", allEntries = true),
             @CacheEvict(value = "top_selling", allEntries = true),
-            @CacheEvict(value = "products_category", allEntries = true)
+            @CacheEvict(value = "products_category", allEntries = true),
+            @CacheEvict(value = "ai_catalog", allEntries = true)
     })
     public ProductResponseDTO updateProduct(Long id, ProductRequestDTO request) {
         Product product = productRepository.findById(id)
@@ -407,11 +450,14 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
     @Caching(evict = {
-            @CacheEvict(value = "product_detail", allEntries = true),
-            @CacheEvict(value = "top_selling", allEntries = true)
+            @CacheEvict(value = "top_selling", allEntries = true),
+            @CacheEvict(value = "products_category", allEntries = true),
+            @CacheEvict(value = "ai_catalog", allEntries = true)
     })
     public void deleteProduct(Long id) {
+        evictProductDetailCache(id);
         productRepository.deleteById(id);
     }
 
@@ -428,15 +474,11 @@ public class ProductServiceImpl implements ProductService {
 
         variant.setLockedQuantity(variant.getLockedQuantity() + quantity);
         productVariantRepository.save(variant);
+        evictProductDetailCache(productId);
     }
 
     @Override
     @Transactional(propagation = Propagation.REQUIRED)
-    @Caching(evict = {
-            @CacheEvict(value = "product_detail", allEntries = true),
-            @CacheEvict(value = "top_selling", allEntries = true),
-            @CacheEvict(value = "products_category", allEntries = true)
-    })
     public void commitStock(Long productId, String size, int quantity) {
         int updated = productVariantRepository.commitStockAtomic(productId, size, quantity);
         if (updated == 0) {
@@ -447,15 +489,11 @@ public class ProductServiceImpl implements ProductService {
         System.out.println(String.format(
                 "[commitStock] productId=%d size=%s qty=%d (atomic UPDATE rows=%d)",
                 productId, size, quantity, updated));
+        evictProductDetailCache(productId);
     }
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    @Caching(evict = {
-            @CacheEvict(value = "product_detail", allEntries = true),
-            @CacheEvict(value = "top_selling", allEntries = true),
-            @CacheEvict(value = "products_category", allEntries = true)
-    })
     public void releaseStock(Long productId, String size, int quantity) {
         Optional<ProductVariant> optionalVariant = productVariantRepository.findByProduct_ProductIdAndSize(productId,
                 size);
@@ -474,6 +512,7 @@ public class ProductServiceImpl implements ProductService {
                 int newLocked = variant.getLockedQuantity() - quantity;
                 variant.setLockedQuantity(Math.max(newLocked, 0));
                 productVariantRepository.save(variant);
+                evictProductDetailCache(productId);
             }
             return;
         }
@@ -482,20 +521,18 @@ public class ProductServiceImpl implements ProductService {
         int newLocked = variant.getLockedQuantity() - quantity;
         variant.setLockedQuantity(Math.max(newLocked, 0));
         productVariantRepository.save(variant);
+        evictProductDetailCache(productId);
     }
 
     @Override
     @Transactional(propagation = Propagation.REQUIRED)
-    @Caching(evict = {
-            @CacheEvict(value = "product_detail", allEntries = true),
-            @CacheEvict(value = "top_selling", allEntries = true),
-            @CacheEvict(value = "products_category", allEntries = true)
-    })
     public void restoreStock(Long productId, String size, int quantity) {
         int updated = productVariantRepository.restoreStockAtomic(productId, size, quantity);
         if (updated == 0) {
             System.err.println("⚠️ Cannot restore stock. Variant not found Product=" + productId + " Size=" + size);
+            return;
         }
+        evictProductDetailCache(productId);
     }
 
     @Override
@@ -748,6 +785,7 @@ public class ProductServiceImpl implements ProductService {
         productRepository.save(product);
 
         evictProductDetailCache(productId);
+        evictAllListProductCaches();
     }
 
     @Override

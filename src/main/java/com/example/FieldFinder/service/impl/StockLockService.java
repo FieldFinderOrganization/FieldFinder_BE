@@ -5,8 +5,6 @@ import com.example.FieldFinder.entity.ProductVariant;
 import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.ProductVariantRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,15 +15,11 @@ public class StockLockService {
 
     private final ProductRepository productRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final com.example.FieldFinder.service.ProductService productService;
 
     public record LockResult(Product product, double price) {}
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    @Caching(evict = {
-            @CacheEvict(value = "product_detail", allEntries = true),
-            @CacheEvict(value = "top_selling", allEntries = true),
-            @CacheEvict(value = "products_category", allEntries = true)
-    })
     public LockResult lockStock(Long productId, String size, int quantity) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found: " + productId));
@@ -47,16 +41,13 @@ public class StockLockService {
                 "[lockStock] productId=%d size=%s qty=%d | locked %d→%d (REQUIRES_NEW commit)",
                 productId, size, quantity, oldLocked, oldLocked + quantity));
 
+        productService.evictProductDetailForId(productId);
+
         double price = product.getEffectivePrice() * quantity;
         return new LockResult(product, price);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    @Caching(evict = {
-            @CacheEvict(value = "product_detail", allEntries = true),
-            @CacheEvict(value = "top_selling", allEntries = true),
-            @CacheEvict(value = "products_category", allEntries = true)
-    })
     public LockResult lockStockWithDbLock(Long productId, String size, int quantity) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found: " + productId));
@@ -74,15 +65,13 @@ public class StockLockService {
         variant.setLockedQuantity(variant.getLockedQuantity() + quantity);
         productVariantRepository.save(variant);
 
+        productService.evictProductDetailForId(productId);
+
         double price = product.getEffectivePrice() * quantity;
         return new LockResult(product, price);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    @Caching(evict = {
-            @CacheEvict(value = "product_detail", allEntries = true),
-            @CacheEvict(value = "top_selling", allEntries = true)
-    })
     public void unlockStock(Long productId, String size, int quantity) {
         productVariantRepository.findByProduct_ProductIdAndSize(productId, size)
                 .ifPresent(variant -> {
@@ -90,5 +79,6 @@ public class StockLockService {
                             Math.max(0, variant.getLockedQuantity() - quantity));
                     productVariantRepository.save(variant);
                 });
+        productService.evictProductDetailForId(productId);
     }
 }

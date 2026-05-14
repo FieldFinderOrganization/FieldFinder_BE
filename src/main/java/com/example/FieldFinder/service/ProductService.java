@@ -17,6 +17,10 @@ public interface ProductService {
     ProductResponseDTO getProductById(Long id, UUID userId);
     Map<Long, ProductResponseDTO> getProductsByIds(List<Long> ids, UUID userId);
     Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId);
+
+    /** Full catalog for AI flows; cached in Redis (see {@code ai_catalog}). */
+    List<ProductResponseDTO> getProductsForAiAssistant(UUID userId);
+
     List<ProductResponseDTO> getTopSellingProducts(int limit, UUID userId);
     List<ProductResponseDTO> findProductsByCategories(List<String> categories, UUID userId);
 
@@ -26,6 +30,10 @@ public interface ProductService {
     void commitStock(Long productId, String size, int quantity);
     void releaseStock(Long productId, String size, int quantity);
     void restoreStock(Long productId, String size, int quantity);
+
+    void evictProductDetailForId(Long productId);
+
+    void evictAllListProductCaches();
 
     List<ProductResponseDTO> findProductsByImage(List<String> keywords, String majorCategory);
     void enrichAllProductsData();

@@ -26,6 +26,7 @@ public class AdminCacheController {
         result.put("product_detail", evictByPattern("product_detail::*"));
         result.put("top_selling", evictByPattern("top_selling::*"));
         result.put("products_category", evictByPattern("products_category::*"));
+        result.put("ai_catalog", evictByPattern("ai_catalog::*"));
         return ResponseEntity.ok(result);
     }
 
@@ -35,6 +36,7 @@ public class AdminCacheController {
         result.put("product_detail", evictByPattern("product_detail::*"));
         result.put("top_selling", evictByPattern("top_selling::*"));
         result.put("products_category", evictByPattern("products_category::*"));
+        result.put("ai_catalog", evictByPattern("ai_catalog::*"));
         result.put("cart", evictByPattern("cart:*"));
         return ResponseEntity.ok(result);
     }

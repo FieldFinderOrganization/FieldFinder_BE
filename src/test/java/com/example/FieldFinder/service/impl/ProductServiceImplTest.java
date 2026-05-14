@@ -19,7 +19,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -45,6 +47,7 @@ class ProductServiceImplTest {
     @Mock RedisTemplate<String, Object> redisTemplate;
     @Mock PhashIndex phashIndex;
 
+    ConcurrentMapCacheManager cacheManager;
     ProductServiceImpl service;
 
     private Product product;
@@ -52,10 +55,14 @@ class ProductServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        cacheManager = new ConcurrentMapCacheManager(
+                "products_category", "ai_catalog", "top_selling", "product_detail");
+
         service = new ProductServiceImpl(
                 productRepository, categoryRepository, productVariantRepository,
                 discountRepository, userDiscountRepository,
-                cloudinaryService, aiChat, redisTemplate, phashIndex);
+                cloudinaryService, aiChat, redisTemplate, cacheManager, null);
+        ReflectionTestUtils.setField(service, "self", service);
 
         product = Product.builder()
                 .productId(1L)
@@ -109,7 +116,7 @@ class ProductServiceImplTest {
 
             RuntimeException ex = assertThrows(RuntimeException.class,
                     () -> service.getProductById(99L, null));
-            assertTrue(ex.getMessage().contains("Product not found"));
+            assertTrue(ex.getMessage().contains("tồn tại"));
         }
     }
 
@@ -152,29 +159,21 @@ class ProductServiceImplTest {
     @Nested
     class commitStock {
         @Test
-        void existing_decreasesStockAndLocked_increasesSold() {
-            variant.setStockQuantity(10);
-            variant.setLockedQuantity(3);
-            variant.setSoldQuantity(0);
-            when(productVariantRepository.findByProduct_ProductIdAndSize(1L, "M"))
-                    .thenReturn(Optional.of(variant));
+        void existing_atomicUpdate() {
+            when(productVariantRepository.commitStockAtomic(1L, "M", 2)).thenReturn(1);
 
             service.commitStock(1L, "M", 2);
 
-            assertEquals(8, variant.getStockQuantity());
-            assertEquals(1, variant.getLockedQuantity());
-            assertEquals(2, variant.getSoldQuantity());
-            verify(productVariantRepository).save(variant);
+            verify(productVariantRepository).commitStockAtomic(1L, "M", 2);
         }
 
         @Test
         void variantNotFound_NoOp() {
-            when(productVariantRepository.findByProduct_ProductIdAndSize(1L, "X"))
-                    .thenReturn(Optional.empty());
+            when(productVariantRepository.commitStockAtomic(1L, "X", 1)).thenReturn(0);
 
             service.commitStock(1L, "X", 1);
 
-            verify(productVariantRepository, never()).save(any());
+            verify(productVariantRepository).commitStockAtomic(1L, "X", 1);
         }
     }
 

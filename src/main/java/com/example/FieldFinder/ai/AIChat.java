@@ -775,7 +775,7 @@ public class AIChat {
         if (query.data == null) query.data = new HashMap<>();
 
         UUID userId = userService.getUserIdBySession(sessionId);
-        List<ProductResponseDTO> products = productService.getAllProducts(PageRequest.of(0, 500), null, null, null, userId).getContent();
+        List<ProductResponseDTO> products = productService.getProductsForAiAssistant(userId);
         String action = (String) query.data.get("action");
         String productName = (String) query.data.get("productName");
 
@@ -1450,7 +1450,7 @@ public class AIChat {
         }
 
         if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
-            results = productService.getAllProducts(PageRequest.of(0, 500), null, null, null, userId).getContent().stream()
+            results = productService.getProductsForAiAssistant(userId).stream()
                     .filter(p -> p.getCategoryName() != null &&
                             resolvedCategories.contains(p.getCategoryName()))
                     .limit(12)

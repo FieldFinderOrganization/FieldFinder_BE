@@ -18,8 +18,6 @@ import com.example.FieldFinder.util.DiscountEligibilityUtil;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.springframework.cache.CacheManager;
-import org.springframework.cache.Cache;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,7 +53,6 @@ public class OrderServiceImpl implements OrderService {
     private final StockLockService stockLockService;
     private final PaymentRepository paymentRepository;
     private final RefundService refundService;
-    private final CacheManager cacheManager;
 
     private static final long ORDER_REFUND_WINDOW_HOURS = 24;
 
@@ -150,6 +147,11 @@ public class OrderServiceImpl implements OrderService {
 
         orderRepository.save(order);
 
+        final List<Long> orderProductIds = orderItemsToSave.stream()
+                .map(oi -> oi.getProduct().getProductId())
+                .distinct()
+                .toList();
+
         if (order.getPaymentMethod() == PaymentMethod.CASH) {
             System.out.println("[createOrder] CASH branch entered for orderId=" + order.getOrderId()
                     + " items=" + orderItemsToSave.size());
@@ -170,9 +172,11 @@ public class OrderServiceImpl implements OrderService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                // Evict stock-affecting caches AFTER outer commit để FE đọc fresh DB.
-                // @CacheEvict trên commitStock chạy trước outer commit → race với reader.
-                evictProductCaches();
+                // Sau commit: xóa cache list + chi tiết theo từng SP (không flush cả product_detail).
+                productService.evictAllListProductCaches();
+                for (Long pid : orderProductIds) {
+                    productService.evictProductDetailForId(pid);
+                }
 
                 if (finalOrder.getPaymentMethod() == PaymentMethod.CASH) {
                     emailService.sendOrderConfirmation(finalOrder);
@@ -183,13 +187,6 @@ public class OrderServiceImpl implements OrderService {
         });
 
         return mapToResponse(order);
-    }
-
-    private void evictProductCaches() {
-        for (String name : new String[]{"product_detail", "top_selling", "products_category"}) {
-            Cache cache = cacheManager.getCache(name);
-            if (cache != null) cache.clear();
-        }
     }
 
     private void compensateLockedItems(List<LockedItem> lockedItems) {
@@ -436,6 +433,8 @@ public class OrderServiceImpl implements OrderService {
             System.err.println(" Lỗi gửi email hủy đơn hàng #" + order.getOrderId() + ": " + e.getMessage());
         }
 
+        productService.evictAllListProductCaches();
+
         return mapToResponse(order);
     }
 
@@ -505,6 +504,8 @@ public class OrderServiceImpl implements OrderService {
 
             orderRepository.save(order);
             count++;
+
+            productService.evictAllListProductCaches();
 
             try {
                 emailService.sendOrderCancellation(order);
