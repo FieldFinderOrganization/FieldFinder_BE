@@ -2,6 +2,7 @@ package com.example.FieldFinder.service.impl;
 
 
 import com.example.FieldFinder.dto.req.PitchRequestDTO;
+import com.example.FieldFinder.dto.res.CachedPage;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.entity.Pitch;
 import com.example.FieldFinder.entity.ProviderAddress;
@@ -11,6 +12,12 @@ import com.example.FieldFinder.repository.ProviderAddressRepository;
 import com.example.FieldFinder.service.PitchService;
 import com.example.FieldFinder.specification.PitchSpecification;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -23,14 +30,31 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class PitchServiceImpl implements PitchService {
 
     private final PitchRepository pitchRepository;
     private final ProviderAddressRepository providerAddressRepository;
     private final BookingDetailRepository bookingDetailRepository;
+    private final CacheManager cacheManager;
+    private final PitchServiceImpl self;
+
+    public PitchServiceImpl(
+            PitchRepository pitchRepository,
+            ProviderAddressRepository providerAddressRepository,
+            BookingDetailRepository bookingDetailRepository,
+            CacheManager cacheManager,
+            @Lazy PitchServiceImpl self) {
+        this.pitchRepository = pitchRepository;
+        this.providerAddressRepository = providerAddressRepository;
+        this.bookingDetailRepository = bookingDetailRepository;
+        this.cacheManager = cacheManager;
+        this.self = self;
+    }
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(value = "pitches_list", allEntries = true)
+    })
     public PitchResponseDTO createPitch(PitchRequestDTO dto) {
         ProviderAddress providerAddress = providerAddressRepository.findById(dto.getProviderAddressId())
                 .orElseThrow(() -> new RuntimeException("ProviderAddress not found!"));
@@ -50,6 +74,10 @@ public class PitchServiceImpl implements PitchService {
     }
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(value = "pitches_list", allEntries = true),
+            @CacheEvict(value = "pitch_detail", key = "#pitchId")
+    })
     public PitchResponseDTO updatePitch(UUID pitchId, PitchRequestDTO dto) {
         Pitch pitch = pitchRepository.findById(pitchId)
                 .orElseThrow(() -> new RuntimeException("Pitch not found!"));
@@ -71,6 +99,10 @@ public class PitchServiceImpl implements PitchService {
     }
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(value = "pitches_list", allEntries = true),
+            @CacheEvict(value = "pitch_detail", key = "#pitchId")
+    })
     public void deletePitch(UUID pitchId) {
         if (!pitchRepository.existsById(pitchId)) {
             throw new RuntimeException("Pitch not found!");
@@ -80,8 +112,14 @@ public class PitchServiceImpl implements PitchService {
         }
         pitchRepository.deleteById(pitchId);
     }
+
     @Override
     public Page<PitchResponseDTO> getAllPitches(Pageable pageable, String district, String type, String name) {
+        return self.getAllPitchesCached(pageable, district, type, name).toPage();
+    }
+
+    @Cacheable(value = "pitches_list", keyGenerator = "pitchListCacheKeyGenerator")
+    public CachedPage<PitchResponseDTO> getAllPitchesCached(Pageable pageable, String district, String type, String name) {
         Specification<Pitch> spec = Specification.<Pitch>unrestricted()
                 .and(PitchSpecification.hasDistrict(district))
                 .and(PitchSpecification.hasType(type))
@@ -94,14 +132,25 @@ public class PitchServiceImpl implements PitchService {
                 .map(PitchResponseDTO::fromEntity)
                 .toList();
 
-        return new PageImpl<>(pitchResponseDTOS, pageable, pitches.getTotalElements());
+        return CachedPage.from(new PageImpl<>(pitchResponseDTOS, pageable, pitches.getTotalElements()));
     }
 
     @Override
+    @Cacheable(value = "pitch_detail", key = "#pitchId")
     public PitchResponseDTO getPitchById(UUID pitchId) {
         Pitch pitch = pitchRepository.findById(pitchId)
                 .orElseThrow(() -> new RuntimeException("Cannot find pitch with id: " + pitchId));
 
         return PitchResponseDTO.fromEntity(pitch);
+    }
+
+    @Override
+    public void evictAllListPitchCaches() {
+        for (String name : new String[]{"pitches_list", "pitch_detail"}) {
+            Cache c = cacheManager.getCache(name);
+            if (c != null) {
+                c.clear();
+            }
+        }
     }
 }

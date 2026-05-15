@@ -2,6 +2,7 @@ package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.ai.AIChat;
 import com.example.FieldFinder.dto.req.ProductRequestDTO;
+import com.example.FieldFinder.dto.res.CachedPage;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
@@ -304,12 +305,12 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId) {
-        return self.getAllProductsCached(pageable, categoryId, genders, brand, userId);
+        return self.getAllProductsCached(pageable, categoryId, genders, brand, userId).toPage();
     }
 
     @Transactional(readOnly = true)
     @Cacheable(value = "products_category", keyGenerator = "productListCacheKeyGenerator")
-    public Page<ProductResponseDTO> getAllProductsCached(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId) {
+    public CachedPage<ProductResponseDTO> getAllProductsCached(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId) {
         List<UUID> usedDiscountIds = (userId != null)
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
@@ -341,7 +342,7 @@ public class ProductServiceImpl implements ProductService {
                 .map(p -> mapToResponse(p, usedDiscountIds, userId))
                 .toList();
 
-        return new PageImpl<>(dtos, pageable, products.getTotalElements());
+        return CachedPage.from(new PageImpl<>(dtos, pageable, products.getTotalElements()));
     }
 
     @Override
@@ -356,10 +357,10 @@ public class ProductServiceImpl implements ProductService {
         List<ProductResponseDTO> all = new ArrayList<>();
         int pageIdx = 0;
         final int pageSize = 100;
-        Page<ProductResponseDTO> chunk;
+        CachedPage<ProductResponseDTO> chunk;
         do {
             chunk = self.getAllProductsCached(PageRequest.of(pageIdx, pageSize), null, null, null, userId);
-            all.addAll(chunk.getContent());
+            all.addAll(chunk.content());
             pageIdx++;
         } while (chunk.hasNext());
         return all;

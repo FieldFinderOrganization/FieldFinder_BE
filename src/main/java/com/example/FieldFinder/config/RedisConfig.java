@@ -17,14 +17,20 @@ public class RedisConfig {
 
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-        RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
+        RedisCacheConfiguration base = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofMinutes(10))
                 .disableCachingNullValues()
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
 
         return RedisCacheManager.builder(connectionFactory)
-                .cacheDefaults(config)
+                .cacheDefaults(base)
+                .withCacheConfiguration("products_category", base.entryTtl(Duration.ofHours(24)))
+                .withCacheConfiguration("product_detail",    base.entryTtl(Duration.ofHours(6)))
+                .withCacheConfiguration("pitches_list",      base.entryTtl(Duration.ofHours(24)))
+                .withCacheConfiguration("pitch_detail",      base.entryTtl(Duration.ofHours(12)))
+                .withCacheConfiguration("ai_catalog",        base.entryTtl(Duration.ofHours(24)))
+                .withCacheConfiguration("top_selling",       base.entryTtl(Duration.ofHours(12)))
                 .build();
     }
 

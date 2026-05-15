@@ -6,35 +6,44 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - redis-master
-      #      - redis-sentinel-1
-      #      - redis-sentinel-2
-      #      - redis-sentinel-3
-      - rabbitmq
-      - mongo
+      redis-master:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      mongo:
+        condition: service_started
+      ml:
+        condition: service_healthy
     env_file:
       - .env
     volumes:
       - ./.env:/app/.env
     environment:
       - TZ=Asia/Ho_Chi_Minh
-      # Chạy Redis Sentinel
-      #      - SPRING_DATA_REDIS_SENTINEL_MASTER=mymaster
-      #      - SPRING_DATA_REDIS_SENTINEL_NODES=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
       - spring.data.redis.host=redis-master
       - spring.data.redis.port=6379
       - spring.data.redis.connect-timeout=3000
       - spring.data.redis.timeout=3000
       - SPRING_DATA_REDIS_CONNECT_TIMEOUT=3000
       - SPRING_DATA_REDIS_TIMEOUT=3000
-      # Chạy Redis Sentinel
-      #      - SPRING_REDIS_REDISSON_FILE=classpath:redisson-docker.yml
       - SPRING_REDIS_REDISSON_FILE=classpath:redisson-docker-standalone.yml
       - SPRING_RABBITMQ_HOST=rabbitmq
-      - ML_API_BASE_URL=http://host.docker.internal:8000
+      - ML_API_BASE_URL=http://ml:8000
       - ML_API_ENABLED=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  ml:
+    build:
+      context: ../ml
+      dockerfile: Dockerfile
+    container_name: fieldfinder_ml
+    restart: on-failure
+    ports:
+      - "8000:8000"
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - PYTHONUNBUFFERED=1
 
   redis-master:
     image: redis:7-alpine
@@ -42,6 +51,8 @@ services:
     ports:
       - "6379:6379"
     command: redis-server --bind 0.0.0.0 --protected-mode no --appendonly yes
+    volumes:
+      - redis_data:/data
     restart: always
 
   cloudflared:
@@ -51,82 +62,6 @@ services:
     restart: always
     depends_on:
       - app
-
-  #  redis-replica:
-  #    image: redis:7-alpine
-  #    container_name: redis-replica
-  #    ports:
-  #      - "6380:6380"
-  #    command: redis-server --port 6380 --bind 0.0.0.0 --protected-mode no --replicaof redis-master 6379
-  #    depends_on:
-  #      - redis-master
-  #    restart: always
-  #
-  #  redis-sentinel-1:
-  #    image: redis:7-alpine
-  #    container_name: redis-sentinel-1
-  #    ports:
-  #      - "26379:26379"
-  #    command: |
-  #      sh -c "cat <<EOF > /tmp/sentinel.conf
-  #      port 26379
-  #      bind 0.0.0.0
-  #      sentinel resolve-hostnames yes
-  #      sentinel announce-hostnames yes
-  #      sentinel monitor mymaster redis-master 6379 2
-  #      sentinel down-after-milliseconds mymaster 30000
-  #      sentinel failover-timeout mymaster 60000
-  #      sentinel parallel-syncs mymaster 1
-  #      EOF
-  #      redis-sentinel /tmp/sentinel.conf --protected-mode no"
-  #    depends_on:
-  #      - redis-master
-  #      - redis-replica
-  #    restart: always
-  #
-  #  redis-sentinel-2:
-  #    image: redis:7-alpine
-  #    container_name: redis-sentinel-2
-  #    ports:
-  #      - "26380:26379"
-  #    command: |
-  #      sh -c "cat <<EOF > /tmp/sentinel.conf
-  #      port 26379
-  #      bind 0.0.0.0
-  #      sentinel resolve-hostnames yes
-  #      sentinel announce-hostnames yes
-  #      sentinel monitor mymaster redis-master 6379 2
-  #      sentinel down-after-milliseconds mymaster 30000
-  #      sentinel failover-timeout mymaster 60000
-  #      sentinel parallel-syncs mymaster 1
-  #      EOF
-  #      redis-sentinel /tmp/sentinel.conf --protected-mode no"
-  #    depends_on:
-  #      - redis-master
-  #      - redis-replica
-  #    restart: always
-  #
-  #  redis-sentinel-3:
-  #    image: redis:7-alpine
-  #    container_name: redis-sentinel-3
-  #    ports:
-  #      - "26381:26379"
-  #    command: |
-  #      sh -c "cat <<EOF > /tmp/sentinel.conf
-  #      port 26379
-  #      bind 0.0.0.0
-  #      sentinel resolve-hostnames yes
-  #      sentinel announce-hostnames yes
-  #      sentinel monitor mymaster redis-master 6379 2
-  #      sentinel down-after-milliseconds mymaster 30000
-  #      sentinel failover-timeout mymaster 60000
-  #      sentinel parallel-syncs mymaster 1
-  #      EOF
-  #      redis-sentinel /tmp/sentinel.conf --protected-mode no"
-  #    depends_on:
-  #      - redis-master
-  #      - redis-replica
-  #    restart: always
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -149,3 +84,4 @@ services:
 
 volumes:
   mongo_data:
+  redis_data:

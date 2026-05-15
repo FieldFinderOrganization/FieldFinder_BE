@@ -16,4 +16,6 @@ public interface PitchService {
     Page<PitchResponseDTO> getAllPitches(Pageable pageable, String district, String type, String name);
 
     PitchResponseDTO getPitchById(UUID pitchId);
+
+    void evictAllListPitchCaches();
 }
