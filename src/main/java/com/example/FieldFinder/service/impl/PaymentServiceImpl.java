@@ -13,6 +13,9 @@ import com.example.FieldFinder.mapper.BankBinMapper;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.PaymentService;
 import com.example.FieldFinder.service.ProductService;
+import com.example.FieldFinder.service.strategy.payment.PaymentContext;
+import com.example.FieldFinder.service.strategy.payment.PaymentExecutionResult;
+import com.example.FieldFinder.service.strategy.payment.PaymentStrategyFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +41,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PayOSService payOSService;
     private final ProductService productService;
     private final RabbitTemplate rabbitTemplate;
+    private final PaymentStrategyFactory paymentStrategyFactory;
 
     @Value("${front_end_url}")
     private String frontEndUrl;
@@ -113,48 +117,37 @@ public class PaymentServiceImpl implements PaymentService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
 
-        String checkoutUrl = null;
-        String transactionId = null;
-
         String returnUrl = frontEndUrl + "/payment-success?myOrderId=" + order.getOrderId();
         String cancelUrl = frontEndUrl + "/payment-cancel?myOrderId=" + order.getOrderId();
 
-        String qrCode = null;
+        PaymentMethod paymentMethod = parsePaymentMethod(requestDTO.getPaymentMethod());
 
-        if ("BANK".equalsIgnoreCase(requestDTO.getPaymentMethod())) {
-            int payOsOrderCode = generateOrderCode();
+        PaymentContext context = new PaymentContext(
+                requestDTO.getAmount(),
+                order.getOrderId(),
+                "Thanh toan don #" + order.getOrderId(),
+                returnUrl,
+                cancelUrl);
 
-            PayOSService.PaymentResult result = payOSService.createPayment(
-                    requestDTO.getAmount(),
-                    payOsOrderCode,
-                    "Thanh toan don #" + order.getOrderId(),
-                    returnUrl,
-                    cancelUrl);
-            checkoutUrl = result.checkoutUrl();
-            transactionId = result.paymentLinkId();
-            qrCode = result.qrCode();
-        } else {
-            checkoutUrl = returnUrl;
-            transactionId = "COD-" + System.currentTimeMillis();
-        }
+        PaymentExecutionResult result = paymentStrategyFactory.get(paymentMethod).execute(context);
 
         Payment payment = Payment.builder()
                 .order(order)
                 .user(user)
                 .amount(requestDTO.getAmount())
-                .paymentMethod(parsePaymentMethod(requestDTO.getPaymentMethod()))
+                .paymentMethod(paymentMethod)
                 .paymentStatus(PaymentStatus.PENDING)
-                .checkoutUrl(checkoutUrl)
-                .transactionId(transactionId)
-                .qrCode(qrCode)
+                .checkoutUrl(result.checkoutUrl())
+                .transactionId(result.transactionId())
+                .qrCode(result.qrCode())
                 .build();
 
         paymentRepository.save(payment);
 
         return PaymentResponseDTO.builder()
-                .transactionId(transactionId)
-                .checkoutUrl(checkoutUrl)
-                .qrCode(qrCode)
+                .transactionId(result.transactionId())
+                .checkoutUrl(result.checkoutUrl())
+                .qrCode(result.qrCode())
                 .amount(requestDTO.getAmount().toString())
                 .status("PENDING")
                 .build();
@@ -278,7 +271,6 @@ public class PaymentServiceImpl implements PaymentService {
                                             item.getSize(),
                                             item.getQuantity());
                                 }
-                                productService.evictAllListProductCaches();
                             }
 
                             System.out.println("📧 Sending confirmation email for Order #" + order.getOrderId());
@@ -308,7 +300,6 @@ public class PaymentServiceImpl implements PaymentService {
                                         item.getSize(),
                                         item.getQuantity());
                             }
-                            productService.evictAllListProductCaches();
                         }
                     }
                 }

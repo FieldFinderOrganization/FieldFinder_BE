@@ -4,6 +4,7 @@ import com.example.FieldFinder.dto.res.AuthTokenResponseDTO;
 import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.entity.UserProvider.ProviderName;
 import com.example.FieldFinder.service.JwtService;
+import com.example.FieldFinder.service.factory.auth.SocialAuthProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +19,13 @@ import org.springframework.web.server.ResponseStatusException;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class FacebookAuthService {
+public class FacebookAuthService implements SocialAuthProvider {
+
+    @Override
+    public ProviderName getProvider() {
+        return ProviderName.FACEBOOK;
+    }
+
 
     private final SocialLoginService socialLoginService;
     private final JwtService jwtService;
@@ -31,6 +38,7 @@ public class FacebookAuthService {
     @Value("${facebook.app-secret}")
     private String appSecret;
 
+    @Override
     public AuthTokenResponseDTO login(String accessToken) {
         // Bước 1: Verify token — check app_id và is_valid
         verifyToken(accessToken);

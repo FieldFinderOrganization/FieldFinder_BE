@@ -13,9 +13,9 @@ import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.AuthService;
 import com.example.FieldFinder.service.JwtService;
 import com.example.FieldFinder.service.RedisService;
+import com.example.FieldFinder.entity.UserProvider.ProviderName;
+import com.example.FieldFinder.service.factory.auth.AuthProviderFactory;
 import com.example.FieldFinder.service.impl.AuthServiceImpl;
-import com.example.FieldFinder.service.impl.FacebookAuthService;
-import com.example.FieldFinder.service.impl.GoogleAuthService;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -36,8 +36,7 @@ public class AuthController {
     private final AuthService authService;
     private final JwtService jwtService;
     private final RedisService redisService;
-    private final GoogleAuthService googleAuthService;
-    private final FacebookAuthService facebookAuthService;
+    private final AuthProviderFactory authProviderFactory;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -61,13 +60,13 @@ public class AuthController {
 
     @PostMapping("/google")
     public ResponseEntity<AuthTokenResponseDTO> loginWithGoogle(@RequestBody GoogleLoginRequestDTO req) {
-        AuthTokenResponseDTO tokenResponse = googleAuthService.login(req.getIdToken());
+        AuthTokenResponseDTO tokenResponse = authProviderFactory.get(ProviderName.GOOGLE).login(req.getIdToken());
         return ResponseEntity.ok(tokenResponse);
     }
 
     @PostMapping("/facebook")
     public ResponseEntity<AuthTokenResponseDTO> loginWithFacebook(@RequestBody FacebookLoginRequestDTO req) {
-        AuthTokenResponseDTO tokenResponse = facebookAuthService.login(req.getAccessToken());
+        AuthTokenResponseDTO tokenResponse = authProviderFactory.get(ProviderName.FACEBOOK).login(req.getAccessToken());
         return ResponseEntity.ok(tokenResponse);
     }
 

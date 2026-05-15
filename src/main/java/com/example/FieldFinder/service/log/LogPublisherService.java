@@ -29,14 +29,12 @@ public class LogPublisherService {
     private final OpenWeatherService openWeatherService;
     private final UserRepository userRepository;
 
-    // ── Backward-compatible overload (giữ nguyên signature cũ) ──
     @Async
     public void publishEvent(String userId, String sessionId, String eventType,
                              String itemId, String itemType, Map<String, Object> metadata, String userAgent) {
         publishEventEnriched(userId, sessionId, eventType, itemId, itemType, metadata, userAgent, null, null);
     }
 
-    // ── Enriched overload — thêm location ──
     @Async
     public void publishEventEnriched(String userId, String sessionId, String eventType,
                                      String itemId, String itemType, Map<String, Object> metadata,
@@ -47,7 +45,6 @@ public class LogPublisherService {
         Map<String, Object> context = new HashMap<>();
         context.put("device_info", userAgent);
 
-        // Parse User-Agent thành device_model, os, os_version
         Map<String, String> parsedUA = parseUserAgent(userAgent);
         context.put("device_model", parsedUA.get("device_model"));
         context.put("os", parsedUA.get("os"));
@@ -55,7 +52,6 @@ public class LogPublisherService {
 
         context.put("weather", openWeatherService.getCachedDefaultWeather());
 
-        // Location nếu frontend gửi
         if (lat != null && lng != null) {
             Map<String, Double> location = new HashMap<>();
             location.put("lat", lat);
@@ -63,7 +59,6 @@ public class LogPublisherService {
             context.put("location", location);
         }
 
-        // Snapshot user demographics tại thời điểm event
         snapshotUserDemographics(userId, context);
 
         InteractionLog log = InteractionLog.builder()

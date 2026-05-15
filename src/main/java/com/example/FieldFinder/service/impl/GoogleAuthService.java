@@ -4,6 +4,7 @@ import com.example.FieldFinder.dto.res.AuthTokenResponseDTO;
 import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.entity.UserProvider.ProviderName;
 import com.example.FieldFinder.service.JwtService;
+import com.example.FieldFinder.service.factory.auth.SocialAuthProvider;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.http.javanet.NetHttpTransport;
@@ -23,7 +24,13 @@ import java.util.Collections;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class GoogleAuthService {
+public class GoogleAuthService implements SocialAuthProvider {
+
+    @Override
+    public ProviderName getProvider() {
+        return ProviderName.GOOGLE;
+    }
+
 
     private final SocialLoginService socialLoginService;
     private final JwtService jwtService;
@@ -43,6 +50,7 @@ public class GoogleAuthService {
                 .build();
     }
 
+    @Override
     public AuthTokenResponseDTO login(String idToken) {
         GoogleIdToken.Payload payload = verifyToken(idToken);
 
