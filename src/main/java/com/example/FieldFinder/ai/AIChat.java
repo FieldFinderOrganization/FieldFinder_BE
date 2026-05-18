@@ -1467,7 +1467,11 @@ public class AIChat {
             return query;
         }
 
-        query.message = String.format("Với hoạt động %s, bạn có thể tham khảo các sản phẩm sau 👇", activity);
+        if (activity != null && !activity.isBlank() && !"null".equalsIgnoreCase(activity)) {
+            query.message = String.format("Với hoạt động %s, bạn có thể tham khảo các sản phẩm sau 👇", activity);
+        } else {
+            query.message = "Bạn có thể tham khảo các sản phẩm sau 👇";
+        }
 
         Map<String, List<Map<String, Object>>> groupedProducts = new LinkedHashMap<>();
 
@@ -1812,6 +1816,51 @@ public class AIChat {
                         }
                     }
                 }
+
+                // Khi user không chỉ định cụ thể tên sân → show list (availability-style)
+                // để user chọn sân muốn đặt, thay vì BE tự pick sân đầu tiên.
+                if (target == null && query.bookingDate != null && !query.slotList.isEmpty()) {
+                    try {
+                        LocalDate date = LocalDate.parse(query.bookingDate);
+                        List<Integer> desired = query.slotList;
+                        List<Map<String, Object>> availability = new ArrayList<>();
+                        List<PitchResponseDTO> finalMatched = new ArrayList<>();
+                        for (PitchResponseDTO p : matched) {
+                            List<Integer> booked = bookingService.getBookedTimeSlots(p.getPitchId(), date);
+                            List<Integer> freeInRequested = desired.stream().filter(s -> !booked.contains(s)).collect(Collectors.toList());
+                            if (freeInRequested.size() != desired.size()) continue; // cần đủ slot yêu cầu mới list
+
+                            Map<String, Object> item = new HashMap<>();
+                            item.put("pitchId", p.getPitchId());
+                            item.put("name", p.getName());
+                            item.put("address", p.getAddress());
+                            item.put("availableSlots", freeInRequested);
+                            availability.add(item);
+                            finalMatched.add(p);
+                        }
+                        if (finalMatched.isEmpty()) {
+                            query.message = String.format("Rất tiếc, các%s %s đều không còn trống đủ khung giờ %s ngày %s.",
+                                    envStr, typeStr, query.slotList, query.bookingDate);
+                        } else {
+                            int minSlot = Collections.min(query.slotList);
+                            int maxSlot = Collections.max(query.slotList);
+                            int startHour = minSlot + 5;
+                            int endHour = maxSlot + 6;
+                            query.message = String.format("Có %d%s %s trống từ %dh đến %dh ngày %s. Chọn sân bên dưới để đặt 👇",
+                                    finalMatched.size(), envStr, typeStr, startHour, endHour, query.bookingDate);
+                            query.data.put("availability", availability);
+                            query.data.put("matchedPitches", finalMatched);
+                            query.data.put("pendingBooking", true);
+                            query.data.put("showBookingButton", true);
+                            query.data.put("bookingDate", query.bookingDate);
+                            query.data.put("slotList", query.slotList);
+                        }
+                    } catch (Exception e) {
+                        query.message = "Ngày bạn cung cấp không hợp lệ. Vui lòng nhập theo dạng yyyy-MM-dd.";
+                    }
+                    break;
+                }
+
                 if (target == null) target = matched.get(0);
 
                 if (query.bookingDate != null && !query.slotList.isEmpty()) {
@@ -1943,7 +1992,11 @@ public class AIChat {
         return type;
     }
 
-    private boolean isGreeting(String s) { return s.toLowerCase().matches(".*(xin chào|chào|hello).*"); }
+    private boolean isGreeting(String s) {
+        String t = s.toLowerCase().trim();
+        return t.matches("^(hi|hey|hello|hola|halo|alo|yo|chào|xin chào|good morning|good evening|good afternoon)[\\s!?.]*$")
+                || t.matches(".*\\b(xin chào|chào bạn|chào shop|hello|good morning|good evening|good afternoon)\\b.*");
+    }
 
     private static final String DATA_ENRICHMENT_SYSTEM_PROMPT = """
         Bạn là chuyên gia quản lý kho hàng thời trang (Inventory Manager).
