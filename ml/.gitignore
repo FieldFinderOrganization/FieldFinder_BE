@@ -1,0 +1,49 @@
+# Env
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Data — track production-needed files, ignore raw dumps
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/processed/encoders/
+!data/processed/encoders/encoders.pkl
+!data/processed/logs_train.parquet
+!data/processed/logs_val.parquet
+!data/processed/logs_test.parquet
+!data/processed/products.parquet
+!data/processed/pitches.parquet
+!data/processed/users.parquet
+
+# Model artifacts — track production checkpoints, ignore intermediate
+checkpoints/*
+!checkpoints/.gitkeep
+!checkpoints/items_image.faiss
+!checkpoints/items_image_meta.pkl
+!checkpoints/items.faiss
+!checkpoints/items_meta.pkl
+!checkpoints/sasrec.pt
+!checkpoints/deepfm.pt
+!checkpoints/user_vectors.npy
+!checkpoints/user_ids.pkl
+!checkpoints/metrics.json
+
+# Notebook
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# MLflow
+mlruns/
+
+# OS
+.DS_Store
+Thumbs.db

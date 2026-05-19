@@ -2,10 +2,10 @@ name: CI/CD FieldFinder
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
-  build-and-push:
+  build-be:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,15 +21,33 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push BE image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: minhtriet004/fieldfinder-be:latest
 
+  build-ml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push ML image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ml
+          push: true
+          tags: minhtriet004/fieldfinder-ml:latest
+
   deploy:
-    needs: build-and-push
+    needs: [build-be, build-ml]
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to EC2 via SSH
@@ -40,8 +58,10 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             cd ~/FieldFinder_BE
-            # Cập nhật file docker-compose.yml (chỉ có tác dụng ở lần đầu tiên)
-            sed -i 's/build: ./image: minhtriet004\/fieldfinder-be:latest/' docker-compose.yml
-            # Kéo ảnh mới và khởi động lại
-            sudo docker compose pull app
-            sudo docker compose up -d app
+            # Rewrite compose: BE build → image
+            sed -i 's|build: \.|image: minhtriet004/fieldfinder-be:latest|' docker-compose.yml
+            # Rewrite compose: ML build context → image
+            sed -i '/^  ml:/,/^  [a-z]/ { s|build:.*|image: minhtriet004/fieldfinder-ml:latest|; /context:/d; /dockerfile:/d; }' docker-compose.yml
+            # Pull + restart both
+            sudo docker compose pull app ml
+            sudo docker compose up -d app ml

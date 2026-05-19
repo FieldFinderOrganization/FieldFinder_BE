@@ -1,0 +1,363 @@
+{
+  "_comment": "Fill case_type ∈ {in_catalog, similar, crop_screenshot, category_only, unrelated}. expected_product_id = null nếu không expect SP cụ thể.",
+  "_target_count": 50,
+  "entries": [
+    {
+      "image_path": "10027412-a02_b_08x1.png",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "category_only",
+      "note": "unknown product"
+    },
+    {
+      "image_path": "ACG+DAYMAX+BKPK.png",
+      "expected_product_id": null,
+      "expected_category": "ACCESSORY",
+      "case_type": "category_only",
+      "note": "ACG Daymax backpack, not in DB"
+    },
+    {
+      "image_path": "ACG+PHASSAD.png",
+      "expected_product_id": "46",
+      "expected_category": "FOOTWEAR",
+      "case_type": "similar",
+      "note": "matches Nike ACG Phassad pid=46"
+    },
+    {
+      "image_path": "AIR+JORDAN+5+RETRO+OG.png",
+      "expected_product_id": null,
+      "expected_category": "FOOTWEAR",
+      "case_type": "category_only",
+      "note": "Air Jordan 5, not in DB"
+    },
+    {
+      "image_path": "AS+KB+M+NK+DF+MAMBA+PO+HDY.png",
+      "expected_product_id": null,
+      "expected_category": "CLOTHING",
+      "case_type": "category_only",
+      "note": "Kobe Mamba hoodie, not in DB"
+    },
+    {
+      "image_path": "AS+LJ+M+NK+PANT+FK.png",
+      "expected_product_id": null,
+      "expected_category": "CLOTHING",
+      "case_type": "category_only",
+      "note": "LJ pants Nike, not in DB"
+    },
+    {
+      "image_path": "AS+LJ+M+NK+TEE+M90+OG.png",
+      "expected_product_id": null,
+      "expected_category": "CLOTHING",
+      "case_type": "category_only",
+      "note": "M90 tee, not in DB"
+    },
+    {
+      "image_path": "AS+W+NK+DF+VCTRY+SKRT+MR+SHT+F.png",
+      "expected_product_id": null,
+      "expected_category": "CLOTHING",
+      "case_type": "category_only",
+      "note": "Victory skirt, not in DB"
+    },
+    {
+      "image_path": "AS+W+NK+TEMPO+SWOOSH+RUN+DF+TA.png",
+      "expected_product_id": "43",
+      "expected_category": "ACCESSORY",
+      "case_type": "similar",
+      "note": "matches Nike Tempo Swoosh pid=43"
+    },
+    {
+      "image_path": "FENTY-x-PUMA-T7-Track-Jacket-Unisex.png",
+      "expected_product_id": "13",
+      "expected_category": "CLOTHING",
+      "case_type": "in_catalog",
+      "note": "exact match FENTY PUMA T7 pid=13"
+    },
+    {
+      "image_path": "LAL+MNK+DF+SWGMN+SHORT+ICN+18.png",
+      "expected_product_id": null,
+      "expected_category": "CLOTHING",
+      "case_type": "category_only",
+      "note": "Lakers swingman shorts, not in DB"
+    },
+    {
+      "image_path": "LEBRON+XXIII+EP.png",
+      "expected_product_id": "42",
+      "expected_category": "FOOTWEAR",
+      "case_type": "similar",
+      "note": "matches LeBron XXIII pid=42"
+    },
+    {
+      "image_path": "NIKE+CALM+SLIDE+2.0.png",
+      "expected_product_id": "29",
+      "expected_category": "FOOTWEAR",
+      "case_type": "similar",
+      "note": "matches Nike Calm pid=29"
+    },
+    {
+      "image_path": "NK+GK+MATCH+-+HO24.png",
+      "expected_product_id": "22",
+      "expected_category": "ACCESSORY",
+      "case_type": "similar",
+      "note": "matches Nike Match Gloves pid=22"
+    },
+    {
+      "image_path": "Real_Madrid_25-26_Home_Authentic_Jersey_White_JV5918_HM4.png",
+      "expected_product_id": "17",
+      "expected_category": "CLOTHING",
+      "case_type": "similar",
+      "note": "Real Madrid jersey pid=17 (HM4 angle vs DB HM1)"
+    },
+    {
+      "image_path": "U+NK+CLUB+CAP+U+CB+JDI+L.png",
+      "expected_product_id": null,
+      "expected_category": "ACCESSORY",
+      "case_type": "category_only",
+      "note": "Nike Club Cap, not in DB"
+    },
+    {
+      "image_path": "U+NK+ED+CREW+BBALL+3PR+144.png",
+      "expected_product_id": null,
+      "expected_category": "ACCESSORY",
+      "case_type": "category_only",
+      "note": "Nike basketball socks 3pr, not in DB"
+    },
+    {
+      "image_path": "z7806354649472_5c91adc2ea78e70f1626fd939566cfe6.jpg",
+      "expected_product_id": "43",
+      "expected_category": "CLOTHING",
+      "case_type": "in_catalog",
+      "note": ""
+    },
+    {
+      "image_path": "z7806386132221_f0c2bc007a89cfad12d95c346a3acd83.jpg",
+      "expected_product_id": "42",
+      "expected_category": "FOOTWEAR",
+      "case_type": "in_catalog",
+      "note": ""
+    },
+    {
+      "image_path": "z7806386132222_a6fc49772d784854653f9d2505aa917b.jpg",
+      "expected_product_id": "46",
+      "expected_category": "FOOTWEAR",
+      "case_type": "in_catalog",
+      "note": ""
+    },
+    {
+      "image_path": "z7806386132224_ab7721d76a45ed9e26c61872a0f340cd.jpg",
+      "expected_product_id": "50",
+      "expected_category": "CLOTHING",
+      "case_type": "in_catalog",
+      "note": ""
+    },
+    {
+      "image_path": "z7806386161280_0d2608c425c6d73993a5371f5e1b16cd.jpg",
+      "expected_product_id": "47",
+      "expected_category": "CLOTHING",
+      "case_type": "in_catalog",
+      "note": ""
+    },
+    {
+      "image_path": "z7806386161305_34e6fe5bcc15fb0e5a4219e6d6e37a4f.jpg",
+      "expected_product_id": "45",
+      "expected_category": "FOOTWEAR",
+      "case_type": "in_catalog",
+      "note": ""
+    },
+    {
+      "image_path": "z7806386187349_643d378d1a1d7bda2411692fef50ef1b.jpg",
+      "expected_product_id": "48",
+      "expected_category": "FOOTWEAR",
+      "case_type": "in_catalog",
+      "note": ""
+    },
+    {
+      "image_path": "z7806386187350_32931989edb52a111f703bb0bddc013c.jpg",
+      "expected_product_id": "37",
+      "expected_category": "FOOTWEAR",
+      "case_type": "in_catalog",
+      "note": ""
+    },
+    {
+      "image_path": "z7806386187351_6f2b5eccb39d90e362e10976692f3805.jpg",
+      "expected_product_id": "39",
+      "expected_category": "FOOTWEAR",
+      "case_type": "in_catalog",
+      "note": ""
+    },
+    {
+      "image_path": "z7806386204130_efbf230c45fb29eebc4609f7b14499af.jpg",
+      "expected_product_id": "49",
+      "expected_category": "CLOTHING",
+      "case_type": "in_catalog",
+      "note": ""
+    },
+    {
+      "image_path": "z7809911899601_bd210050c3a2d537b949013b9ce6a5a1.jpg",
+      "expected_product_id": "19",
+      "expected_category": "ACCESSORY",
+      "case_type": "similar",
+      "note": ""
+    },
+    {
+      "image_path": "z7809916556690_55a53350595c179908221f2e33e067d0.jpg",
+      "expected_product_id": "18",
+      "expected_category": "ACCESSORY",
+      "case_type": "similar",
+      "note": ""
+    },
+    {
+      "image_path": "z7809919876771_2b2cf3c6d6686fd0676284cbf1a64f19.jpg",
+      "expected_product_id": "34",
+      "expected_category": "FOOTWEAR",
+      "case_type": "similar",
+      "note": ""
+    },
+    {
+      "image_path": "z7809922668411_b93aedc7d2e575c9560d5d8930043b4c.jpg",
+      "expected_product_id": "27",
+      "expected_category": "FOOTWEAR",
+      "case_type": "similar",
+      "note": ""
+    },
+    {
+      "image_path": "z7809933517256_f1a988dfa873c4b2f37d89da3a7b1a40.jpg",
+      "expected_product_id": "20",
+      "expected_category": "CLOTHING",
+      "case_type": "crop_screenshot",
+      "note": ""
+    },
+    {
+      "image_path": "z7809935504347_de48c1ba3fee82a4cf2bc3053b061860.jpg",
+      "expected_product_id": "21",
+      "expected_category": "CLOTHING",
+      "case_type": "crop_screenshot",
+      "note": ""
+    },
+    {
+      "image_path": "z7809937108908_9261172c0838788065c34db1b4b7b1cd.jpg",
+      "expected_product_id": "24",
+      "expected_category": "ACCESSORY",
+      "case_type": "crop_screenshot",
+      "note": ""
+    },
+    {
+      "image_path": "z7809942083081_ca72ab8ae859f7c681625d750e12cd3a.jpg",
+      "expected_product_id": "31",
+      "expected_category": "CLOTHING",
+      "case_type": "crop_screenshot",
+      "note": ""
+    },
+    {
+      "image_path": "z7809945968051_40492925e233c9e20e16a6fac3c5131a.jpg",
+      "expected_product_id": "11",
+      "expected_category": "CLOTHING",
+      "case_type": "crop_screenshot",
+      "note": ""
+    },
+    {
+      "image_path": "z7809949066026_4239f44ddf2952c85f773890debdf7ee.jpg",
+      "expected_product_id": "42",
+      "expected_category": "FOOTWEAR",
+      "case_type": "crop_screenshot",
+      "note": ""
+    },
+    {
+      "image_path": "z7809954816935_0781a083042624581d6ed92a75676d90.jpg",
+      "expected_product_id": "48",
+      "expected_category": "FOOTWEAR",
+      "case_type": "crop_screenshot",
+      "note": ""
+    },
+    {
+      "image_path": "z7809960833328_02cf40907b3e3bbb66c5ba377ec8ab2b.jpg",
+      "expected_product_id": "28",
+      "expected_category": "FOOTWEAR",
+      "case_type": "crop_screenshot",
+      "note": ""
+    },
+    {
+      "image_path": "z7809962815713_6f98a8176f6920c32934bf1fff5e359e.jpg",
+      "expected_product_id": "35",
+      "expected_category": "CLOTHING",
+      "case_type": "crop_screenshot",
+      "note": ""
+    },
+    {
+      "image_path": "z7809965167520_ea4611e7ba015ae839ceb7ec2f0e3b3b.jpg",
+      "expected_product_id": "33",
+      "expected_category": "FOOTWEAR",
+      "case_type": "crop_screenshot",
+      "note": ""
+    },
+    {
+      "image_path": "z7809982712494_074f865e836dd25236675d5ee2ef7768.jpg",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "unrelated",
+      "note": ""
+    },
+    {
+      "image_path": "z7809982712600_aec9a54f702eb2066854f2b69c4d6b8e.jpg",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "unrelated",
+      "note": ""
+    },
+    {
+      "image_path": "z7809982725115_9ccfb28d99ff9e603e0f9279e5f85c67.jpg",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "unrelated",
+      "note": ""
+    },
+    {
+      "image_path": "z7809982733160_bb8f16e50f0bece73df1eac44228f874.jpg",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "unrelated",
+      "note": ""
+    },
+    {
+      "image_path": "z7809982737111_eb9d82f0165377e29524ac9ac3a2ff21.jpg",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "unrelated",
+      "note": ""
+    },
+    {
+      "image_path": "z7809982749212_4b884f4e4038742dc7f97fa3a5a80228.jpg",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "unrelated",
+      "note": ""
+    },
+    {
+      "image_path": "z7809982756364_b079ae0d045146f71d86f9beb87d967d.jpg",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "unrelated",
+      "note": ""
+    },
+    {
+      "image_path": "z7809982771697_ef81307d23cb34ce965a5306c22d2c82.jpg",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "unrelated",
+      "note": ""
+    },
+    {
+      "image_path": "z7809982774629_5859f3d12db37bd543a85e40a62d6f5c.jpg",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "unrelated",
+      "note": ""
+    },
+    {
+      "image_path": "z7809982778432_4bcea3afa1ff3f35d6efa75209fceb37.jpg",
+      "expected_product_id": null,
+      "expected_category": null,
+      "case_type": "unrelated",
+      "note": ""
+    }
+  ]
+}

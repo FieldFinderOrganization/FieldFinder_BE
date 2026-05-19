@@ -1,0 +1,48 @@
+{
+  "total_evaluated": 51,
+  "latency_p50_ms": 306.6,
+  "latency_p95_ms": 349.4,
+  "confidence_band_accuracy": 0.784,
+  "buckets": {
+    "category_only": {
+      "n": 10,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "mrr": 0.0,
+      "cat_acc@1": 1.0,
+      "cat_acc@5": 1.0
+    },
+    "similar": {
+      "n": 10,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "mrr": 1.0,
+      "cat_acc@1": 1.0,
+      "cat_acc@5": 1.0
+    },
+    "in_catalog": {
+      "n": 11,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "mrr": 1.0,
+      "cat_acc@1": 0.909,
+      "cat_acc@5": 1.0
+    },
+    "crop_screenshot": {
+      "n": 10,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "mrr": 1.0,
+      "cat_acc@1": 1.0,
+      "cat_acc@5": 1.0
+    },
+    "unrelated": {
+      "n": 10,
+      "recall@1": 0.0,
+      "recall@5": 0.0,
+      "mrr": 0.0,
+      "cat_acc@1": 0.0,
+      "cat_acc@5": 0.0
+    }
+  }
+}

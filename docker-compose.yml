@@ -35,7 +35,7 @@ services:
 
   ml:
     build:
-      context: ../ml
+      context: ./ml
       dockerfile: Dockerfile
     container_name: fieldfinder_ml
     restart: on-failure
