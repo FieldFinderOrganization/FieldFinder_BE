@@ -4,10 +4,13 @@ import com.example.FieldFinder.dto.req.UserRequestDTO;
 import com.example.FieldFinder.dto.req.UserUpdateRequestDTO;
 import com.example.FieldFinder.dto.res.UserResponseDTO;
 import com.example.FieldFinder.entity.PasswordResetToken;
+import com.example.FieldFinder.entity.Product;
 import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.entity.UserProvider;
 import com.example.FieldFinder.entity.UserProvider.ProviderName;
+import com.example.FieldFinder.entity.log.InteractionLog;
 import com.example.FieldFinder.repository.PasswordResetTokenRepository;
+import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.UserProviderRepository;
 import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.EmailService;
@@ -17,6 +20,11 @@ import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
 import com.google.firebase.auth.UserRecord;
 import jakarta.transaction.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,8 +32,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -42,6 +55,12 @@ public class UserServiceImpl implements UserService {
 
     private final Map<String, UUID> sessionUserMap = new ConcurrentHashMap<>();
     private final RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired(required = false)
+    private MongoTemplate mongoTemplate;
+
+    @Autowired
+    private ProductRepository productRepository;
 
     public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, EmailService emailService,
                            PasswordResetTokenRepository passwordResetTokenRepository, RedisTemplate<String, Object> redisTemplate,
@@ -339,5 +358,69 @@ public class UserServiceImpl implements UserService {
         }
 
         return passwordEncoder.matches(currentPassword, user.getPassword());
+    }
+
+    @Override
+    public List<String> getUserTopBrands(UUID userId, int limit) {
+        if (userId == null || mongoTemplate == null) return List.of();
+
+        try {
+            // Query last 30 PRODUCT events from user
+            Query q = Query.query(
+                    Criteria.where("userId").is(userId.toString())
+                            .and("eventType").in("VIEW_PRODUCT", "ADD_TO_CART", "CREATE_ORDER", "CHAT_RESULT_CLICK")
+                            .and("itemType").is("PRODUCT")
+            ).with(Sort.by(Sort.Direction.DESC, "timestamp"));
+            q.limit(30);
+
+            List<InteractionLog> events = mongoTemplate.find(q, InteractionLog.class);
+            if (events.isEmpty()) return List.of();
+
+            // Extract product IDs from events
+            Set<Long> pids = events.stream()
+                    .map(e -> {
+                        try { return Long.parseLong(e.getItemId()); }
+                        catch (Exception ex) { return null; }
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+
+            if (pids.isEmpty()) return List.of();
+
+            // Batch fetch products → brand map
+            Map<Long, String> brandMap = new HashMap<>();
+            for (Product p : productRepository.findAllById(pids)) {
+                if (p.getBrand() != null && !p.getBrand().isBlank()) {
+                    brandMap.put(p.getProductId(), p.getBrand());
+                }
+            }
+
+            // Count brand frequency
+            Map<String, Long> brandCount = new HashMap<>();
+            for (InteractionLog e : events) {
+                try {
+                    Long pid = Long.parseLong(e.getItemId());
+                    String brand = brandMap.get(pid);
+                    if (brand != null) {
+                        brandCount.merge(brand, 1L, Long::sum);
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            // Sort desc by count, take top limit
+            List<String> topBrands = brandCount.entrySet().stream()
+                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                    .limit(limit)
+                    .map(Map.Entry::getKey)
+                    .collect(Collectors.toList());
+
+            System.out.println("👤 getUserTopBrands(" + userId + "): " + topBrands
+                    + " (from " + events.size() + " events)");
+
+            return topBrands;
+        } catch (Exception e) {
+            System.err.println("getUserTopBrands fail for " + userId + ": " + e.getMessage());
+            return List.of();
+        }
     }
 }

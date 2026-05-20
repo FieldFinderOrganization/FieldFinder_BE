@@ -1430,8 +1430,8 @@ public class AIChat {
                 sexPrefForCtx = "MEN";
             }
 
-            // TODO B.3: userService.getUserTopBrands(userId, 3)
-            List<String> topBrands = Collections.emptyList();
+            // B.3: brand preference từ MongoDB user history (top 3)
+            List<String> topBrands = userService.getUserTopBrands(userId, 3);
 
             com.example.FieldFinder.ai.ranking.RankingContext ctx =
                     com.example.FieldFinder.ai.ranking.RankingContext.builder()

@@ -39,4 +39,11 @@ public interface UserService {
     void resetPasswordWithOtp(String email, String newPassword);
 
     boolean verifyCurrentPassword(UUID userId, String currentPassword);
+
+    /**
+     * Top brands user view/add-to-cart most. Query MongoDB user_interaction_logs.
+     * Returns brand name list ordered by frequency desc, limit N.
+     * Empty list if no history or userId null.
+     */
+    List<String> getUserTopBrands(UUID userId, int limit);
 }
