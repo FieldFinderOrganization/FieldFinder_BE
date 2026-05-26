@@ -46,9 +46,11 @@ services:
     environment:
       - TZ=Asia/Ho_Chi_Minh
       - PYTHONUNBUFFERED=1
-      - TORCH_DEVICE=${TORCH_DEVICE:-cuda}
+      - TORCH_DEVICE=cuda
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - MONGO_URI=mongodb://mongo:27017
+      - MONGO_DB=fieldfinder
     deploy:
       resources:
         reservations:
