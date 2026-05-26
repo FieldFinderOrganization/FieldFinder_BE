@@ -1,0 +1,18 @@
+# GPU override — chạy local có NVIDIA GPU.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# Hoặc set env var ML_DOCKERFILE=Dockerfile.gpu + TORCH_DEVICE=cuda trong .env
+# rồi `docker compose up -d` bình thường.
+services:
+  ml:
+    environment:
+      - TORCH_DEVICE=cuda
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

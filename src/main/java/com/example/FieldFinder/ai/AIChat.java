@@ -36,8 +36,11 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+import java.security.MessageDigest;
 
 @Component
 public class AIChat {
@@ -258,6 +261,19 @@ public class AIChat {
     }
 
     public List<Double> getEmbedding(String text) {
+        if (text == null || text.isBlank()) return new ArrayList<>();
+
+        // P3: Redis cache embedding theo hash(text), TTL 7 ngày
+        String cacheKey = "ai:embed:" + sha256Hex(text);
+        try {
+            String cached = redisService.getData(cacheKey);
+            if (cached != null) {
+                return mapper.readValue(cached, new TypeReference<List<Double>>() {});
+            }
+        } catch (Exception ignored) {
+            // cache miss / parse fail → fetch online
+        }
+
         try {
             ObjectNode rootNode = mapper.createObjectNode();
 
@@ -279,12 +295,119 @@ public class AIChat {
                         vector.add(val.asDouble());
                     }
                 }
+                if (!vector.isEmpty()) {
+                    try {
+                        redisService.saveDataWithTTL(cacheKey, mapper.writeValueAsString(vector), 7, TimeUnit.DAYS);
+                    } catch (Exception ignored) {}
+                }
                 return vector;
             }
         } catch (Exception e) {
             e.printStackTrace();
             return new ArrayList<>();
         }
+    }
+
+    /**
+     * Resize base64 image về max 512px (long edge), JPEG quality 80%, để giảm payload gửi ML/Gemini.
+     * Trả base64 mới (không có prefix data:). Nếu fail → trả input gốc.
+     */
+    private static String resizeBase64(String base64Clean, int maxDim) {
+        if (base64Clean == null || base64Clean.isEmpty()) return base64Clean;
+        try {
+            byte[] raw = Base64.getDecoder().decode(base64Clean);
+            java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(raw));
+            if (img == null) return base64Clean;
+            int w = img.getWidth(), h = img.getHeight();
+            if (w <= maxDim && h <= maxDim) return base64Clean;
+            double scale = (double) maxDim / Math.max(w, h);
+            int nw = (int) Math.round(w * scale);
+            int nh = (int) Math.round(h * scale);
+            java.awt.image.BufferedImage resized = new java.awt.image.BufferedImage(nw, nh,
+                    java.awt.image.BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g = resized.createGraphics();
+            g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                    java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(img, 0, 0, nw, nh, null);
+            g.dispose();
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(resized, "jpg", baos);
+            return Base64.getEncoder().encodeToString(baos.toByteArray());
+        } catch (Exception e) {
+            System.err.println("⚠️ resizeBase64 fail: " + e.getMessage());
+            return base64Clean;
+        }
+    }
+
+    /** SHA-256 hex helper cho cache key. */
+    private static String sha256Hex(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = md.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return Integer.toHexString(input.hashCode());
+        }
+    }
+
+    /** P2: Cache `getAllPitches(0,50)` TTL 90s. */
+    private List<PitchResponseDTO> getAllPitchesCached() {
+        String key = "ai:pitches:all:50";
+        try {
+            String cached = redisService.getData(key);
+            if (cached != null) {
+                return mapper.readValue(cached, new TypeReference<List<PitchResponseDTO>>() {});
+            }
+        } catch (Exception ignored) {}
+        List<PitchResponseDTO> data = pitchService.getAllPitches(PageRequest.of(0, 50), null, null, null).getContent();
+        try {
+            redisService.saveDataWithTTL(key, mapper.writeValueAsString(data), 30, TimeUnit.MINUTES);
+        } catch (Exception ignored) {}
+        return data;
+    }
+
+    /** P3+: Cache productsByIds map. Key = sorted ids hash. TTL 60s. */
+    private Map<Long, ProductResponseDTO> getProductsByIdsCached(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return Collections.emptyMap();
+        List<Long> sorted = new ArrayList<>(ids);
+        Collections.sort(sorted);
+        String key = "ai:products:byids:" + sha256Hex(sorted.toString());
+        try {
+            String cached = redisService.getData(key);
+            if (cached != null) {
+                List<ProductResponseDTO> list = mapper.readValue(cached,
+                        new TypeReference<List<ProductResponseDTO>>() {});
+                Map<Long, ProductResponseDTO> map = new LinkedHashMap<>();
+                for (ProductResponseDTO p : list) {
+                    if (p != null && p.getId() != null) map.put(p.getId(), p);
+                }
+                return map;
+            }
+        } catch (Exception ignored) {}
+        Map<Long, ProductResponseDTO> fresh = productService.getProductsByIds(ids, null);
+        try {
+            redisService.saveDataWithTTL(key, mapper.writeValueAsString(new ArrayList<>(fresh.values())),
+                    30, TimeUnit.MINUTES);
+        } catch (Exception ignored) {}
+        return fresh;
+    }
+
+    /** P2: Cache `getProductsForAiAssistant(userId)` TTL 60s. */
+    private List<ProductResponseDTO> getProductsForAiAssistantCached(java.util.UUID userId) {
+        String key = "ai:products:assistant:" + (userId == null ? "anon" : userId.toString());
+        try {
+            String cached = redisService.getData(key);
+            if (cached != null) {
+                return mapper.readValue(cached, new TypeReference<List<ProductResponseDTO>>() {});
+            }
+        } catch (Exception ignored) {}
+        List<ProductResponseDTO> data = productService.getProductsForAiAssistant(userId);
+        try {
+            redisService.saveDataWithTTL(key, mapper.writeValueAsString(data), 30, TimeUnit.MINUTES);
+        } catch (Exception ignored) {}
+        return data;
     }
 
     private void waitIfNeeded() throws InterruptedException {
@@ -380,6 +503,7 @@ public class AIChat {
         ObjectNode generationConfig = rootNode.putObject("generationConfig");
         generationConfig.put("temperature", 0.1);
         generationConfig.put("response_mime_type", "application/json");
+        generationConfig.put("maxOutputTokens", 1024);
 
         Request request = new Request.Builder()
                 .url(GEMINI_API_URL + GOOGLE_API_KEY)
@@ -419,6 +543,7 @@ public class AIChat {
 
             ObjectNode generationConfig = rootNode.putObject("generationConfig");
             generationConfig.put("response_mime_type", "application/json");
+            generationConfig.put("maxOutputTokens", 512);
 
             Request request = new Request.Builder()
                     .url(GEMINI_API_URL + GOOGLE_API_KEY)
@@ -437,13 +562,18 @@ public class AIChat {
     }
 
     public BookingQuery processImageSearchWithGemini(String base64Image, String sessionId) {
+        final long _tStart = System.currentTimeMillis();
+        Runnable _logTotal = () -> System.out.println("[IMG-TIMING] processImageSearchWithGemini TOTAL="
+                + (System.currentTimeMillis() - _tStart) + "ms");
         BookingQuery result = new BookingQuery();
         result.data = new HashMap<>();
         result.slotList = new ArrayList<>();
         result.pitchType = "ALL";
 
         // ========== Stage 0: pHash near-duplicate match ==========
+        long _t0 = System.currentTimeMillis();
         Long uploadHash = PhashUtil.computeFromBase64(base64Image);
+        System.out.println("[IMG-TIMING] pHash compute=" + (System.currentTimeMillis() - _t0) + "ms");
         System.out.println("🔍 pHash debug: uploadHash=" + uploadHash + " indexSize=" + phashIndex.size());
         if (uploadHash != null && phashIndex.size() > 0) {
             List<PhashIndex.Hit> debugTop = phashIndex.findWithin(uploadHash, 64, 3);
@@ -452,10 +582,13 @@ public class AIChat {
                     .collect(java.util.stream.Collectors.joining(", ")));
             List<PhashIndex.Hit> hits = phashIndex.findWithin(uploadHash, 8, 5);
             if (!hits.isEmpty()) {
+                // P3: Batch fetch products thay N+1
+                List<Long> pidList = hits.stream().map(h -> h.productId).collect(Collectors.toList());
+                Map<Long, ProductResponseDTO> pmap = getProductsByIdsCached(pidList);
                 List<ProductResponseDTO> products = new ArrayList<>();
                 List<Double> scores = new ArrayList<>();
                 for (PhashIndex.Hit h : hits) {
-                    ProductResponseDTO p = productService.getProductById(h.productId, null);
+                    ProductResponseDTO p = pmap.get(h.productId);
                     if (p != null) {
                         products.add(p);
                         scores.add(1.0 - (h.distance / 64.0));
@@ -473,6 +606,7 @@ public class AIChat {
                     result.data.put("products", products);
                     result.data.put("retrievalScores", scores);
                     result.data.put("retrievalSource", "PHASH");
+                    _logTotal.run();
                     return result;
                 }
             }
@@ -483,13 +617,93 @@ public class AIChat {
         if (cleanBase64 != null && cleanBase64.contains(",")) {
             cleanBase64 = cleanBase64.substring(cleanBase64.indexOf(',') + 1);
         }
+        // P4: Resize ảnh xuống max 512px để giảm payload ML/Gemini → tăng tốc upload + inference
+        long _tResize = System.currentTimeMillis();
+        int _origLen = cleanBase64 != null ? cleanBase64.length() : 0;
+        cleanBase64 = resizeBase64(cleanBase64, 512);
+        int _newLen = cleanBase64 != null ? cleanBase64.length() : 0;
+        System.out.println("[IMG-TIMING] resize=" + (System.currentTimeMillis() - _tResize)
+                + "ms (base64 " + _origLen + "→" + _newLen + ")");
+        final String resizedForVision = cleanBase64;
 
         // Pre-call Gemini Vision để lấy caption/category/tags/productType. Nếu fail → context empty.
         String parsedCategory = null, parsedProductName = null, parsedColor = null, parsedProductType = null;
         List<String> parsedTags = new ArrayList<>();
+
+        // P2: Cache Vision parse theo uploadHash (pHash). Same image perceptually → reuse parsed JSON.
+        String visionCacheKey = uploadHash != null ? "ai:vision:phash:" + uploadHash : null;
+        JsonNode cachedVision = null;
+        if (visionCacheKey != null) {
+            try {
+                String cached = redisService.getData(visionCacheKey);
+                if (cached != null) {
+                    cachedVision = mapper.readTree(cached);
+                    System.out.println("[IMG-TIMING] Gemini Vision parse=0ms (CACHE HIT)");
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // P1: Parallel — Vision parse + ML CLIP retrieve.
+        // ML không cần Vision context bắt buộc (image alone đủ chạy CLIP).
+        // Trade-off: ML mất category hint → có thể giảm precision Stage 1 chút, nhưng tiết kiệm ~3s.
+        // Vision cache hit → bypass async, ML vẫn nhận enriched req (best of both).
+        long _tParallel = System.currentTimeMillis();
+
+        // Kick off Vision future
+        CompletableFuture<JsonNode> visionFuture;
+        if (cachedVision != null) {
+            JsonNode finalCached = cachedVision;
+            visionFuture = CompletableFuture.completedFuture(finalCached);
+        } else {
+            visionFuture = CompletableFuture.supplyAsync(() -> {
+                long _tV = System.currentTimeMillis();
+                try {
+                    JsonNode v = callGeminiVisionParse(resizedForVision);
+                    System.out.println("[IMG-TIMING] Gemini Vision parse=" + (System.currentTimeMillis() - _tV) + "ms");
+                    return v;
+                } catch (Exception e) {
+                    System.err.println("⚠️ Gemini Vision pre-parse fail: " + e.getMessage());
+                    return null;
+                }
+            });
+        }
+
+        // Kick off ML future in parallel (image-only request; vision-enriched hints would require waiting).
+        String mlUserId = sessionId != null ? String.valueOf(userService.getUserIdBySession(sessionId)) : null;
+        MLRetrieveByImageRequest mlReqEarly = MLRetrieveByImageRequest.builder()
+                .imageBase64(cleanBase64)
+                .topK(10)
+                .retrieveK(30)
+                .itemType("PRODUCT")
+                .userId(mlUserId)
+                .build();
+        CompletableFuture<MLRetrieveResponse> mlFuture = CompletableFuture.supplyAsync(() -> {
+            long _tM = System.currentTimeMillis();
+            try {
+                MLRetrieveResponse r = mlService.retrieveByImageFull(mlReqEarly);
+                System.out.println("[IMG-TIMING] ML CLIP retrieve=" + (System.currentTimeMillis() - _tM) + "ms");
+                return r;
+            } catch (Exception e) {
+                System.err.println("⚠️ ML retrieve fail: " + e.getMessage());
+                return null;
+            }
+        });
+
+        // Wait both
+        JsonNode visionJson = null;
+        MLRetrieveResponse mlResEarly = null;
         try {
-            JsonNode visionJson = callGeminiVisionParse(base64Image);
-            if (visionJson != null) {
+            CompletableFuture.allOf(visionFuture, mlFuture).get(25, TimeUnit.SECONDS);
+            visionJson = visionFuture.getNow(null);
+            mlResEarly = mlFuture.getNow(null);
+        } catch (Exception e) {
+            System.err.println("⚠️ Parallel future timeout/error: " + e.getMessage());
+            visionJson = visionFuture.getNow(null);
+            mlResEarly = mlFuture.getNow(null);
+        }
+
+        if (visionJson != null) {
+            try {
                 List<String> rawTags = mapper.convertValue(visionJson.path("tags"),
                         new TypeReference<List<String>>(){});
                 parsedTags = sanitizeTags(rawTags);
@@ -497,10 +711,19 @@ public class AIChat {
                 parsedProductName = visionJson.path("productName").asText("");
                 parsedColor = visionJson.path("color").asText("");
                 parsedProductType = visionJson.path("productType").asText("");
+
+                if (cachedVision == null && visionCacheKey != null) {
+                    try {
+                        redisService.saveDataWithTTL(visionCacheKey, mapper.writeValueAsString(visionJson),
+                                7, TimeUnit.DAYS);
+                    } catch (Exception ignored) {}
+                }
+            } catch (Exception e) {
+                System.err.println("⚠️ Vision json convert fail: " + e.getMessage());
             }
-        } catch (Exception e) {
-            System.err.println("⚠️ Gemini Vision pre-parse fail: " + e.getMessage());
         }
+        final MLRetrieveResponse mlResultEarly = mlResEarly;
+        System.out.println("[IMG-TIMING] Parallel phase total=" + (System.currentTimeMillis() - _tParallel) + "ms");
 
         try {
             // Tier 1: narrower productType (SHOES/TOP/BOTTOM/DRESS...) → STANDARD-level
@@ -524,18 +747,8 @@ public class AIChat {
                     String.join(" ", parsedTags)
             ).trim();
 
-            MLRetrieveByImageRequest mlReq = MLRetrieveByImageRequest.builder()
-                    .imageBase64(cleanBase64)
-                    .caption(caption)
-                    .geminiTags(parsedTags)
-                    .categoryIds(categoryIds)
-                    .topK(10)
-                    .retrieveK(30)
-                    .itemType("PRODUCT")
-                    .userId(sessionId != null ? String.valueOf(userService.getUserIdBySession(sessionId)) : null)
-                    .build();
-
-            MLRetrieveResponse mlRes = mlService.retrieveByImageFull(mlReq);
+            // P1: ML đã chạy parallel ở trên, dùng kết quả pre-fetched.
+            MLRetrieveResponse mlRes = mlResultEarly;
             List<MLItemResult> clipHits = mlRes != null ? mlRes.getResults() : null;
             if (clipHits != null && !clipHits.isEmpty()) {
                 System.out.println("🔍 Hybrid CLIP top scores: " + clipHits.stream()
@@ -545,19 +758,29 @@ public class AIChat {
                         + " | ml_latency=" + (mlRes.getLatencyMs() != null ? mlRes.getLatencyMs() + "ms" : "n/a"));
                 // Use ML-configured threshold (centralized in ml/config.py), fallback 0.005
                 final double THRESHOLD = (mlRes.getRrfThreshold() != null) ? mlRes.getRrfThreshold() : 0.005;
-                List<ProductResponseDTO> products = new ArrayList<>();
-                List<Double> scores = new ArrayList<>();
+                // P3: Batch fetch — thu thập pid + score, query 1 lần
+                List<Long> pidOrder = new ArrayList<>();
+                List<Double> scoreOrder = new ArrayList<>();
                 for (MLItemResult h : clipHits) {
                     if (h.getItemId() == null) continue;
                     if (h.getScore() == null || h.getScore() < THRESHOLD) continue;
                     try {
-                        Long pid = Long.parseLong(h.getItemId());
-                        ProductResponseDTO p = productService.getProductById(pid, null);
-                        if (p != null) {
-                            products.add(p);
-                            scores.add(h.getScore());
-                        }
+                        pidOrder.add(Long.parseLong(h.getItemId()));
+                        scoreOrder.add(h.getScore());
                     } catch (NumberFormatException ignored) {}
+                }
+                long _tDb = System.currentTimeMillis();
+                Map<Long, ProductResponseDTO> pmap = getProductsByIdsCached(pidOrder);
+                System.out.println("[IMG-TIMING] getProductsByIdsCached(" + pidOrder.size() + ")="
+                        + (System.currentTimeMillis() - _tDb) + "ms");
+                List<ProductResponseDTO> products = new ArrayList<>();
+                List<Double> scores = new ArrayList<>();
+                for (int i = 0; i < pidOrder.size(); i++) {
+                    ProductResponseDTO p = pmap.get(pidOrder.get(i));
+                    if (p != null) {
+                        products.add(p);
+                        scores.add(scoreOrder.get(i));
+                    }
                 }
                 if (!products.isEmpty()) {
                     Double topClipCosine = clipHits.get(0).getClipScore();
@@ -587,6 +810,7 @@ public class AIChat {
                         result.data.put("retrievalScores", scores);
                         result.data.put("extractedTags", parsedTags);
                         result.data.put("retrievalSource", "CLIP_HYBRID");
+                        _logTotal.run();
                         return result;
                     }
                 }
@@ -687,6 +911,7 @@ public class AIChat {
         } catch (Exception e) {
             System.err.println("Không thể ghi log CHAT_IMAGE_SEARCH: " + e.getMessage());
         }
+        _logTotal.run();
         return result;
     }
 
@@ -775,7 +1000,7 @@ public class AIChat {
         if (query.data == null) query.data = new HashMap<>();
 
         UUID userId = userService.getUserIdBySession(sessionId);
-        List<ProductResponseDTO> products = productService.getProductsForAiAssistant(userId);
+        List<ProductResponseDTO> products = getProductsForAiAssistantCached(userId);
         String action = (String) query.data.get("action");
         String productName = (String) query.data.get("productName");
 
@@ -1245,7 +1470,7 @@ public class AIChat {
             PitchEnvironment env = suggestEnvironmentByWeather(weather);
 
             List<PitchResponseDTO> suggestedPitches =
-                    pitchService.getAllPitches(PageRequest.of(0, 50), null, null, null).getContent().stream()
+                    getAllPitchesCached().stream()
                             .filter(p -> p.getEnvironment() == env)
                             .limit(5)
                             .toList();
@@ -1450,7 +1675,7 @@ public class AIChat {
         }
 
         if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
-            results = productService.getProductsForAiAssistant(userId).stream()
+            results = getProductsForAiAssistantCached(userId).stream()
                     .filter(p -> p.getCategoryName() != null &&
                             resolvedCategories.contains(p.getCategoryName()))
                     .limit(12)
@@ -1540,7 +1765,7 @@ public class AIChat {
             return query;
         }
 
-        List<PitchResponseDTO> allPitches = pitchService.getAllPitches(PageRequest.of(0, 50), null, null, null).getContent();
+        List<PitchResponseDTO> allPitches = getAllPitchesCached();
         String finalPrompt = buildSystemPrompt(allPitches);
 
         BookingQuery query;
@@ -2043,6 +2268,7 @@ public class AIChat {
             ObjectNode generationConfig = rootNode.putObject("generationConfig");
             generationConfig.put("temperature", 0.1);
             generationConfig.put("response_mime_type", "application/json");
+            generationConfig.put("maxOutputTokens", 512);
 
             Request request = new Request.Builder()
                     .url(GEMINI_API_URL + GOOGLE_API_KEY)
@@ -2246,7 +2472,7 @@ public class AIChat {
     }
 
     public PitchResponseDTO findPitchByContext(String userInput) {
-        List<PitchResponseDTO> pitches = pitchService.getAllPitches(PageRequest.of(0, 50), null, null, null).getContent();
+        List<PitchResponseDTO> pitches = getAllPitchesCached();
         if (userInput.contains("rẻ nhất")) {
             return pitches.stream()
                     .min(Comparator.comparing(PitchResponseDTO::getPrice))

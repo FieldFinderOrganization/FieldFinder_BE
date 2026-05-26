@@ -39,10 +39,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push ML image
+      - name: Build and push ML GPU image
         uses: docker/build-push-action@v5
         with:
           context: ./ml
+          file: ./ml/Dockerfile.gpu
           push: true
           tags: minhtriet004/fieldfinder-ml:latest
 
@@ -58,10 +59,13 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             cd ~/FieldFinder_BE
-            # Rewrite compose: BE build → image
-            sed -i 's|build: \.|image: minhtriet004/fieldfinder-be:latest|' docker-compose.yml
-            # Rewrite compose: ML build context → image
-            sed -i '/^  ml:/,/^  [a-z]/ { s|build:.*|image: minhtriet004/fieldfinder-ml:latest|; /context:/d; /dockerfile:/d; }' docker-compose.yml
-            # Pull + restart both
-            sudo docker compose pull app ml
-            sudo docker compose up -d app ml
+            git pull origin main
+            # Set image tags via env (compose dùng ${BE_IMAGE} / ${ML_IMAGE})
+            export BE_IMAGE=minhtriet004/fieldfinder-be:latest
+            export ML_IMAGE=minhtriet004/fieldfinder-ml:latest
+            # Pull image mới từ Hub
+            sudo -E docker compose pull app ml
+            # Restart với image mới
+            sudo -E docker compose up -d app ml
+            # Prune image cũ tiết kiệm disk
+            sudo docker image prune -f

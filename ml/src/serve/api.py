@@ -5,8 +5,12 @@ Run:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import pickle
+import time
+from collections import OrderedDict
+from threading import Lock
 from typing import Optional
 
 import numpy as np
@@ -23,6 +27,50 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="FieldFinder ML API", version="1.0.0")
+
+
+# ============== Image retrieve LRU cache ==============
+# Cache full /retrieve/image response by hash(image_bytes + top_k + retrieve_k + caption + category_ids).
+# Same image resubmit → near-instant return. TTL 1 hour. Max 256 entries.
+_IMG_CACHE_MAX = 256
+_IMG_CACHE_TTL_SEC = 3600
+_img_cache: "OrderedDict[str, tuple[float, dict]]" = OrderedDict()
+_img_cache_lock = Lock()
+
+
+def _img_cache_key(img_bytes: bytes, caption: str, gemini_tags, category_ids,
+                   top_k: int, retrieve_k: int) -> str:
+    h = hashlib.sha256()
+    h.update(img_bytes)
+    h.update(b"|c=")
+    h.update((caption or "").encode("utf-8"))
+    h.update(b"|t=")
+    h.update(",".join(sorted(gemini_tags or [])).encode("utf-8"))
+    h.update(b"|ci=")
+    h.update(",".join(map(str, sorted(category_ids or []))).encode("utf-8"))
+    h.update(f"|k={top_k}|rk={retrieve_k}".encode("utf-8"))
+    return h.hexdigest()
+
+
+def _img_cache_get(key: str):
+    with _img_cache_lock:
+        entry = _img_cache.get(key)
+        if entry is None:
+            return None
+        ts, val = entry
+        if time.time() - ts > _IMG_CACHE_TTL_SEC:
+            _img_cache.pop(key, None)
+            return None
+        _img_cache.move_to_end(key)
+        return val
+
+
+def _img_cache_put(key: str, val: dict):
+    with _img_cache_lock:
+        _img_cache[key] = (time.time(), val)
+        _img_cache.move_to_end(key)
+        while len(_img_cache) > _IMG_CACHE_MAX:
+            _img_cache.popitem(last=False)
 
 
 # ============== Schemas ==============
@@ -191,6 +239,14 @@ async def retrieve_image(req: ImageRetrieveRequest):
     except Exception:
         raise HTTPException(400, "invalid base64")
 
+    # LRU cache lookup — same image+params = skip full pipeline
+    cache_key = _img_cache_key(img_bytes, req.caption or "", req.gemini_tags,
+                                req.category_ids, req.top_k, req.retrieve_k)
+    cached = _img_cache_get(cache_key)
+    if cached is not None:
+        log.info("Image retrieve CACHE HIT key=%s", cache_key[:12])
+        return {**cached, "cache_hit": True}
+
     img = load_image_from_bytes(img_bytes)
     if img is None:
         raise HTTPException(400, "cannot decode image")
@@ -210,11 +266,13 @@ async def retrieve_image(req: ImageRetrieveRequest):
         user_id=req.user_id,
     )
     latency_ms = hits[0].get("latency_ms") if hits else None
-    return {
+    response = {
         "results": hits,
         "latency_ms": latency_ms,
         "rrf_threshold": C.IMAGE_RRF_RETURN_THRESHOLD,
     }
+    _img_cache_put(cache_key, response)
+    return response
 
 
 @app.post("/retrieve")

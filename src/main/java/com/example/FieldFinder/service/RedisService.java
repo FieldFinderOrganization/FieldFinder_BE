@@ -29,8 +29,23 @@ public class RedisService {
         redisTemplate.opsForValue().set(key, value);
     }
 
+    public void saveDataWithTTL(String key, String value, long ttl, TimeUnit unit) {
+        redisTemplate.opsForValue().set(key, value, ttl, unit);
+    }
+
     public String getData(String key) {
         return redisTemplate.opsForValue().get(key);
+    }
+
+    public void deleteData(String key) {
+        redisTemplate.delete(key);
+    }
+
+    public void deleteByPattern(String pattern) {
+        java.util.Set<String> keys = redisTemplate.keys(pattern);
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
     }
 
     public boolean isUserBanned(String email) {
