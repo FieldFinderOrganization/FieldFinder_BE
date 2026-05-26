@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 
 @SpringBootApplication
 @EnableCaching
-@EnableAsync
+@EnableAsync(proxyTargetClass = true)
 @org.springframework.scheduling.annotation.EnableScheduling
 public class FieldFinderApplication {
 
