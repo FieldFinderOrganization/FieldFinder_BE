@@ -210,6 +210,58 @@ public class ProductServiceImpl implements ProductService {
         return dto;
     }
 
+    /**
+     * Overlay per-user discount lên DTO ĐÃ cached từ base.
+     * @param product entity Product (vừa load batch)
+     * @param baseDto DTO base (clone-friendly, sẽ mutate fields)
+     * @param usedDiscountIds list discount user đã dùng (load 1 lần ngoài vòng)
+     * @param userWallet wallet user (load 1 lần ngoài vòng)
+     * @return DTO mới với salePrice + codes theo user
+     */
+    private ProductResponseDTO applyUserOverlay(Product product,
+                                                 ProductResponseDTO baseDto,
+                                                 List<UUID> usedDiscountIds,
+                                                 List<UserDiscount> userWallet) {
+        List<Discount> allDiscounts = getPublicDiscounts(product);
+        if (usedDiscountIds != null && !usedDiscountIds.isEmpty()) {
+            allDiscounts.removeIf(d -> usedDiscountIds.contains(d.getDiscountId()));
+        }
+        List<String> walletDiscountCodes = new ArrayList<>();
+        List<String> availableGlobalCodes = new ArrayList<>();
+        Set<UUID> addedIds = allDiscounts.stream().map(Discount::getDiscountId).collect(Collectors.toSet());
+
+        for (UserDiscount ud : userWallet) {
+            Discount d = ud.getDiscount();
+            if (usedDiscountIds != null && usedDiscountIds.contains(d.getDiscountId())) continue;
+            if (!DiscountEligibilityUtil.isEligibleForProductPreview(d, product)) continue;
+
+            if (!addedIds.contains(d.getDiscountId())
+                    && d.getScope() != Discount.DiscountScope.GLOBAL) {
+                allDiscounts.add(d);
+                addedIds.add(d.getDiscountId());
+            }
+            if (d.getScope() == Discount.DiscountScope.GLOBAL) {
+                if (!availableGlobalCodes.contains(d.getCode())) availableGlobalCodes.add(d.getCode());
+            } else {
+                if (!walletDiscountCodes.contains(d.getCode())) walletDiscountCodes.add(d.getCode());
+            }
+        }
+
+        product.calculateSalePriceForUser(allDiscounts);
+
+        // Clone shallow để tránh mutate cached object (Spring cache returns shared ref)
+        ProductResponseDTO dto = ProductResponseDTO.fromEntity(product);
+        dto.setSalePrice(product.getSalePrice());
+        dto.setSalePercent(product.getOnSalePercent());
+        if (!walletDiscountCodes.isEmpty()) dto.setAppliedDiscountCodes(walletDiscountCodes);
+        else dto.setAppliedDiscountCodes(null);
+        if (!availableGlobalCodes.isEmpty()) dto.setAvailableGlobalCodes(availableGlobalCodes);
+        else dto.setAvailableGlobalCodes(null);
+        // Preserve base fields from baseDto if needed (tags, variants...)
+        // ProductResponseDTO.fromEntity already loads all needed.
+        return dto;
+    }
+
     @Override
     @Transactional
     @Caching(evict = {
@@ -305,16 +357,43 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId) {
-        return self.getAllProductsCached(pageable, categoryId, genders, brand, userId).toPage();
+        // Lấy page base từ cache (không kèm userId trong key — share giữa users).
+        CachedPage<ProductResponseDTO> basePage = self.getAllProductsCached(pageable, categoryId, genders, brand);
+        if (userId == null || basePage.content().isEmpty()) {
+            return basePage.toPage();
+        }
+
+        // Overlay per-user discount/wallet — batch load + apply trên page (≤ 20 items)
+        List<Long> productIds = basePage.content().stream()
+                .map(ProductResponseDTO::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        Map<Long, Product> productMap = productRepository.findAllById(productIds)
+                .stream().collect(Collectors.toMap(Product::getProductId, p -> p));
+
+        List<UUID> usedDiscountIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
+        List<UserDiscount> userWallet = userDiscountRepository.findWalletByUserId(userId)
+                .stream().filter(ud -> !ud.isUsed()).collect(Collectors.toList());
+
+        List<ProductResponseDTO> overlaid = basePage.content().stream()
+                .map(baseDto -> {
+                    Product p = productMap.get(baseDto.getId());
+                    if (p == null) return baseDto;
+                    return applyUserOverlay(p, baseDto, usedDiscountIds, userWallet);
+                })
+                .collect(Collectors.toList());
+
+        return new PageImpl<>(overlaid, pageable, basePage.totalElements());
     }
 
+    /**
+     * Base cache: cache theo (pageable, categoryId, genders, brand) — KHÔNG kèm userId.
+     * Mọi user share cache. Per-user discount apply post-cache trong getAllProducts.
+     */
     @Transactional(readOnly = true)
     @Cacheable(value = "products_category", keyGenerator = "productListCacheKeyGenerator")
-    public CachedPage<ProductResponseDTO> getAllProductsCached(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId) {
-        List<UUID> usedDiscountIds = (userId != null)
-                ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
-                : Collections.emptyList();
-
+    public CachedPage<ProductResponseDTO> getAllProductsCached(Pageable pageable, Long categoryId, Set<String> genders, String brand) {
         Set<Long> categoryIds = null;
         String effectiveBrand = brand;
 
@@ -337,9 +416,10 @@ public class ProductServiceImpl implements ProductService {
 
         Page<Product> products = productRepository.findAll(spec, pageable);
 
+        // Base DTO: không có wallet/used. salePrice từ public discounts only.
         List<ProductResponseDTO> dtos = products.getContent()
                 .stream()
-                .map(p -> mapToResponse(p, usedDiscountIds, userId))
+                .map(p -> mapToResponse(p, Collections.emptyList(), null))
                 .toList();
 
         return CachedPage.from(new PageImpl<>(dtos, pageable, products.getTotalElements()));
@@ -348,18 +428,34 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public List<ProductResponseDTO> getProductsForAiAssistant(UUID userId) {
-        return self.getProductsForAiAssistantCached(userId);
+        // Base list cached (no userId). Overlay sẽ apply trong AIChat flow nếu cần.
+        // AI flow hiện gọi với userId=null hầu hết → base cache hit luôn.
+        List<ProductResponseDTO> base = self.getProductsForAiAssistantCached();
+        if (userId == null) return base;
+
+        // Apply overlay nếu userId — batch
+        List<Long> ids = base.stream().map(ProductResponseDTO::getId).filter(Objects::nonNull).collect(Collectors.toList());
+        if (ids.isEmpty()) return base;
+        Map<Long, Product> pmap = productRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(Product::getProductId, p -> p));
+        List<UUID> usedDiscountIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
+        List<UserDiscount> wallet = userDiscountRepository.findWalletByUserId(userId)
+                .stream().filter(ud -> !ud.isUsed()).collect(Collectors.toList());
+        return base.stream().map(d -> {
+            Product p = pmap.get(d.getId());
+            return p != null ? applyUserOverlay(p, d, usedDiscountIds, wallet) : d;
+        }).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "ai_catalog", key = "'ai_' + (#userId != null ? #userId.toString() : 'anon')")
-    public List<ProductResponseDTO> getProductsForAiAssistantCached(UUID userId) {
+    @Cacheable(value = "ai_catalog", key = "'ai_base'")
+    public List<ProductResponseDTO> getProductsForAiAssistantCached() {
         List<ProductResponseDTO> all = new ArrayList<>();
         int pageIdx = 0;
         final int pageSize = 100;
         CachedPage<ProductResponseDTO> chunk;
         do {
-            chunk = self.getAllProductsCached(PageRequest.of(pageIdx, pageSize), null, null, null, userId);
+            chunk = self.getAllProductsCached(PageRequest.of(pageIdx, pageSize), null, null, null);
             all.addAll(chunk.content());
             pageIdx++;
         } while (chunk.hasNext());
