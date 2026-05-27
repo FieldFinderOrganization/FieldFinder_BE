@@ -30,4 +30,25 @@ public interface DiscountRepository extends JpaRepository<Discount, UUID> {
             @Param("productId") Long productId,
             @Param("categoryIds") List<Long> categoryIds
     );
+
+    /**
+     * Batch version: load tất cả discount applicable cho list productIds + categoryIds trong 1 query.
+     * Caller dùng map theo product/category để dispatch lại từng product.
+     */
+    @Query("SELECT DISTINCT d FROM Discount d " +
+            "LEFT JOIN FETCH d.applicableProducts " +
+            "LEFT JOIN FETCH d.applicableCategories " +
+            "WHERE d.status = 'ACTIVE' " +
+            "AND CURRENT_DATE BETWEEN d.startDate AND d.endDate " +
+            "AND (" +
+            "   d.scope = 'GLOBAL' " +
+            "   OR (d.scope = 'SPECIFIC_PRODUCT' AND EXISTS (" +
+            "       SELECT 1 FROM d.applicableProducts p2 WHERE p2.productId IN :productIds)) " +
+            "   OR (d.scope = 'CATEGORY' AND EXISTS (" +
+            "       SELECT 1 FROM d.applicableCategories c2 WHERE c2.categoryId IN :categoryIds)) " +
+            ")")
+    List<Discount> findApplicableDiscountsForProductsBatch(
+            @Param("productIds") List<Long> productIds,
+            @Param("categoryIds") List<Long> categoryIds
+    );
 }

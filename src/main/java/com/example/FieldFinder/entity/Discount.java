@@ -49,6 +49,7 @@ public class Discount {
     private DiscountScope scope;
 
     @ManyToMany(fetch = FetchType.LAZY)
+    @org.hibernate.annotations.BatchSize(size = 50)
     @JoinTable(
             name = "Discount_Product_Applicable",
             joinColumns = @JoinColumn(name = "DiscountId"),
@@ -58,6 +59,7 @@ public class Discount {
     private Set<Product> applicableProducts = new HashSet<>();
 
     @ManyToMany(fetch = FetchType.LAZY)
+    @org.hibernate.annotations.BatchSize(size = 50)
     @JoinTable(
             name = "Discount_Category_Applicable",
             joinColumns = @JoinColumn(name = "DiscountId"),

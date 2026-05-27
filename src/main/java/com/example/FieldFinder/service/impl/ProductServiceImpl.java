@@ -117,6 +117,74 @@ public class ProductServiceImpl implements ProductService {
         return publicDiscounts;
     }
 
+    /**
+     * Batch precompute publicDiscounts cho list Product (page) trong 1 query DB.
+     * Trả Map productId → list discount applicable cho product đó.
+     * Tránh N queries findApplicableDiscountsForProduct mỗi product.
+     */
+    private Map<Long, List<Discount>> precomputePublicDiscountsForProducts(List<Product> products) {
+        if (products == null || products.isEmpty()) return Collections.emptyMap();
+
+        Set<Long> allProductIds = new HashSet<>();
+        Set<Long> allCategoryIds = new HashSet<>();
+        Map<Long, Set<Long>> productAncestors = new HashMap<>();
+
+        for (Product p : products) {
+            allProductIds.add(p.getProductId());
+            Set<Long> ancestors = new HashSet<>();
+            Category c = p.getCategory();
+            while (c != null) {
+                ancestors.add(c.getCategoryId());
+                c = c.getParent();
+            }
+            productAncestors.put(p.getProductId(), ancestors);
+            allCategoryIds.addAll(ancestors);
+        }
+
+        List<Discount> allDiscounts = allProductIds.isEmpty()
+                ? Collections.emptyList()
+                : discountRepository.findApplicableDiscountsForProductsBatch(
+                        new ArrayList<>(allProductIds),
+                        allCategoryIds.isEmpty() ? List.of(-1L) : new ArrayList<>(allCategoryIds));
+
+        Map<Long, List<Discount>> result = new HashMap<>();
+        for (Product p : products) {
+            Long pid = p.getProductId();
+            Set<Long> ancestors = productAncestors.getOrDefault(pid, Collections.emptySet());
+            Set<UUID> seen = new HashSet<>();
+            List<Discount> matched = new ArrayList<>();
+
+            for (Discount d : allDiscounts) {
+                if (!seen.add(d.getDiscountId())) continue;
+                boolean applicable = false;
+                if (d.getScope() == Discount.DiscountScope.GLOBAL) {
+                    applicable = true;
+                } else if (d.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
+                    applicable = d.getApplicableProducts() != null && d.getApplicableProducts().stream()
+                            .anyMatch(ap -> ap.getProductId().equals(pid));
+                } else if (d.getScope() == Discount.DiscountScope.CATEGORY) {
+                    applicable = d.getApplicableCategories() != null && d.getApplicableCategories().stream()
+                            .anyMatch(ac -> ancestors.contains(ac.getCategoryId()));
+                }
+                if (applicable) matched.add(d);
+                else seen.remove(d.getDiscountId());  // allow re-add for other products
+            }
+
+            // Bổ sung từ product.discounts (ProductDiscount)
+            if (p.getDiscounts() != null) {
+                Set<UUID> matchedIds = matched.stream().map(Discount::getDiscountId).collect(Collectors.toSet());
+                for (ProductDiscount pd : p.getDiscounts()) {
+                    Discount d = pd.getDiscount();
+                    if (d != null && matchedIds.add(d.getDiscountId())) {
+                        matched.add(d);
+                    }
+                }
+            }
+            result.put(pid, matched);
+        }
+        return result;
+    }
+
     private void calculateAndSetUserPrice(Product product, List<UUID> usedDiscountIds) {
         // 1. Lấy mã công khai
         List<Discount> allDiscounts = getPublicDiscounts(product);
@@ -156,13 +224,23 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds) {
-        return mapToResponse(product, usedDiscountIds, null);
+        return mapToResponse(product, usedDiscountIds, null, null);
     }
 
     private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds, UUID userId) {
+        return mapToResponse(product, usedDiscountIds, userId, null);
+    }
+
+    /**
+     * @param preloadedPublicDiscounts list discount đã batch-load trước (skip DB query if non-null).
+     */
+    private ProductResponseDTO mapToResponse(Product product, List<UUID> usedDiscountIds, UUID userId,
+                                              List<Discount> preloadedPublicDiscounts) {
         if (product == null) return null;
 
-        List<Discount> allDiscounts = getPublicDiscounts(product);
+        List<Discount> allDiscounts = preloadedPublicDiscounts != null
+                ? new ArrayList<>(preloadedPublicDiscounts)
+                : getPublicDiscounts(product);
         if (usedDiscountIds != null && !usedDiscountIds.isEmpty()) {
             allDiscounts.removeIf(d -> usedDiscountIds.contains(d.getDiscountId()));
         }
@@ -222,7 +300,17 @@ public class ProductServiceImpl implements ProductService {
                                                  ProductResponseDTO baseDto,
                                                  List<UUID> usedDiscountIds,
                                                  List<UserDiscount> userWallet) {
-        List<Discount> allDiscounts = getPublicDiscounts(product);
+        return applyUserOverlay(product, baseDto, usedDiscountIds, userWallet, null);
+    }
+
+    private ProductResponseDTO applyUserOverlay(Product product,
+                                                 ProductResponseDTO baseDto,
+                                                 List<UUID> usedDiscountIds,
+                                                 List<UserDiscount> userWallet,
+                                                 List<Discount> preloadedPublicDiscounts) {
+        List<Discount> allDiscounts = preloadedPublicDiscounts != null
+                ? new ArrayList<>(preloadedPublicDiscounts)
+                : getPublicDiscounts(product);
         if (usedDiscountIds != null && !usedDiscountIds.isEmpty()) {
             allDiscounts.removeIf(d -> usedDiscountIds.contains(d.getDiscountId()));
         }
@@ -369,8 +457,12 @@ public class ProductServiceImpl implements ProductService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
-        Map<Long, Product> productMap = productRepository.findAllById(productIds)
-                .stream().collect(Collectors.toMap(Product::getProductId, p -> p));
+        List<Product> productList = productRepository.findAllById(productIds);
+        Map<Long, Product> productMap = productList.stream()
+                .collect(Collectors.toMap(Product::getProductId, p -> p));
+
+        // Batch precompute public discounts cho page (1 query thay N)
+        Map<Long, List<Discount>> discountsMap = precomputePublicDiscountsForProducts(productList);
 
         List<UUID> usedDiscountIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
         List<UserDiscount> userWallet = userDiscountRepository.findWalletByUserId(userId)
@@ -380,7 +472,8 @@ public class ProductServiceImpl implements ProductService {
                 .map(baseDto -> {
                     Product p = productMap.get(baseDto.getId());
                     if (p == null) return baseDto;
-                    return applyUserOverlay(p, baseDto, usedDiscountIds, userWallet);
+                    return applyUserOverlay(p, baseDto, usedDiscountIds, userWallet,
+                            discountsMap.getOrDefault(p.getProductId(), Collections.emptyList()));
                 })
                 .collect(Collectors.toList());
 
@@ -416,10 +509,14 @@ public class ProductServiceImpl implements ProductService {
 
         Page<Product> products = productRepository.findAll(spec, pageable);
 
+        // Batch precompute public discounts cho cả page (1 query thay N)
+        Map<Long, List<Discount>> discountsMap = precomputePublicDiscountsForProducts(products.getContent());
+
         // Base DTO: không có wallet/used. salePrice từ public discounts only.
         List<ProductResponseDTO> dtos = products.getContent()
                 .stream()
-                .map(p -> mapToResponse(p, Collections.emptyList(), null))
+                .map(p -> mapToResponse(p, Collections.emptyList(), null,
+                        discountsMap.getOrDefault(p.getProductId(), Collections.emptyList())))
                 .toList();
 
         return CachedPage.from(new PageImpl<>(dtos, pageable, products.getTotalElements()));
@@ -436,14 +533,17 @@ public class ProductServiceImpl implements ProductService {
         // Apply overlay nếu userId — batch
         List<Long> ids = base.stream().map(ProductResponseDTO::getId).filter(Objects::nonNull).collect(Collectors.toList());
         if (ids.isEmpty()) return base;
-        Map<Long, Product> pmap = productRepository.findAllById(ids).stream()
+        List<Product> productList = productRepository.findAllById(ids);
+        Map<Long, Product> pmap = productList.stream()
                 .collect(Collectors.toMap(Product::getProductId, p -> p));
+        Map<Long, List<Discount>> discountsMap = precomputePublicDiscountsForProducts(productList);
         List<UUID> usedDiscountIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
         List<UserDiscount> wallet = userDiscountRepository.findWalletByUserId(userId)
                 .stream().filter(ud -> !ud.isUsed()).collect(Collectors.toList());
         return base.stream().map(d -> {
             Product p = pmap.get(d.getId());
-            return p != null ? applyUserOverlay(p, d, usedDiscountIds, wallet) : d;
+            return p != null ? applyUserOverlay(p, d, usedDiscountIds, wallet,
+                    discountsMap.getOrDefault(p.getProductId(), Collections.emptyList())) : d;
         }).collect(Collectors.toList());
     }
 

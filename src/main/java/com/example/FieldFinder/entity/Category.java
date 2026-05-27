@@ -28,7 +28,8 @@ public class Category {
     @Builder.Default
     private CategoryType categoryType = CategoryType.STANDARD;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
+    @org.hibernate.annotations.BatchSize(size = 50)
     @JoinColumn(name = "parent_id")
     private Category parent;
 

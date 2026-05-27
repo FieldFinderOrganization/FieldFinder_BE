@@ -39,6 +39,7 @@ public class Product {
     private Set<String> tags = new HashSet<>();
 
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @org.hibernate.annotations.BatchSize(size = 50)
     private List<ProductVariant> variants;
 
     @Column(columnDefinition = "TEXT")
@@ -48,6 +49,7 @@ public class Product {
     private Long imagePhash;
 
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @org.hibernate.annotations.BatchSize(size = 50)
     @Builder.Default
     private List<ProductDiscount> discounts = new ArrayList<>();
 
