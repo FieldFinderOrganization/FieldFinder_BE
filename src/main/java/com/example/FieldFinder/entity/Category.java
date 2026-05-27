@@ -12,6 +12,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@org.hibernate.annotations.BatchSize(size = 50)
 public class Category {
 
     @Id
@@ -29,7 +30,6 @@ public class Category {
     private CategoryType categoryType = CategoryType.STANDARD;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @org.hibernate.annotations.BatchSize(size = 50)
     @JoinColumn(name = "parent_id")
     private Category parent;
 

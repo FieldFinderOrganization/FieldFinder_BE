@@ -57,6 +57,7 @@ jobs:
           host: ${{ secrets.HOST_IP }}
           username: ${{ secrets.HOST_USER }}
           key: ${{ secrets.SSH_KEY }}
+          command_timeout: 30m
           script: |
             cd ~/FieldFinder_BE
             git pull origin main
