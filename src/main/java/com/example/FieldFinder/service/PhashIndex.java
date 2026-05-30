@@ -26,7 +26,8 @@ public class PhashIndex {
         refresh();
     }
 
-    @Scheduled(fixedDelay = 60_000)
+    /** Full refresh — 5 phút (tránh spam DB mỗi 60s). Cập nhật đơn lẻ qua {@link #put}. */
+    @Scheduled(fixedDelay = 300_000, initialDelay = 300_000)
     public void refresh() {
         List<Object[]> rows = productRepository.findAllProductIdAndPhash();
         Map<Long, Long> next = new HashMap<>(rows.size() * 2);
@@ -36,6 +37,7 @@ public class PhashIndex {
             if (id != null && h != null) next.put(id, h);
         }
         cache = next;
+        System.out.println("PhashIndex refresh: " + next.size() + " phash entries");
     }
 
     public static class Hit {

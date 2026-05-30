@@ -79,17 +79,35 @@ public class ProductServiceImpl implements ProductService {
         this.phashIndex = phashIndex;
     }
 
+    private Map<Long, Long> loadCategoryParentById() {
+        Map<Long, Long> parentById = new HashMap<>();
+        for (Object[] row : categoryRepository.findAllCategoryIdAndParentId()) {
+            Long id = (Long) row[0];
+            if (id != null) {
+                parentById.put(id, (Long) row[1]);
+            }
+        }
+        return parentById;
+    }
+
+    private Set<Long> collectCategoryAncestorIds(Long categoryId, Map<Long, Long> parentById) {
+        Set<Long> ancestors = new LinkedHashSet<>();
+        Long current = categoryId;
+        while (current != null) {
+            ancestors.add(current);
+            current = parentById.get(current);
+        }
+        return ancestors;
+    }
+
     private List<Discount> getPublicDiscounts(Product product) {
         List<Discount> publicDiscounts = new ArrayList<>();
         Set<UUID> existingIds = new HashSet<>();
 
         if (product.getCategory() != null) {
-            List<Long> categoryIds = new ArrayList<>();
-            Category current = product.getCategory();
-            while (current != null) {
-                categoryIds.add(current.getCategoryId());
-                current = current.getParent();
-            }
+            Map<Long, Long> parentById = loadCategoryParentById();
+            List<Long> categoryIds = new ArrayList<>(
+                    collectCategoryAncestorIds(product.getCategory().getCategoryId(), parentById));
 
             if (!categoryIds.isEmpty()) {
                 List<Discount> implicitDiscounts = discountRepository.findApplicableDiscountsForProduct(
@@ -128,14 +146,13 @@ public class ProductServiceImpl implements ProductService {
         Set<Long> allProductIds = new HashSet<>();
         Set<Long> allCategoryIds = new HashSet<>();
         Map<Long, Set<Long>> productAncestors = new HashMap<>();
+        Map<Long, Long> parentById = loadCategoryParentById();
 
         for (Product p : products) {
             allProductIds.add(p.getProductId());
-            Set<Long> ancestors = new HashSet<>();
-            Category c = p.getCategory();
-            while (c != null) {
-                ancestors.add(c.getCategoryId());
-                c = c.getParent();
+            Set<Long> ancestors = Collections.emptySet();
+            if (p.getCategory() != null) {
+                ancestors = collectCategoryAncestorIds(p.getCategory().getCategoryId(), parentById);
             }
             productAncestors.put(p.getProductId(), ancestors);
             allCategoryIds.addAll(ancestors);
@@ -426,7 +443,8 @@ public class ProductServiceImpl implements ProductService {
     public Map<Long, ProductResponseDTO> getProductsByIds(List<Long> ids, UUID userId) {
         if (ids == null || ids.isEmpty()) return Collections.emptyMap();
 
-        List<Product> products = productRepository.findAllById(ids);
+        List<Product> products = productRepository.findAllListViewByIds(ids);
+        Map<Long, List<Discount>> discountsMap = precomputePublicDiscountsForProducts(products);
         List<UUID> usedDiscountIds = (userId != null)
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
@@ -434,7 +452,8 @@ public class ProductServiceImpl implements ProductService {
         Map<Long, ProductResponseDTO> out = new LinkedHashMap<>();
         for (Product p : products) {
             try {
-                out.put(p.getProductId(), mapToResponse(p, usedDiscountIds, userId));
+                out.put(p.getProductId(), mapToResponse(p, usedDiscountIds, userId,
+                        discountsMap.getOrDefault(p.getProductId(), Collections.emptyList())));
             } catch (Exception e) {
                 System.err.println("getProductsByIds map fail pid=" + p.getProductId() + ": " + e.getMessage());
             }
@@ -457,11 +476,10 @@ public class ProductServiceImpl implements ProductService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
-        List<Product> productList = productRepository.findAllById(productIds);
+        List<Product> productList = productRepository.findAllListViewByIds(productIds);
         Map<Long, Product> productMap = productList.stream()
                 .collect(Collectors.toMap(Product::getProductId, p -> p));
 
-        // Batch precompute public discounts cho page (1 query thay N)
         Map<Long, List<Discount>> discountsMap = precomputePublicDiscountsForProducts(productList);
 
         List<UUID> usedDiscountIds = userDiscountRepository.findUsedDiscountIdsByUserId(userId);
@@ -533,7 +551,7 @@ public class ProductServiceImpl implements ProductService {
         // Apply overlay nếu userId — batch
         List<Long> ids = base.stream().map(ProductResponseDTO::getId).filter(Objects::nonNull).collect(Collectors.toList());
         if (ids.isEmpty()) return base;
-        List<Product> productList = productRepository.findAllById(ids);
+        List<Product> productList = productRepository.findAllListViewByIds(ids);
         Map<Long, Product> pmap = productList.stream()
                 .collect(Collectors.toMap(Product::getProductId, p -> p));
         Map<Long, List<Discount>> discountsMap = precomputePublicDiscountsForProducts(productList);
@@ -989,7 +1007,8 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     @Cacheable(value = "product_detail", key = "#productId + '_' + (#userId != null ? #userId.toString() : 'anon')")
     public ProductResponseDTO getProductDetail(Long productId, UUID userId) {
-        Product product = productRepository.findById(productId)
+        Product product = productRepository.findAllListViewByIds(List.of(productId)).stream()
+                .findFirst()
                 .orElseThrow(() -> new RuntimeException("Sản phẩm không tồn tại!"));
 
         List<UUID> usedDiscountIds = (userId != null)

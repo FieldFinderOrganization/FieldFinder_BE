@@ -10,6 +10,18 @@ import java.math.BigDecimal;
 
 @Entity
 @Table(name = "products")
+@NamedEntityGraph(
+        name = "Product.listView",
+        attributeNodes = {
+                @NamedAttributeNode("category"),
+                @NamedAttributeNode("variants"),
+                @NamedAttributeNode(value = "discounts", subgraph = "productDiscountWithDiscount")
+        },
+        subgraphs = @NamedSubgraph(
+                name = "productDiscountWithDiscount",
+                attributeNodes = @NamedAttributeNode("discount")
+        )
+)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
