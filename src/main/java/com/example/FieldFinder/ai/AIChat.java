@@ -1526,11 +1526,20 @@ public class AIChat {
     }
 
     @SuppressWarnings("unchecked")
-    private BookingQuery handleRecommendByActivity(BookingQuery query, String sessionId) {
+    private BookingQuery handleRecommendByActivity(BookingQuery query, String sessionId, String userInput) {
         UUID userId = userService.getUserIdBySession(sessionId);
         String activity = (String) query.data.get("activity");
         List<String> tags = (List<String>) query.data.get("tags");
         List<String> aiCategories = (List<String>) query.data.get("suggestedCategories");
+        String aiProductType = normalizeAiProductType(query.data.get("productType"));
+
+        System.out.println("🟢 recommend_by_activity | userInput='" + userInput + "'");
+        System.out.println("   AI parsed: action=" + query.data.get("action")
+                + " categoryKeyword=" + query.data.get("categoryKeyword")
+                + " activity=" + activity
+                + " productType=" + aiProductType
+                + " tags=" + tags
+                + " suggestedCategories=" + aiCategories);
 
         if (activity != null && sessionId != null) {
             sessionLastActivity.put(sessionId, activity);
@@ -1603,10 +1612,12 @@ public class AIChat {
             retrievalScores = scoredResults.stream().map(Map.Entry::getValue).collect(Collectors.toList());
         }
 
-        String detectedType = categoryService.detectProductTypeFromQuery(description, tags, categoryKeyword);
+        String detectedType = aiProductType != null
+                ? aiProductType
+                : categoryService.detectProductTypeFromQuery(userInput, tags, categoryKeyword);
         List<String> resolvedCategories = CategoryMapper.resolveCategories(activity, aiCategories, categoryKeyword);
-        System.out.println("🟢 recommend_by_activity: categoryKeyword='" + categoryKeyword
-                + "' activity='" + activity + "' detectedType=" + detectedType
+        System.out.println("   resolved: detectedType=" + detectedType
+                + " (source=" + (aiProductType != null ? "AI" : "JAVA") + ")"
                 + " resolvedCategories=" + resolvedCategories);
 
         // Re-rank: ưu tiên (1) category match activity, (2) sex match tags ("nữ"/"nam")
@@ -1843,7 +1854,7 @@ public class AIChat {
                 return handleWeatherQuery(query, sessionId);
             }
             if ("recommend_by_activity".equals(action)) {
-                return handleRecommendByActivity(query, sessionId);
+                return handleRecommendByActivity(query, sessionId, userInput);
             }
             if ("list_pitches".equals(action) || "count_pitches_by_type".equals(action)
                     || "check_pitch_availability".equals(action) || "book_pitch".equals(action)
@@ -2366,6 +2377,28 @@ public class AIChat {
         }
         """;
 
+    /** Chuẩn hóa productType từ Gemini (TOP, top, Shoes → SHOES). */
+    private static String normalizeAiProductType(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        String t = raw.toString().trim().toUpperCase(Locale.ROOT);
+        if (t.isEmpty() || "NULL".equals(t)) {
+            return null;
+        }
+        return switch (t) {
+            case "SHOES", "SHOE", "FOOTWEAR" -> "SHOES";
+            case "TOP", "TOPS", "SHIRT", "JERSEY" -> "TOP";
+            case "BOTTOM", "BOTTOMS", "PANTS", "SHORTS" -> "BOTTOM";
+            case "SANDAL", "SANDALS" -> "SANDAL";
+            case "DRESS" -> "DRESS";
+            case "BAG", "BAGS", "BACKPACK" -> "BAG";
+            case "HAT", "CAP" -> "HAT";
+            case "OTHER", "ACCESSORY", "ACCESSORIES" -> "OTHER";
+            default -> t.matches("SHOES|TOP|BOTTOM|SANDAL|DRESS|BAG|HAT|OTHER") ? t : null;
+        };
+    }
+
     private int extractQuantityFromInput(String userInput, Object rawQty) {
         // Ưu tiên Gemini parse, nếu không có thì dùng regex trên userInput
         if (rawQty instanceof Number) {
@@ -2399,6 +2432,7 @@ public class AIChat {
             "size": "...",
             "quantity": 1,
             "categoryKeyword": "...",
+            "productType": "SHOES" | "TOP" | "BOTTOM" | "SANDAL" | "DRESS" | "BAG" | "HAT" | "OTHER" | null,
             "minPrice": 0,
             "maxPrice": 0,
             "activity": "...",
@@ -2442,13 +2476,24 @@ public class AIChat {
           + giày tennis, tennis shoe -> "Tennis Shoes"
           + giày bóng rổ, basketball shoe -> "Basketball Shoes"
           + giày chạy bộ, running shoe -> "Running Shoes"
-          + quần áo đá banh, áo bóng đá, jersey bóng đá -> "Football Clothing"
-          + quần áo tennis, áo tennis -> "Tennis Clothing"
+          + áo bóng đá, áo đá banh, jersey, áo thi đấu -> categoryKeyword: "Football Clothing" hoặc "Tops And T-Shirts", productType: "TOP"
+          + quần bóng đá, quần đá banh -> categoryKeyword: "Football Clothing" hoặc "Pants And Leggings", productType: "BOTTOM"
+          + quần áo tennis, áo tennis -> "Tennis Clothing", productType: "TOP" nếu user nói áo
           + quần áo bóng rổ, jersey bóng rổ -> "Basketball Clothing"
           + quần áo chạy bộ -> "Running Clothing"
-          + giày (chung không rõ loại) -> "Shoes"
-          + quần áo (chung) -> "Clothing"
+          + giày (chung không rõ loại) -> "Shoes", productType: "SHOES"
+          + quần áo (chung) -> "Clothing", productType: null
         - Tìm kiếm theo giá: dùng action "search_by_price_range", cung cấp minPrice, maxPrice.
+
+        ❗️ QUY TẮC productType (BẮT BUỘC khi recommend sản phẩm):
+        - "áo", "jersey", "tee", "hoodie", "jacket", "polo", "sơ mi" → productType: "TOP"
+        - "quần", "shorts", "jogger", "legging", "pants" → productType: "BOTTOM"
+        - "giày", "sneaker", "boot", "cleats" → productType: "SHOES"
+        - "váy", "đầm" → productType: "DRESS"
+        - "balo", "túi" → productType: "BAG"
+        - "nón", "mũ", "cap" → productType: "HAT"
+        - "dép", "sandal" → productType: "SANDAL"
+        - KHÔNG gán BOTTOM khi user chỉ hỏi áo; KHÔNG gán TOP khi user chỉ hỏi quần.
 
         ❗️ QUY TẮC TÌM/GỢI Ý/GIỚI THIỆU SẢN PHẨM (RAG retrieve):
         - Khi user nói "tìm", "cho xem", "giới thiệu", "gợi ý", "recommend", "show me", "có những...nào" + tên loại sản phẩm/môn thể thao:
@@ -2457,11 +2502,13 @@ public class AIChat {
           → tags: list các keyword liên quan (vd "tìm giày tennis" → ["tennis", "giày tennis", "tennis shoes"])
           → suggestedCategories: list categoryKeyword phù hợp (vd ["Tennis Shoes"])
           → categoryKeyword: cụ thể nhất từ bảng trên
+          → productType: theo quy tắc productType ở trên
         - VÍ DỤ:
-          + "tìm giúp mình giày tennis" → action: "recommend_by_activity", activity: "tennis", tags: ["tennis", "giày tennis"], suggestedCategories: ["Tennis Shoes"], categoryKeyword: "Tennis Shoes"
-          + "giới thiệu giày đá banh" → action: "recommend_by_activity", activity: "football", tags: ["football", "đá banh", "giày bóng đá"], suggestedCategories: ["Football Shoes"], categoryKeyword: "Football Shoes"
-          + "có quần short nào không" → action: "recommend_by_activity", activity: null, tags: ["short", "quần short"], suggestedCategories: ["Shorts"], categoryKeyword: "Shorts"
-          + "cho xem balo" → action: "recommend_by_activity", activity: null, tags: ["balo", "túi"], suggestedCategories: ["Bags And Backpacks"], categoryKeyword: "Bags And Backpacks"
+          + "tìm giúp mình giày tennis" → action: "recommend_by_activity", activity: "tennis", tags: ["tennis", "giày tennis"], suggestedCategories: ["Tennis Shoes"], categoryKeyword: "Tennis Shoes", productType: "SHOES"
+          + "giới thiệu giày đá banh" → action: "recommend_by_activity", activity: "football", tags: ["football", "đá banh", "giày bóng đá"], suggestedCategories: ["Football Shoes"], categoryKeyword: "Football Shoes", productType: "SHOES"
+          + "tìm áo bóng đá" → action: "recommend_by_activity", activity: "football", tags: ["football", "áo bóng đá", "jersey"], suggestedCategories: ["Football Clothing"], categoryKeyword: "Football Clothing", productType: "TOP"
+          + "có quần short nào không" → action: "recommend_by_activity", activity: null, tags: ["shorts", "quần short"], suggestedCategories: ["Shorts"], categoryKeyword: "Shorts", productType: "BOTTOM"
+          + "cho xem balo" → action: "recommend_by_activity", activity: null, tags: ["balo", "túi"], suggestedCategories: ["Bags And Backpacks"], categoryKeyword: "Bags And Backpacks", productType: "BAG"
         
         ❗️ QUY TẮC ĐẶT HÀNG:
         - Nếu người dùng nói "đặt", "mua", "lấy", "cho mình X cái/đôi size Y" -> action: "prepare_order", điền "size" và "quantity" ngay trong cùng tin nhắn đó.

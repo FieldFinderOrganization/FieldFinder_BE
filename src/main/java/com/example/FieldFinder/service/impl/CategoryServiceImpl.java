@@ -15,8 +15,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -97,14 +99,37 @@ public class CategoryServiceImpl implements CategoryService {
     );
 
     private static final Map<String, List<String>> PRODUCT_TYPE_ALIASES = Map.of(
-            "SHOES",   List.of("giày", "shoe", "sneaker", "boot"),
+            "SHOES",   List.of("giày", "shoe", "sneaker", "football boot", "cleats"),
             "SANDAL",  List.of("dép", "sandal", "slipper"),
-            "TOP",     List.of("áo", "shirt", "tee", "hoodie", "jacket", "polo"),
-            "BOTTOM",  List.of("quần", "short", "pants", "trousers", "jeans", "jogger"),
+            "TOP",     List.of("áo", "shirt", "jersey", "hoodie", "jacket", "polo", "sơ mi", "tee"),
+            "BOTTOM",  List.of("quần", "shorts", "pants", "trousers", "jeans", "jogger", "quần short"),
             "DRESS",   List.of("váy", "đầm", "dress", "skirt"),
             "BAG",     List.of("balo", "ba lô", "túi", "bag", "backpack"),
-            "HAT",     List.of("nón", "mũ", "cap", "hat", "beanie"),
+            "HAT",     List.of("nón", "mũ", "beanie", "hat", "cap"),
             "OTHER",   List.of("phụ kiện", "accessory", "kính", "vớ", "găng")
+    );
+
+    /** categoryKeyword DB name → productType khi không mơ hồ. */
+    private static final Map<String, String> CATEGORY_KEYWORD_TO_TYPE = Map.ofEntries(
+            Map.entry("tops and t-shirts", "TOP"),
+            Map.entry("hoodies and sweatshirts", "TOP"),
+            Map.entry("jackets and gilets", "TOP"),
+            Map.entry("pants and leggings", "BOTTOM"),
+            Map.entry("shorts", "BOTTOM"),
+            Map.entry("football shoes", "SHOES"),
+            Map.entry("tennis shoes", "SHOES"),
+            Map.entry("basketball shoes", "SHOES"),
+            Map.entry("running shoes", "SHOES"),
+            Map.entry("sandals and slides", "SANDAL"),
+            Map.entry("bags and backpacks", "BAG"),
+            Map.entry("hats and headwears", "HAT"),
+            Map.entry("socks", "OTHER")
+    );
+
+    /** Danh mục rộng — không dùng substring để suy productType (tránh nhầm áo ↔ quần). */
+    private static final Set<String> AMBIGUOUS_CATEGORY_KEYWORDS = Set.of(
+            "football clothing", "tennis clothing", "basketball clothing",
+            "running clothing", "clothing", "gym and training"
     );
 
     @Override
@@ -187,25 +212,66 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     public String detectProductTypeFromQuery(String query, List<String> tags, String categoryKeyword) {
-        // Hay (haystack) = query + tags + categoryKeyword, all lowercase
-        Set<String> hay = new HashSet<>();
-        if (query != null && !query.isBlank()) hay.add(query.toLowerCase());
+        Set<String> intentHay = new HashSet<>();
+        if (query != null && !query.isBlank()) {
+            intentHay.add(query.toLowerCase(Locale.ROOT));
+        }
         if (tags != null) {
             for (String t : tags) {
-                if (t != null && !t.isBlank()) hay.add(t.toLowerCase());
+                if (t != null && !t.isBlank()) {
+                    intentHay.add(t.toLowerCase(Locale.ROOT));
+                }
             }
         }
-        if (categoryKeyword != null && !categoryKeyword.isBlank()) hay.add(categoryKeyword.toLowerCase());
-        if (hay.isEmpty()) return null;
 
-        // Score each productType: count keywords hit, pick highest
+        // 1) Ưu tiên ý định user (câu hỏi + tags) — "áo bóng đá" → TOP, không bị categoryKeyword lệch
+        String fromIntent = scoreProductType(intentHay);
+        if (fromIntent != null) {
+            return fromIntent;
+        }
+
+        // 2) categoryKeyword cụ thể (Tops And T-Shirts, Football Shoes, ...)
+        if (categoryKeyword != null && !categoryKeyword.isBlank()) {
+            String fromCategory = mapCategoryKeywordToType(categoryKeyword);
+            if (fromCategory != null) {
+                return fromCategory;
+            }
+        }
+
+        // 3) Fallback: categoryKeyword không mơ hồ (không phải "Football Clothing" chung chung)
+        if (categoryKeyword != null && !categoryKeyword.isBlank()) {
+            String ck = categoryKeyword.toLowerCase(Locale.ROOT).trim();
+            if (!AMBIGUOUS_CATEGORY_KEYWORDS.contains(ck)) {
+                Set<String> hay = new HashSet<>(intentHay);
+                hay.add(ck);
+                return scoreProductType(hay);
+            }
+        }
+
+        return null;
+    }
+
+    private static String mapCategoryKeywordToType(String categoryKeyword) {
+        if (categoryKeyword == null || categoryKeyword.isBlank()) {
+            return null;
+        }
+        return CATEGORY_KEYWORD_TO_TYPE.get(categoryKeyword.toLowerCase(Locale.ROOT).trim());
+    }
+
+    private static String scoreProductType(Set<String> hay) {
+        if (hay.isEmpty()) {
+            return null;
+        }
         String bestType = null;
         int bestScore = 0;
         for (Map.Entry<String, List<String>> entry : PRODUCT_TYPE_ALIASES.entrySet()) {
             int hits = 0;
             for (String kw : entry.getValue()) {
                 for (String h : hay) {
-                    if (h.contains(kw)) { hits++; break; }
+                    if (containsProductTypeKeyword(h, kw)) {
+                        hits++;
+                        break;
+                    }
                 }
             }
             if (hits > bestScore) {
@@ -214,6 +280,27 @@ public class CategoryServiceImpl implements CategoryService {
             }
         }
         return bestType;
+    }
+
+    /**
+     * Khớp từ/cụm từ — tránh substring sai (vd: "short" trong "clothing", "boot" trong "football").
+     */
+    private static boolean containsProductTypeKeyword(String haystack, String keyword) {
+        if (haystack == null || keyword == null || keyword.isBlank()) {
+            return false;
+        }
+        String h = haystack.toLowerCase(Locale.ROOT);
+        String k = keyword.toLowerCase(Locale.ROOT).trim();
+        if (k.contains(" ")) {
+            return h.contains(k);
+        }
+        if (k.length() >= 6) {
+            return h.contains(k);
+        }
+        Pattern p = Pattern.compile(
+                "(?<![\\p{L}\\p{N}])" + Pattern.quote(k) + "(?![\\p{L}\\p{N}])",
+                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+        return p.matcher(h).find();
     }
 
     @Override
