@@ -95,26 +95,34 @@ public class CompositeRanker {
         tier2 = trim(tier2, 2);
         used.addAll(collectIds(tier2));
 
-        // ============== TIER 3: NOT type, but activity match ==============
-        List<ScoredProduct> tier3 = filter(scored, sp ->
-                !used.contains(sp.product.getId())
-                        && !sp.type
-                        && sp.activity);
-        tier3.sort(byComposite());
-        tier3 = trim(tier3, 2);
-        used.addAll(collectIds(tier3));
+        boolean strictType = ctx.isStrictProductType()
+                && ctx.getProductType() != null && !ctx.getProductType().isBlank();
 
-        // ============== TIER 4: best-seller fill from remaining ==============
-        List<ScoredProduct> tier4 = filter(scored, sp -> !used.contains(sp.product.getId()));
-        tier4.sort(Comparator.comparingInt((ScoredProduct s) -> {
-            Integer ts = s.product.getTotalSold();
-            return ts == null ? 0 : ts;
-        }).reversed());
-        tier4 = trim(tier4, 3);
+        List<ScoredProduct> tier3 = List.of();
+        List<ScoredProduct> tier4 = List.of();
+        if (!strictType) {
+            // ============== TIER 3: NOT type, but activity match ==============
+            tier3 = filter(scored, sp ->
+                    !used.contains(sp.product.getId())
+                            && !sp.type
+                            && sp.activity);
+            tier3.sort(byComposite());
+            tier3 = trim(tier3, 2);
+            used.addAll(collectIds(tier3));
+
+            // ============== TIER 4: best-seller fill from remaining ==============
+            tier4 = filter(scored, sp -> !used.contains(sp.product.getId()));
+            tier4.sort(Comparator.comparingInt((ScoredProduct s) -> {
+                Integer ts = s.product.getTotalSold();
+                return ts == null ? 0 : ts;
+            }).reversed());
+            tier4 = trim(tier4, 3);
+        }
 
         System.out.println("🎯 Tier sizes: " + tier1.size() + "+" + tier2.size()
                 + "+" + tier3.size() + "+" + tier4.size()
                 + " | tier1=" + tier1Source
+                + " | strictType=" + strictType
                 + " | productType=" + ctx.getProductType()
                 + " | activity=" + ctx.getActivity()
                 + " | topBrands=" + ctx.getTopBrands()

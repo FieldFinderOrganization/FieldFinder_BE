@@ -30,6 +30,12 @@ public class RankingContext {
     /** Categories that activity maps to: e.g. ["Tennis Shoes", "Tennis Clothing", "Tennis Accessories"] */
     private final Set<String> activityCats;
 
+    /**
+     * When true and productType is set, tier 3 (wrong type + activity) and tier 4 (best-seller fill) are skipped.
+     */
+    @Builder.Default
+    private final boolean strictProductType = false;
+
     // ============== Composite weights (sum ~1.0) ==============
 
     @Builder.Default

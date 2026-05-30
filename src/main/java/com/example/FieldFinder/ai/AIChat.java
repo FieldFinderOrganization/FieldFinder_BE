@@ -1603,7 +1603,11 @@ public class AIChat {
             retrievalScores = scoredResults.stream().map(Map.Entry::getValue).collect(Collectors.toList());
         }
 
-        List<String> resolvedCategories = CategoryMapper.resolveCategories(activity, aiCategories);
+        String detectedType = categoryService.detectProductTypeFromQuery(description, tags, categoryKeyword);
+        List<String> resolvedCategories = CategoryMapper.resolveCategories(activity, aiCategories, categoryKeyword);
+        System.out.println("🟢 recommend_by_activity: categoryKeyword='" + categoryKeyword
+                + "' activity='" + activity + "' detectedType=" + detectedType
+                + " resolvedCategories=" + resolvedCategories);
 
         // Re-rank: ưu tiên (1) category match activity, (2) sex match tags ("nữ"/"nam")
         if (results != null && !results.isEmpty()) {
@@ -1639,12 +1643,8 @@ public class AIChat {
             retrievalScores = pairs.stream().map(p -> (Double) p[1]).collect(Collectors.toList());
         }
 
-        // Hard post-filter: detect productType từ query → match SP có name/category/tags chứa keyword
-        // Fix balo case: balo SP nằm cat "Football/Running/Tennis Accessories" → match name "backpack"/"bag" thay vì categoryName
+        // Composite rank + strict type filter (e.g. "giày đá bóng" → chỉ SHOES, không fill quần tier 3/4)
         if (results != null && !results.isEmpty()) {
-            // Composite ranking — 4-tier degrade chain replace simple post-filter
-            String detectedType = categoryService.detectProductTypeFromQuery(null, tags, categoryKeyword);
-
             // sexPref derive from tags
             String sexPrefForCtx = null;
             List<String> tagsLowerCtx = tags == null ? Collections.emptyList()
@@ -1658,6 +1658,7 @@ public class AIChat {
             // B.3: brand preference từ MongoDB user history (top 3)
             List<String> topBrands = userService.getUserTopBrands(userId, 3);
 
+            boolean strictType = detectedType != null && !detectedType.isBlank();
             com.example.FieldFinder.ai.ranking.RankingContext ctx =
                     com.example.FieldFinder.ai.ranking.RankingContext.builder()
                             .productType(detectedType)
@@ -1665,6 +1666,7 @@ public class AIChat {
                             .genderPref(sexPrefForCtx)
                             .topBrands(topBrands)
                             .activityCats(new HashSet<>(resolvedCategories))
+                            .strictProductType(strictType)
                             .build();
 
             List<Map.Entry<ProductResponseDTO, Double>> ranked =
@@ -1672,12 +1674,33 @@ public class AIChat {
 
             results = ranked.stream().map(Map.Entry::getKey).collect(Collectors.toList());
             retrievalScores = ranked.stream().map(Map.Entry::getValue).collect(Collectors.toList());
+
+            if (strictType) {
+                List<ProductResponseDTO> typeFiltered = new ArrayList<>();
+                List<Double> typeFilteredScores = new ArrayList<>();
+                final String typeForFilter = detectedType;
+                for (int i = 0; i < results.size(); i++) {
+                    ProductResponseDTO p = results.get(i);
+                    if (categoryService.productMatchesType(p, typeForFilter)) {
+                        typeFiltered.add(p);
+                        typeFilteredScores.add(retrievalScores.get(i));
+                    }
+                }
+                if (!typeFiltered.isEmpty()) {
+                    results = typeFiltered;
+                    retrievalScores = typeFilteredScores;
+                }
+                System.out.println("🔒 Strict type filter (" + detectedType + "): " + results.size() + " products");
+            }
         }
 
         if ((results == null || results.isEmpty()) && !resolvedCategories.isEmpty()) {
+            final String typeForFallback = detectedType;
             results = getProductsForAiAssistantCached(userId).stream()
                     .filter(p -> p.getCategoryName() != null &&
                             resolvedCategories.contains(p.getCategoryName()))
+                    .filter(p -> typeForFallback == null
+                            || categoryService.productMatchesType(p, typeForFallback))
                     .limit(12)
                     .toList();
             retrievalScores = Collections.nCopies(results.size(), 0.0); // No vector scores for category fallback
