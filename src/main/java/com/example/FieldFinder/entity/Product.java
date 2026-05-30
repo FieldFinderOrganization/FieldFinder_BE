@@ -10,17 +10,13 @@ import java.math.BigDecimal;
 
 @Entity
 @Table(name = "products")
+/** Chỉ fetch 1 bag (variants) + category. discounts dùng @BatchSize — tránh MultipleBagFetchException. */
 @NamedEntityGraph(
         name = "Product.listView",
         attributeNodes = {
                 @NamedAttributeNode("category"),
-                @NamedAttributeNode("variants"),
-                @NamedAttributeNode(value = "discounts", subgraph = "productDiscountWithDiscount")
-        },
-        subgraphs = @NamedSubgraph(
-                name = "productDiscountWithDiscount",
-                attributeNodes = @NamedAttributeNode("discount")
-        )
+                @NamedAttributeNode("variants")
+        }
 )
 @Data
 @NoArgsConstructor

@@ -15,7 +15,7 @@ import java.util.List;
 
 public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
 
-    /** LOAD graph: tránh N+1 category/variants/discounts khi list API (không JOIN FETCH collection → pagination an toàn). */
+    /** LOAD graph: category + variants (1 bag). discounts lazy + @BatchSize. */
     @EntityGraph(value = "Product.listView", type = EntityGraph.EntityGraphType.LOAD)
     Page<Product> findAll(Specification<Product> spec, Pageable pageable);
 
