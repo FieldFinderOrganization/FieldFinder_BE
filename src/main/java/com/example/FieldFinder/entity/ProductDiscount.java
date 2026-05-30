@@ -23,6 +23,5 @@ public class ProductDiscount {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "discount_id", nullable = false)
-    @org.hibernate.annotations.BatchSize(size = 50)
     private Discount discount;
 }
