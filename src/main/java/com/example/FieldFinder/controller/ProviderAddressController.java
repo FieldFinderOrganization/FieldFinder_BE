@@ -57,4 +57,10 @@ public class ProviderAddressController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/backfill-coordinates")
+    public ResponseEntity<java.util.Map<String, Integer>> backfillCoordinates() {
+        int updated = providerAddressService.backfillMissingCoordinates();
+        return ResponseEntity.ok(java.util.Map.of("updated", updated));
+    }
+
 }

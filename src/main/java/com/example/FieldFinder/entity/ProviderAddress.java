@@ -21,6 +21,12 @@ public class ProviderAddress {
     @Column(name = "address", nullable = false)
     private String address;
 
+    @Column(name = "latitude")
+    private Double latitude;
+
+    @Column(name = "longitude")
+    private Double longitude;
+
     @ManyToOne
     @JoinColumn(name = "provider_id", referencedColumnName = "provider_id", nullable = false)
     private Provider provider;

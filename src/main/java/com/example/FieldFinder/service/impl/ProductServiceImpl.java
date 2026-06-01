@@ -449,11 +449,20 @@ public class ProductServiceImpl implements ProductService {
                 ? userDiscountRepository.findUsedDiscountIdsByUserId(userId)
                 : Collections.emptyList();
 
+        // Ví user load 1 LẦN ngoài vòng (trước đây mapToResponse load lại mỗi product → N query nặng).
+        List<UserDiscount> userWallet = (userId != null)
+                ? userDiscountRepository.findWalletByUserId(userId)
+                        .stream().filter(ud -> !ud.isUsed()).collect(Collectors.toList())
+                : Collections.emptyList();
+
         Map<Long, ProductResponseDTO> out = new LinkedHashMap<>();
         for (Product p : products) {
             try {
-                out.put(p.getProductId(), mapToResponse(p, usedDiscountIds, userId,
-                        discountsMap.getOrDefault(p.getProductId(), Collections.emptyList())));
+                List<Discount> pub = discountsMap.getOrDefault(p.getProductId(), Collections.emptyList());
+                ProductResponseDTO dto = (userId != null)
+                        ? applyUserOverlay(p, null, usedDiscountIds, userWallet, pub)
+                        : mapToResponse(p, usedDiscountIds, null, pub);
+                out.put(p.getProductId(), dto);
             } catch (Exception e) {
                 System.err.println("getProductsByIds map fail pid=" + p.getProductId() + ": " + e.getMessage());
             }

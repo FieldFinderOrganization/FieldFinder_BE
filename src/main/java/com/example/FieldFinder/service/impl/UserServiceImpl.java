@@ -14,6 +14,7 @@ import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.UserProviderRepository;
 import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.EmailService;
+import com.example.FieldFinder.service.GeocodingService;
 import com.example.FieldFinder.service.UserService;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
@@ -61,6 +62,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private GeocodingService geocodingService;
 
     public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, EmailService emailService,
                            PasswordResetTokenRepository passwordResetTokenRepository, RedisTemplate<String, Object> redisTemplate,
@@ -159,9 +163,18 @@ public class UserServiceImpl implements UserService {
 
         if (userUpdateRequestDTO.getDateOfBirth() != null) user.setDateOfBirth(userUpdateRequestDTO.getDateOfBirth());
         if (userUpdateRequestDTO.getGender() != null) user.setGender(userUpdateRequestDTO.getGender());
-        if (userUpdateRequestDTO.getAddress() != null) user.setAddress(userUpdateRequestDTO.getAddress());
+        boolean addressChanged = false;
+        if (userUpdateRequestDTO.getAddress() != null
+                && !userUpdateRequestDTO.getAddress().equals(user.getAddress())) {
+            user.setAddress(userUpdateRequestDTO.getAddress());
+            addressChanged = true;
+        }
         if (userUpdateRequestDTO.getLatitude() != null) user.setLatitude(userUpdateRequestDTO.getLatitude());
         if (userUpdateRequestDTO.getLongitude() != null) user.setLongitude(userUpdateRequestDTO.getLongitude());
+        if (addressChanged && userUpdateRequestDTO.getLatitude() == null) {
+            user.setLatitude(null);
+            user.setLongitude(null);
+        }
         if (userUpdateRequestDTO.getProvince() != null) user.setProvince(userUpdateRequestDTO.getProvince());
         if (userUpdateRequestDTO.getDistrict() != null) user.setDistrict(userUpdateRequestDTO.getDistrict());
         if (userUpdateRequestDTO.getOccupation() != null) user.setOccupation(userUpdateRequestDTO.getOccupation());
@@ -169,6 +182,13 @@ public class UserServiceImpl implements UserService {
         if (userUpdateRequestDTO.getPreferredPlayTime() != null) user.setPreferredPlayTime(userUpdateRequestDTO.getPreferredPlayTime());
 
         User updatedUser = userRepository.save(user);
+        if (addressChanged && updatedUser.getLatitude() == null) {
+            geocodingService.geocodeAsync(updatedUser.getAddress()).thenAccept(opt -> opt.ifPresent(latLng -> {
+                updatedUser.setLatitude(latLng.latitude());
+                updatedUser.setLongitude(latLng.longitude());
+                userRepository.save(updatedUser);
+            }));
+        }
         return UserResponseDTO.toDto(updatedUser);
     }
 

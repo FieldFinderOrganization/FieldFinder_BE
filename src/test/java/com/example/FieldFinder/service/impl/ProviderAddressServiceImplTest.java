@@ -9,6 +9,7 @@ import com.example.FieldFinder.repository.BookingDetailRepository;
 import com.example.FieldFinder.repository.PitchRepository;
 import com.example.FieldFinder.repository.ProviderAddressRepository;
 import com.example.FieldFinder.repository.ProviderRepository;
+import com.example.FieldFinder.service.GeocodingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -22,9 +23,11 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,6 +40,8 @@ class ProviderAddressServiceImplTest {
     PitchRepository pitchRepository;
     @Mock
     BookingDetailRepository bookingDetailRepository;
+    @Mock
+    GeocodingService geocodingService;
 
     @InjectMocks
     ProviderAddressServiceImpl addressService;
@@ -77,6 +82,8 @@ class ProviderAddressServiceImplTest {
         void success_ReturnsResponseDTO() {
             when(providerRepository.findById(requestDTO.getProviderId())).thenReturn(Optional.of(provider));
             when(addressRepository.save(any(ProviderAddress.class))).thenReturn(address);
+            when(geocodingService.geocodeAsync(anyString()))
+                    .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
 
             ProviderAddressResponseDTO result = addressService.addAddress(requestDTO);
 
@@ -113,6 +120,8 @@ class ProviderAddressServiceImplTest {
                                             .provider(provider)
                                                     .build();
             when(addressRepository.save(any(ProviderAddress.class))).thenReturn(updatedAddress);
+            when(geocodingService.geocodeAsync(anyString()))
+                    .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
 
             ProviderAddressResponseDTO result = addressService.updateAddress(addressId, requestDTO);
 

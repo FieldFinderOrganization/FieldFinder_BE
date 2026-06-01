@@ -13,11 +13,19 @@ import java.util.UUID;
 public class ProviderAddressResponseDTO {
     private UUID providerAddressId;
     private String address;
+    private Double latitude;
+    private Double longitude;
+
+    public ProviderAddressResponseDTO(UUID providerAddressId, String address) {
+        this(providerAddressId, address, null, null);
+    }
 
     public static ProviderAddressResponseDTO fromEntity(ProviderAddress providerAddress) {
         return new ProviderAddressResponseDTO(
                 providerAddress.getProviderAddressId(),
-                providerAddress.getAddress()
+                providerAddress.getAddress(),
+                providerAddress.getLatitude(),
+                providerAddress.getLongitude()
         );
     }
 }

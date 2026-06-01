@@ -67,7 +67,6 @@ public class SecurityConfig {
                                 "/api/users/forgot-password-otp",
                                 "/api/bookings/slots/**"
 
-                                // PassKey register — PROTECTED (cần token, ko permit ở đây)
                         ).permitAll()
 
                         // .well-known cho Android (Digital Asset Links) và iOS (AASA)
@@ -76,7 +75,7 @@ public class SecurityConfig {
 
                         .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/pitches/**", "/api/categories/**").permitAll()
 
-                        .requestMatchers(HttpMethod.POST, "/api/products/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/provider-addresses/backfill-coordinates").permitAll()
 
                         .anyRequest().authenticated()
                 )

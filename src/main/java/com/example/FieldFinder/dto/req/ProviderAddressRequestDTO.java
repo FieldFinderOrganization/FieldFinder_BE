@@ -12,4 +12,7 @@ import java.util.UUID;
 public class ProviderAddressRequestDTO {
     private UUID providerId;
     private String address;
+    // Toạ độ chính xác từ map picker (nếu có) → bỏ qua geocode chuỗi địa chỉ thô.
+    private Double latitude;
+    private Double longitude;
 }

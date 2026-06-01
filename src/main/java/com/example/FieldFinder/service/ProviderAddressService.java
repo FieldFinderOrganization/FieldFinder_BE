@@ -13,4 +13,7 @@ public interface ProviderAddressService {
     List<ProviderAddressResponseDTO> getAddressesByProvider(UUID providerId);
     List<ProviderAddressResponseDTO> getAllAddresses();
 
+    /** Geocode + lưu toạ độ cho mọi địa chỉ đang thiếu lat/lng. Trả số bản ghi cập nhật thành công. */
+    int backfillMissingCoordinates();
+
 }
