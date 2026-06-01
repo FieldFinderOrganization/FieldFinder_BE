@@ -669,7 +669,8 @@ public class AIChat {
         }
 
         // Kick off ML future in parallel (image-only request; vision-enriched hints would require waiting).
-        String mlUserId = sessionId != null ? String.valueOf(userService.getUserIdBySession(sessionId)) : null;
+        UUID resolvedMlUid = resolveCurrentUserId(sessionId);
+        String mlUserId = resolvedMlUid != null ? resolvedMlUid.toString() : null;
         MLRetrieveByImageRequest mlReqEarly = MLRetrieveByImageRequest.builder()
                 .imageBase64(cleanBase64)
                 .topK(10)
@@ -869,7 +870,7 @@ public class AIChat {
         try {
             String userId = null;
             if (sessionId != null) {
-                UUID uid = userService.getUserIdBySession(sessionId);
+                UUID uid = resolveCurrentUserId(sessionId);
                 if (uid != null) userId = uid.toString();
             }
 
@@ -999,7 +1000,7 @@ public class AIChat {
     private BookingQuery handleProductQuery(BookingQuery query, String userInput, String sessionId) {
         if (query.data == null) query.data = new HashMap<>();
 
-        UUID userId = userService.getUserIdBySession(sessionId);
+        UUID userId = resolveCurrentUserId(sessionId);
         List<ProductResponseDTO> products = getProductsForAiAssistantCached(userId);
         String action = (String) query.data.get("action");
         String productName = (String) query.data.get("productName");
@@ -1496,7 +1497,7 @@ public class AIChat {
         }
 
         try {
-            UUID userId = userService.getUserIdBySession(sessionId);
+            UUID userId = resolveCurrentUserId(sessionId);
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("weather_city", city);
             metadata.put("aiResponseText", query.message);
@@ -1527,7 +1528,7 @@ public class AIChat {
 
     @SuppressWarnings("unchecked")
     private BookingQuery handleRecommendByActivity(BookingQuery query, String sessionId, String userInput) {
-        UUID userId = userService.getUserIdBySession(sessionId);
+        UUID userId = resolveCurrentUserId(sessionId);
         String activity = (String) query.data.get("activity");
         List<String> tags = (List<String>) query.data.get("tags");
         List<String> aiCategories = (List<String>) query.data.get("suggestedCategories");
@@ -2173,7 +2174,7 @@ public class AIChat {
         try {
             String userIdStr = null;
             if (sessionId != null) {
-                UUID uid = userService.getUserIdBySession(sessionId);
+                UUID uid = resolveCurrentUserId(sessionId);
                 if (uid != null) userIdStr = uid.toString();
             }
             Map<String, Object> metadata = new HashMap<>();
