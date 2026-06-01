@@ -312,6 +312,16 @@ public class CategoryServiceImpl implements CategoryService {
         String reqType = productType.toUpperCase();
         String name = product.getName() != null ? product.getName().toLowerCase() : "";
         String catName = product.getCategoryName() != null ? product.getCategoryName().toLowerCase() : "";
+
+        // 0) AUTHORITATIVE: resolve the product's own type from its (clean) leaf category
+        //    name. Category taxonomy is reliable (e.g. "Pants And Leggings" → BOTTOM,
+        //    "Basketball Shoes" → SHOES), unlike image/outfit-level tags. When it resolves
+        //    to a concrete type we trust it fully and ignore name/tag noise.
+        String resolvedType = mapCategoryKeywordToType(catName);
+        if (resolvedType != null) {
+            return resolvedType.equals(reqType);
+        }
+
         String strong = (name + " " + catName).trim();
         Set<String> tagSet = product.getTags() == null ? Collections.emptySet()
                 : product.getTags().stream()

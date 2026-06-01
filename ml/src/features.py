@@ -134,7 +134,9 @@ def build_pitch_features(pitches: pd.DataFrame) -> pd.DataFrame:
     p["category"] = p["pitch_type"].fillna("UNKNOWN")
     p["env"] = p["environment"].fillna("UNKNOWN")
     p["brand"] = "NA"
-    return p[["item_id", "item_type", "item_key", "price", "price_bucket", "category", "env", "brand", "name", "description"]]
+    p["sex"] = "NA"
+    p["tags"] = ""  # pitches have no product tags — keep column for concat
+    return p[["item_id", "item_type", "item_key", "price", "price_bucket", "category", "env", "brand", "sex", "tags", "name", "description"]]
 
 
 def build_product_features(products: pd.DataFrame) -> pd.DataFrame:
@@ -148,7 +150,10 @@ def build_product_features(products: pd.DataFrame) -> pd.DataFrame:
     p["category"] = p["category_id"].fillna("UNKNOWN").astype(str)
     p["env"] = "NA"
     p["brand"] = p.get("brand", pd.Series(dtype=str)).fillna("UNKNOWN")
-    return p[["item_id", "item_type", "item_key", "price", "price_bucket", "category", "env", "brand", "name", "description"]]
+    p["sex"] = p.get("sex", pd.Series(dtype=str)).fillna("UNKNOWN")
+    # tags: rich VN keywords (giày, sneaker, giày thể thao…) — key relevance signal
+    p["tags"] = p.get("tags", pd.Series(dtype=str)).fillna("")
+    return p[["item_id", "item_type", "item_key", "price", "price_bucket", "category", "env", "brand", "sex", "tags", "name", "description"]]
 
 
 def build_item_features(pitches: pd.DataFrame, products: pd.DataFrame) -> pd.DataFrame:

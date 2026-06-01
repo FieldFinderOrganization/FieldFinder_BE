@@ -32,8 +32,10 @@ def get_encoder(model_name: str = C.RAG_EMBED_MODEL) -> SentenceTransformer:
 def build_item_text(row: pd.Series) -> str:
     parts = []
     parts.append(str(row.get("name", "")))
-    cat = row.get("category", "")
-    if cat and cat != "UNKNOWN":
+    cat = str(row.get("category", "") or "")
+    # Skip numeric category ids (product category_id) — pure noise to a text encoder.
+    # Pitch categories are descriptive (FIVE_A_SIDE…) and kept.
+    if cat and cat != "UNKNOWN" and not cat.isdigit():
         parts.append(f"loại: {cat}")
     env = row.get("env", "")
     if env and env not in ("UNKNOWN", "NA"):
@@ -41,9 +43,15 @@ def build_item_text(row: pd.Series) -> str:
     brand = row.get("brand", "")
     if brand and brand not in ("UNKNOWN", "NA"):
         parts.append(f"thương hiệu: {brand}")
+    sex = row.get("sex", "")
+    if sex and sex not in ("UNKNOWN", "NA"):
+        parts.append(f"giới tính: {sex}")
     desc = row.get("description", "")
     if isinstance(desc, str) and desc:
         parts.append(desc)
+    # NOTE: product `tags` intentionally NOT embedded — seed tags are outfit-level
+    # (a pair of pants carries "giày sneaker" from the model's shoes), so dumping them
+    # injects cross-type vocabulary and hurts relevance. Needs taxonomy cleanup first.
     return ". ".join(p for p in parts if p)
 
 
@@ -129,13 +137,39 @@ class HybridRetriever:
         user_id: str | None = None,
         top_k: int = C.RAG_TOP_K,
         retrieve_k: int = C.RAG_RETRIEVE_K,
+        item_type: str | None = None,
     ) -> List[dict]:
         # Encode query
         qv = self.encoder.encode([query], normalize_embeddings=True, convert_to_numpy=True).astype(np.float32)
 
-        # Stage 1: query-based retrieval
-        D_q, I = self.index.search(qv, retrieve_k)
-        cand_idx = I[0]
+        # Stage 1: query-based retrieval.
+        # When item_type is set, over-fetch then filter by type BEFORE truncating to
+        # retrieve_k — otherwise off-type entities (e.g. football pitches) consume top
+        # slots and crowd out valid products before the downstream type filter runs.
+        search_k = retrieve_k
+        if item_type:
+            search_k = min(self.index.ntotal, max(retrieve_k * 3, retrieve_k))
+        D_q, I = self.index.search(qv, search_k)
+        idxs = I[0]
+        dists = D_q[0]
+
+        if item_type:
+            mask = np.array(
+                [self.meta[i].get("item_type") == item_type for i in idxs],
+                dtype=bool,
+            )
+            idxs = idxs[mask]
+            dists = dists[mask]
+            if len(idxs) == 0:  # no in-type match → fall back to unfiltered top
+                idxs = I[0]
+                dists = D_q[0]
+
+        # Truncate to retrieve_k after type filtering
+        idxs = idxs[:retrieve_k]
+        dists = dists[:retrieve_k]
+
+        cand_idx = idxs
+        D_q = dists[np.newaxis, :]
         cand_meta = [self.meta[i] for i in cand_idx]
 
         # Stage 2: hybrid score (query sim + user sim)
