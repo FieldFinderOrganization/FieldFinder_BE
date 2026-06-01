@@ -17,5 +17,9 @@ public class OrderResponseDTO {
     private String paymentMethod;
     private LocalDateTime createdAt;
     private LocalDateTime paymentTime;
+    private String deliveryAddress;
+    private Double destLat;
+    private Double destLng;
+    private String shipperName;
     private List<OrderItemResponseDTO> items;
 }

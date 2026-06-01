@@ -11,5 +11,9 @@ public class OrderRequestDTO {
     private List<OrderItemRequestDTO> items;
     private String paymentMethod;
 
+    private String deliveryAddress;
+    private Double destLat;
+    private Double destLng;
+
     private List<String> discountCodes;
 }

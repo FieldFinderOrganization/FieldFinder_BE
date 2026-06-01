@@ -48,7 +48,7 @@ public class User {
     private Role role;
 
     public enum Role {
-        USER, ADMIN, PROVIDER
+        USER, ADMIN, PROVIDER, SHIPPER
     }
 
     @Column(name = "ImageUrl", columnDefinition = "TEXT")

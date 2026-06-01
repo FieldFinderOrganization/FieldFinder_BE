@@ -235,9 +235,12 @@ class PersonalizedRAG:
         retrieve_k: int = C.RAG_RETRIEVE_K,
         item_type: str | None = None,
     ) -> list[dict]:
-        # Stage 1: hybrid query+user retrieval
-        cands = self.retriever.retrieve(query, user_id=user_id, top_k=retrieve_k, retrieve_k=retrieve_k)
+        # Stage 1: hybrid query+user retrieval (type filter applied inside, pre-truncate)
+        cands = self.retriever.retrieve(
+            query, user_id=user_id, top_k=retrieve_k, retrieve_k=retrieve_k, item_type=item_type
+        )
 
+        # Safety net: drop any off-type leftover (e.g. fallback path)
         if item_type:
             cands = [c for c in cands if c.get("item_type") == item_type]
         if not cands:

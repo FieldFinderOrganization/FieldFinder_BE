@@ -309,17 +309,44 @@ public class CategoryServiceImpl implements CategoryService {
         List<String> kws = PRODUCT_TYPE_ALIASES.get(productType.toUpperCase());
         if (kws == null || kws.isEmpty()) return false;
 
+        String reqType = productType.toUpperCase();
         String name = product.getName() != null ? product.getName().toLowerCase() : "";
         String catName = product.getCategoryName() != null ? product.getCategoryName().toLowerCase() : "";
+
+        // 0) AUTHORITATIVE: resolve the product's own type from its (clean) leaf category
+        //    name. Category taxonomy is reliable (e.g. "Pants And Leggings" → BOTTOM,
+        //    "Basketball Shoes" → SHOES), unlike image/outfit-level tags. When it resolves
+        //    to a concrete type we trust it fully and ignore name/tag noise.
+        String resolvedType = mapCategoryKeywordToType(catName);
+        if (resolvedType != null) {
+            return resolvedType.equals(reqType);
+        }
+
+        String strong = (name + " " + catName).trim();
         Set<String> tagSet = product.getTags() == null ? Collections.emptySet()
                 : product.getTags().stream()
                     .filter(t -> t != null)
                     .map(String::toLowerCase)
                     .collect(Collectors.toSet());
 
+        // Strong signal: requested type keyword in product name or category → accept.
         for (String kw : kws) {
-            if (!name.isEmpty() && name.contains(kw)) return true;
-            if (!catName.isEmpty() && catName.contains(kw)) return true;
+            if (!strong.isEmpty() && strong.contains(kw)) return true;
+        }
+
+        // Cross-type exclusion: if name/category strongly matches a DIFFERENT, mutually
+        // exclusive type (e.g. "pants" → BOTTOM when SHOES was asked), the product is clearly
+        // something else. Reject before falling back to loose tag matching — tags are noisy
+        // (a pair of pants may carry a "giày thể thao" activity tag from seeding).
+        for (Map.Entry<String, List<String>> e : PRODUCT_TYPE_ALIASES.entrySet()) {
+            if (e.getKey().equals(reqType) || "OTHER".equals(e.getKey())) continue;
+            for (String kw : e.getValue()) {
+                if (!strong.isEmpty() && strong.contains(kw)) return false;
+            }
+        }
+
+        // Ambiguous (no strong type signal anywhere) → fall back to loose tag match.
+        for (String kw : kws) {
             for (String t : tagSet) {
                 if (t.contains(kw)) return true;
             }
