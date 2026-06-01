@@ -69,6 +69,9 @@ public class OrderServiceImpl implements OrderService {
                 .user(user)
                 .status(OrderStatus.PENDING)
                 .paymentMethod(PaymentMethod.valueOf(request.getPaymentMethod()))
+                .deliveryAddress(request.getDeliveryAddress())
+                .destLat(request.getDestLat())
+                .destLng(request.getDestLng())
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -348,9 +351,67 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Order not found!"));
 
-        order.setStatus(OrderStatus.valueOf(status));
+        OrderStatus newStatus = OrderStatus.valueOf(status);
+        order.setStatus(newStatus);
+        order.setUpdatedAt(LocalDateTime.now());
+
+        // COD: khi giao xong coi như đã thu tiền mặt -> đánh dấu Payment PAID (nếu có row).
+        if (newStatus == OrderStatus.DELIVERED
+                && order.getPaymentMethod() == PaymentMethod.CASH) {
+            order.setPaymentTime(LocalDateTime.now());
+            paymentRepository
+                    .findFirstByOrder_OrderIdOrderByCreatedAtDesc(order.getOrderId())
+                    .ifPresent(p -> {
+                        p.setPaymentStatus(PaymentStatus.PAID);
+                        p.setProcessedAt(LocalDateTime.now());
+                        paymentRepository.save(p);
+                    });
+        }
+
         orderRepository.save(order);
         return mapToResponse(order);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderResponseDTO> getAvailableOrdersForShipper() {
+        return orderRepository.findByStatusAndShipperIsNull(OrderStatus.CONFIRMED)
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public OrderResponseDTO claimOrder(Long orderId, UUID shipperId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found!"));
+
+        if (order.getShipper() != null) {
+            throw new RuntimeException("Đơn hàng đã có shipper nhận!");
+        }
+        if (order.getStatus() != OrderStatus.CONFIRMED) {
+            throw new RuntimeException("Chỉ nhận được đơn ở trạng thái CONFIRMED!");
+        }
+
+        User shipper = userRepository.findById(shipperId)
+                .orElseThrow(() -> new RuntimeException("Shipper not found!"));
+
+        order.setShipper(shipper);
+        order.setUpdatedAt(LocalDateTime.now());
+        orderRepository.save(order);
+        return mapToResponse(order);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderResponseDTO> getOrdersByShipperId(UUID shipperId) {
+        User shipper = userRepository.findById(shipperId)
+                .orElseThrow(() -> new RuntimeException("Shipper not found!"));
+        return orderRepository.findByShipper(shipper)
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -476,6 +537,10 @@ public class OrderServiceImpl implements OrderService {
                 .paymentMethod(order.getPaymentMethod().name())
                 .createdAt(order.getCreatedAt())
                 .paymentTime(order.getPaymentTime())
+                .deliveryAddress(order.getDeliveryAddress())
+                .destLat(order.getDestLat())
+                .destLng(order.getDestLng())
+                .shipperName(order.getShipper() != null ? order.getShipper().getName() : null)
                 .items(items)
                 .build();
     }

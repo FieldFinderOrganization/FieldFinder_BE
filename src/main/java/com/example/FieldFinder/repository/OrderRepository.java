@@ -19,6 +19,8 @@ import java.util.List;
 public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findByUser(User user);
     List<Order> findAllByStatus(OrderStatus status);
+    List<Order> findByStatusAndShipperIsNull(OrderStatus status);
+    List<Order> findByShipper(User shipper);
     List<Order> findByStatusAndCreatedAtBefore(OrderStatus status, LocalDateTime threshold);
 
     long countByStatus(OrderStatus status);

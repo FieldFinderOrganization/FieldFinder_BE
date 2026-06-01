@@ -17,4 +17,8 @@ public interface OrderService {
     OrderResponseDTO cancelOrderByUser(Long id, UUID userId, String reason);
 
     List<OrderResponseDTO> getOrdersByUserId(UUID userId);
+
+    List<OrderResponseDTO> getAvailableOrdersForShipper();
+    OrderResponseDTO claimOrder(Long orderId, UUID shipperId);
+    List<OrderResponseDTO> getOrdersByShipperId(UUID shipperId);
 }

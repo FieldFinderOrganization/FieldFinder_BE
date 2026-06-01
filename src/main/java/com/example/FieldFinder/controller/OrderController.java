@@ -85,6 +85,33 @@ public class OrderController {
         orderService.deleteOrder(id);
     }
 
+    @GetMapping("/available")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public List<OrderResponseDTO> getAvailableOrders() {
+        return orderService.getAvailableOrdersForShipper();
+    }
+
+    @PutMapping("/{id}/claim")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ResponseEntity<OrderResponseDTO> claimOrder(@PathVariable Long id,
+                                                       Authentication authentication) {
+        UUID shipperId = getUserIdFromAuth(authentication);
+        if (shipperId == null) {
+            return ResponseEntity.status(401).build();
+        }
+        return ResponseEntity.ok(orderService.claimOrder(id, shipperId));
+    }
+
+    @GetMapping("/shipper/me")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ResponseEntity<List<OrderResponseDTO>> getMyShipperOrders(Authentication authentication) {
+        UUID shipperId = getUserIdFromAuth(authentication);
+        if (shipperId == null) {
+            return ResponseEntity.status(401).build();
+        }
+        return ResponseEntity.ok(orderService.getOrdersByShipperId(shipperId));
+    }
+
     @PutMapping("/{id}/cancel")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<OrderResponseDTO> cancelOrder(

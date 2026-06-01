@@ -25,6 +25,14 @@ public class Order {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @ManyToOne
+    @JoinColumn(name = "shipper_id")
+    private User shipper;
+
+    private String deliveryAddress;
+    private Double destLat;
+    private Double destLng;
+
     private Double totalAmount;
 
     @Enumerated(EnumType.STRING)
