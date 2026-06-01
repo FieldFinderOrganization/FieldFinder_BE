@@ -34,6 +34,9 @@ public class CompositeRanker {
 
     private final CategoryService categoryService;
 
+    /** Target result count returned to the AI chat. */
+    private static final int TARGET_SIZE = 10;
+
     public List<Map.Entry<ProductResponseDTO, Double>> rank(
             List<ProductResponseDTO> candidates,
             List<Double> mlScores,
@@ -98,6 +101,22 @@ public class CompositeRanker {
         boolean strictType = ctx.isStrictProductType()
                 && ctx.getProductType() != null && !ctx.getProductType().isBlank();
 
+        // ============== STRICT-TYPE FILL: same-type remainder up to target ==============
+        // Under strictType, tier3/tier4 are skipped, so tier1(≤3)+tier2(≤2) caps output at 5
+        // (and at 3 when activity & gender are both null → tier2 empty). Fill with the rest of
+        // the type-matched candidates, best composite first, so we return up to TARGET_SIZE.
+        List<ScoredProduct> tierFill = List.of();
+        if (strictType) {
+            int need = TARGET_SIZE - tier1.size() - tier2.size();
+            if (need > 0) {
+                tierFill = filter(scored, sp ->
+                        !used.contains(sp.product.getId()) && sp.type);
+                tierFill.sort(byComposite());
+                tierFill = trim(tierFill, need);
+                used.addAll(collectIds(tierFill));
+            }
+        }
+
         List<ScoredProduct> tier3 = List.of();
         List<ScoredProduct> tier4 = List.of();
         if (!strictType) {
@@ -121,6 +140,7 @@ public class CompositeRanker {
 
         System.out.println("🎯 Tier sizes: " + tier1.size() + "+" + tier2.size()
                 + "+" + tier3.size() + "+" + tier4.size()
+                + " | strictFill=" + tierFill.size()
                 + " | tier1=" + tier1Source
                 + " | strictType=" + strictType
                 + " | productType=" + ctx.getProductType()
@@ -131,6 +151,7 @@ public class CompositeRanker {
         List<ScoredProduct> combined = new ArrayList<>();
         combined.addAll(tier1);
         combined.addAll(tier2);
+        combined.addAll(tierFill);
         combined.addAll(tier3);
         combined.addAll(tier4);
 
