@@ -43,4 +43,51 @@ public interface PitchRepository extends JpaRepository<Pitch, UUID>, JpaSpecific
     Page<Pitch> findWithFilters(@Param("search") String search,
                                 @Param("type") Pitch.PitchType type,
                                 Pageable pageable);
+
+    @Query(value = """
+            SELECT p.* FROM pitches p
+            JOIN provider_address pa ON pa.provider_address_id = p.provider_address_id
+            WHERE pa.latitude IS NOT NULL AND pa.longitude IS NOT NULL
+              AND p.pitch_id <> :excludeId
+            ORDER BY (6371 * acos(
+                cos(radians(:lat)) * cos(radians(pa.latitude)) *
+                cos(radians(pa.longitude) - radians(:lng)) +
+                sin(radians(:lat)) * sin(radians(pa.latitude))
+            )) ASC
+            LIMIT :maxResults
+            """, nativeQuery = true)
+    List<Pitch> findNearbyPitches(@Param("excludeId") UUID excludeId,
+                                  @Param("lat") double lat,
+                                  @Param("lng") double lng,
+                                  @Param("maxResults") int maxResults);
+
+    @Query(value = """
+            SELECT p.* FROM pitches p
+            JOIN provider_address pa ON pa.provider_address_id = p.provider_address_id
+            WHERE LOWER(pa.address) LIKE LOWER(CONCAT('%', :district, '%'))
+              AND p.pitch_id <> :excludeId
+            LIMIT :maxResults
+            """, nativeQuery = true)
+    List<Pitch> findByDistrictKeyword(@Param("excludeId") UUID excludeId,
+                                      @Param("district") String district,
+                                      @Param("maxResults") int maxResults);
+
+    @Query("""
+            SELECT p FROM Pitch p
+            LEFT JOIN Review r ON r.pitch = p
+            WHERE p.pitchId <> :excludeId
+            GROUP BY p
+            HAVING AVG(r.rating) IS NOT NULL
+            ORDER BY AVG(r.rating) DESC, COUNT(r) DESC
+            """)
+    List<Pitch> findTopRatedPitches(@Param("excludeId") UUID excludeId, Pageable pageable);
+
+    @Query("""
+            SELECT DISTINCT bd.pitch.pitchId FROM BookingDetail bd
+            WHERE bd.booking.user.userId = :userId
+              AND bd.pitch.pitchId <> :excludeId
+            ORDER BY bd.pitch.pitchId
+            """)
+    List<UUID> findBookedPitchIdsByUser(@Param("userId") UUID userId,
+                                        @Param("excludeId") UUID excludeId);
 }

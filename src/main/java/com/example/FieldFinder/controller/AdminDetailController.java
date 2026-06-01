@@ -271,6 +271,16 @@ public class AdminDetailController {
             item.put("providerName", providerName);
             item.put("price", p.getPrice());
             item.put("environment", p.getEnvironment().name());
+            // Cho admin sửa vị trí khu vực chứa sân.
+            try {
+                var pa = p.getProviderAddress();
+                if (pa != null) {
+                    item.put("providerAddressId", pa.getProviderAddressId().toString());
+                    item.put("address", pa.getAddress());
+                    item.put("latitude", pa.getLatitude());
+                    item.put("longitude", pa.getLongitude());
+                }
+            } catch (Exception ignored) {}
             content.add(item);
         }
 

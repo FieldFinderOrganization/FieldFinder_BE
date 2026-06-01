@@ -10,4 +10,7 @@ import java.util.UUID;
 @Repository
 public interface ProviderAddressRepository extends JpaRepository<ProviderAddress, UUID> {
     List<ProviderAddress> findByProviderProviderId(UUID providerId);
+
+    /** Địa chỉ thiếu toạ độ (cần geocode backfill cho "sân gần bạn"). */
+    List<ProviderAddress> findByLatitudeIsNullOrLongitudeIsNull();
 }
