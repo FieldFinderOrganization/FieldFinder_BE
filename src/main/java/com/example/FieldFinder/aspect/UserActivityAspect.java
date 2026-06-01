@@ -1,5 +1,6 @@
 package com.example.FieldFinder.aspect;
 
+import com.example.FieldFinder.service.RedisService;
 import com.example.FieldFinder.service.log.LogPublisherService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +26,7 @@ import java.util.stream.Collectors;
 public class UserActivityAspect {
 
     private final LogPublisherService logPublisherService;
+    private final RedisService redisService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     // ═══════════════════════════════════════════
@@ -423,7 +425,17 @@ public class UserActivityAspect {
     private String getCurrentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.isAuthenticated() && !auth.getPrincipal().equals("anonymousUser")) {
-            return auth.getName();
+            // Principal is the EMAIL (set in JwtAuthenticationFilter). Logs must be keyed by
+            // the canonical user UUID — downstream consumers (getUserTopBrands, ML SASRec)
+            // query Mongo by UUID. Storing the email here breaks ALL personalization.
+            String email = auth.getName();
+            try {
+                UUID uid = redisService.getUserIdByEmail(email);
+                if (uid != null) return uid.toString();
+            } catch (Exception e) {
+                System.err.println("getCurrentUserId: email→UUID resolve fail for " + email + ": " + e.getMessage());
+            }
+            return email; // fallback — no worse than before
         }
         return null;
     }
