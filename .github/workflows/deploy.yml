@@ -5,7 +5,29 @@ on:
     branches: ["main"]
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      be: ${{ steps.filter.outputs.be }}
+      ml: ${{ steps.filter.outputs.ml }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            ml:
+              - 'ml/**'
+            be:
+              - 'src/**'
+              - 'pom.xml'
+              - 'mvnw'
+              - '.mvn/**'
+              - 'Dockerfile'
+
   build-be:
+    needs: changes
+    if: needs.changes.outputs.be == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,6 +36,9 @@ jobs:
         run: |
           mkdir -p src/main/resources/firebase
           echo "${{ secrets.FIREBASE_CONFIG }}" | base64 -d > src/main/resources/firebase/serviceAccountKey.json
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -27,11 +52,18 @@ jobs:
           context: .
           push: true
           tags: minhtriet004/fieldfinder-be:latest
+          cache-from: type=gha,scope=be
+          cache-to: type=gha,mode=max,scope=be
 
   build-ml:
+    needs: changes
+    if: needs.changes.outputs.ml == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -46,9 +78,12 @@ jobs:
           file: ./ml/Dockerfile.gpu
           push: true
           tags: minhtriet004/fieldfinder-ml:latest
+          cache-from: type=gha,scope=ml
+          cache-to: type=gha,mode=max,scope=ml
 
   deploy:
     needs: [build-be, build-ml]
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to EC2 via SSH
