@@ -47,11 +47,12 @@ public class AIChat {
 
     private static final String GOOGLE_API_KEY;
 
-    private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=";
+    private static final String MODEL_VERSION = "gemini-2.5-flash";
+
+    private static final String GEMINI_API_URL =
+            "https://generativelanguage.googleapis.com/v1beta/models/" + MODEL_VERSION + ":generateContent?key=";
 
     private static final String EMBEDDING_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=";
-
-    private static final String MODEL_VERSION = "gemini-2.0-flash";
 
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(Duration.ofSeconds(15))
