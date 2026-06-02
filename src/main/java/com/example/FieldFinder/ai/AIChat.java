@@ -2316,8 +2316,10 @@ public class AIChat {
             while (enrichmentPaused) {
                 Thread.sleep(2000);
             }
-            String base64Image = downloadImageAsBase64(imageUrl);
-            if (base64Image == null) return new ArrayList<>();
+            String[] img = downloadImageWithMime(imageUrl);
+            if (img == null) return new ArrayList<>();
+            String base64Image = img[0];
+            String mimeType = img[1];
 
             ObjectNode rootNode = mapper.createObjectNode();
             ObjectNode systemInstNode = rootNode.putObject("system_instruction");
@@ -2330,7 +2332,7 @@ public class AIChat {
             parts.addObject().put("text", "Hãy sinh tags cho sản phẩm này.");
 
             ObjectNode inlineData = parts.addObject().putObject("inline_data");
-            inlineData.put("mime_type", "image/jpeg");
+            inlineData.put("mime_type", mimeType);
             inlineData.put("data", base64Image);
 
             ObjectNode generationConfig = rootNode.putObject("generationConfig");
@@ -2361,13 +2363,52 @@ public class AIChat {
         return PitchEnvironment.OUTDOOR;
     }
 
-    private String downloadImageAsBase64(String imageUrl) {
+    /** Gemini Vision chấp nhận: png, jpeg, webp, heic, heif. KHÔNG hỗ trợ avif/gif. */
+    private static boolean geminiSupportsMime(String mime) {
+        return mime != null && (mime.equals("image/png") || mime.equals("image/jpeg")
+                || mime.equals("image/webp") || mime.equals("image/heic") || mime.equals("image/heif"));
+    }
+
+    private static String guessMimeFromUrl(String url) {
+        String u = url.toLowerCase();
+        if (u.contains(".png")) return "image/png";
+        if (u.contains(".webp")) return "image/webp";
+        if (u.contains(".avif")) return "image/avif";
+        if (u.contains(".heic")) return "image/heic";
+        if (u.contains(".gif")) return "image/gif";
+        return "image/jpeg";
+    }
+
+    /** Cloudinary: chèn transform f_jpg để buộc serve JPEG (xử ảnh avif/gif Gemini không nhận). */
+    private static String cloudinaryAsJpg(String url) {
+        if (url != null && url.contains("res.cloudinary.com") && url.contains("/upload/") && !url.contains("/f_jpg/")) {
+            return url.replaceFirst("/upload/", "/upload/f_jpg/");
+        }
+        return null;
+    }
+
+    /** Trả [base64, mimeType] hợp lệ cho Gemini, hoặc null nếu fail. */
+    private String[] downloadImageWithMime(String imageUrl) {
+        String mimeGuess = guessMimeFromUrl(imageUrl);
+        // Nếu định dạng Gemini không nhận (avif/gif) và là Cloudinary → đổi sang JPEG qua URL transform.
+        if (!geminiSupportsMime(mimeGuess)) {
+            String jpgUrl = cloudinaryAsJpg(imageUrl);
+            if (jpgUrl != null) { imageUrl = jpgUrl; mimeGuess = "image/jpeg"; }
+        }
         try {
-            Request request = new Request.Builder().url(imageUrl).build();
+            Request request = new Request.Builder().url(imageUrl)
+                    .header("User-Agent", "Mozilla/5.0").build();
             try (Response response = client.newCall(request).execute()) {
                 if (!response.isSuccessful() || response.body() == null) return null;
                 byte[] imageBytes = response.body().bytes();
-                return Base64.getEncoder().encodeToString(imageBytes);
+                String mime = response.header("Content-Type");
+                if (mime != null) mime = mime.split(";")[0].trim();
+                if (!geminiSupportsMime(mime)) mime = mimeGuess;     // header rỗng/sai → đoán theo URL
+                if (!geminiSupportsMime(mime)) {
+                    System.err.println("Định dạng ảnh Gemini không hỗ trợ (" + mime + "): " + imageUrl);
+                    return null;
+                }
+                return new String[]{ Base64.getEncoder().encodeToString(imageBytes), mime };
             }
         } catch (Exception e) {
             System.err.println("Không tải được ảnh: " + imageUrl);

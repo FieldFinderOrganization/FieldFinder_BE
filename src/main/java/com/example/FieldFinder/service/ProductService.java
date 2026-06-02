@@ -18,7 +18,6 @@ public interface ProductService {
     Map<Long, ProductResponseDTO> getProductsByIds(List<Long> ids, UUID userId);
     Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId);
 
-    /** Full catalog for AI flows; cached in Redis (see {@code ai_catalog}). */
     List<ProductResponseDTO> getProductsForAiAssistant(UUID userId);
 
     List<ProductResponseDTO> getTopSellingProducts(int limit, UUID userId);

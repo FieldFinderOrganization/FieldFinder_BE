@@ -34,3 +34,9 @@ build/
 .vscode/
 .env
 src/main/resources/firebase/serviceAccountKey.json
+scripts/~$nPham_CanThem.docx
+scripts/bulk_import_products.py
+scripts/export_products_for_ml.py
+scripts/products_template.csv
+scripts/products_to_add.csv
+scripts/SanPham_CanThem.docx

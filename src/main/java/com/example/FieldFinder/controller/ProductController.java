@@ -83,7 +83,7 @@ public class ProductController {
     }
 
     @PostMapping(consumes = {"multipart/form-data"})
-    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
+    // @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ProductResponseDTO create(
             @RequestPart("product") String productJson,
             @RequestPart(value = "image", required = false) MultipartFile imageFile) {
@@ -96,7 +96,7 @@ public class ProductController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
+    // @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ProductResponseDTO update(@PathVariable Long id, @RequestBody ProductRequestDTO request) {
         return productService.updateProduct(id, request);
     }

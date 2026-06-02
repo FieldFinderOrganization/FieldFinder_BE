@@ -77,6 +77,9 @@ public class SecurityConfig {
 
                         .requestMatchers(HttpMethod.POST, "/api/provider-addresses/backfill-coordinates").permitAll()
 
+                        .requestMatchers(HttpMethod.POST, "/api/products/**").permitAll()
+                        .requestMatchers(HttpMethod.PUT, "/api/products/**").permitAll()
+
                         .anyRequest().authenticated()
                 )
 
