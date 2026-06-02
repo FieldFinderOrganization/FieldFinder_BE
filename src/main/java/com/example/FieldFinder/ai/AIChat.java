@@ -1622,6 +1622,38 @@ public class AIChat {
                 + " (source=" + (aiProductType != null ? "AI" : "JAVA") + ")"
                 + " resolvedCategories=" + resolvedCategories);
 
+        // Guarantee category candidates: the bi-encoder can miss in-category items whose name
+        // is a model code with no category words (e.g. "LeBron XXII EP" → Basketball Shoes).
+        // Pull every product in the resolved category straight from DB and union into the
+        // candidate set (score 0.0) so the composite ranker can surface them.
+        if (resolvedCategories != null && !resolvedCategories.isEmpty()) {
+            if (results == null) {
+                results = new ArrayList<>();
+                retrievalScores = new ArrayList<>();
+            } else {
+                results = new ArrayList<>(results);
+                retrievalScores = new ArrayList<>(retrievalScores);
+            }
+            Set<Long> haveIds = results.stream()
+                    .map(ProductResponseDTO::getId).filter(Objects::nonNull)
+                    .collect(Collectors.toCollection(HashSet::new));
+            int added = 0;
+            for (ProductResponseDTO p : getProductsForAiAssistantCached(userId)) {
+                if (p.getCategoryName() != null
+                        && resolvedCategories.contains(p.getCategoryName())
+                        && p.getId() != null && !haveIds.contains(p.getId())) {
+                    results.add(p);
+                    retrievalScores.add(0.0);
+                    haveIds.add(p.getId());
+                    added++;
+                }
+            }
+            if (added > 0) {
+                System.out.println("➕ Category augment: +" + added + " from " + resolvedCategories);
+                retrievalSource = "ML_RAG+CAT";
+            }
+        }
+
         // Re-rank: ưu tiên (1) category match activity, (2) sex match tags ("nữ"/"nam")
         if (results != null && !results.isEmpty()) {
             String sexPref = null;

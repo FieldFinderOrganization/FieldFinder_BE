@@ -69,91 +69,53 @@ public class CompositeRanker {
             scored.add(new ScoredProduct(p, composite, typeMatch, activityMatch, brandMatch, genderMatch));
         }
 
-        // ============== TIER 1: strict match all 4 dims with degrade chain ==============
-        List<ScoredProduct> tier1 = filter(scored, sp -> sp.type && sp.activity && sp.brand && sp.gender);
-        String tier1Source = "strict";
-        if (tier1.size() < 3) {
-            tier1 = filter(scored, sp -> sp.type && sp.activity && sp.brand);
-            tier1Source = "drop_gender";
-        }
-        if (tier1.size() < 3) {
-            tier1 = filter(scored, sp -> sp.type && sp.activity);
-            tier1Source = "drop_brand";
-        }
-        if (tier1.size() < 3) {
-            tier1 = filter(scored, sp -> sp.type);
-            tier1Source = "type_only";
-        }
-        tier1.sort(byComposite());
-        tier1 = trim(tier1, 3);
-
-        Set<Long> used = collectIds(tier1);
-
-        // ============== TIER 2: type match, drop activity OR gender ==============
-        List<ScoredProduct> tier2 = filter(scored, sp ->
-                !used.contains(sp.product.getId())
-                        && sp.type
-                        && (sp.activity || sp.gender));
-        tier2.sort(byComposite());
-        tier2 = trim(tier2, 2);
-        used.addAll(collectIds(tier2));
-
         boolean strictType = ctx.isStrictProductType()
                 && ctx.getProductType() != null && !ctx.getProductType().isBlank();
 
-        // ============== STRICT-TYPE FILL: same-type remainder up to target ==============
-        // Under strictType, tier3/tier4 are skipped, so tier1(≤3)+tier2(≤2) caps output at 5
-        // (and at 3 when activity & gender are both null → tier2 empty). Fill with the rest of
-        // the type-matched candidates, best composite first, so we return up to TARGET_SIZE.
-        List<ScoredProduct> tierFill = List.of();
-        if (strictType) {
-            int need = TARGET_SIZE - tier1.size() - tier2.size();
-            if (need > 0) {
-                tierFill = filter(scored, sp ->
-                        !used.contains(sp.product.getId()) && sp.type);
-                tierFill.sort(byComposite());
-                tierFill = trim(tierFill, need);
-                used.addAll(collectIds(tierFill));
-            }
-        }
+        // Lexicographic priority — directly encodes the desired UX ordering instead of a
+        // ≥3-or-collapse degrade chain (which dropped to "type only" whenever the queried
+        // category was sparse, e.g. few basketball shoes in catalog):
+        //   1. activity/category match (basketball shoes) first
+        //   2. then preferred brand from user history (e.g. Nike)
+        //   3. then gender fit (profile gender; unisex when no profile)
+        //   4. then composite (ML/text relevance) as tiebreak
+        Comparator<ScoredProduct> byPriority = Comparator
+                .comparing((ScoredProduct s) -> s.activity).reversed()
+                .thenComparing(s -> s.brand, Comparator.reverseOrder())
+                .thenComparing(s -> genderScore(s.product, ctx.getGenderPref()), Comparator.reverseOrder())
+                .thenComparing(s -> s.composite, Comparator.reverseOrder());
 
-        List<ScoredProduct> tier3 = List.of();
-        List<ScoredProduct> tier4 = List.of();
+        List<ScoredProduct> combined = new ArrayList<>();
+
+        // Primary: type-matched products (e.g. all SHOES), priority-ordered, capped at target.
+        List<ScoredProduct> typed = filter(scored, sp -> sp.type);
+        typed.sort(byPriority);
+        combined.addAll(trim(typed, TARGET_SIZE));
+
         if (!strictType) {
-            // ============== TIER 3: NOT type, but activity match ==============
-            tier3 = filter(scored, sp ->
-                    !used.contains(sp.product.getId())
-                            && !sp.type
-                            && sp.activity);
-            tier3.sort(byComposite());
-            tier3 = trim(tier3, 2);
-            used.addAll(collectIds(tier3));
-
-            // ============== TIER 4: best-seller fill from remaining ==============
-            tier4 = filter(scored, sp -> !used.contains(sp.product.getId()));
-            tier4.sort(Comparator.comparingInt((ScoredProduct s) -> {
+            Set<Long> used = collectIds(combined);
+            // Cross-type activity matches (e.g. basketball clothing for a basketball query).
+            List<ScoredProduct> offType = filter(scored, sp ->
+                    !used.contains(sp.product.getId()) && !sp.type && sp.activity);
+            offType.sort(byPriority);
+            combined.addAll(trim(offType, 2));
+            used.addAll(collectIds(offType));
+            // Best-seller fill from remaining.
+            List<ScoredProduct> bestSeller = filter(scored, sp -> !used.contains(sp.product.getId()));
+            bestSeller.sort(Comparator.comparingInt((ScoredProduct s) -> {
                 Integer ts = s.product.getTotalSold();
                 return ts == null ? 0 : ts;
             }).reversed());
-            tier4 = trim(tier4, 3);
+            combined.addAll(trim(bestSeller, 3));
         }
 
-        System.out.println("🎯 Tier sizes: " + tier1.size() + "+" + tier2.size()
-                + "+" + tier3.size() + "+" + tier4.size()
-                + " | strictFill=" + tierFill.size()
-                + " | tier1=" + tier1Source
+        System.out.println("🎯 Ranked: typed=" + typed.size()
+                + " | returned=" + combined.size()
                 + " | strictType=" + strictType
                 + " | productType=" + ctx.getProductType()
                 + " | activity=" + ctx.getActivity()
                 + " | topBrands=" + ctx.getTopBrands()
                 + " | gender=" + ctx.getGenderPref());
-
-        List<ScoredProduct> combined = new ArrayList<>();
-        combined.addAll(tier1);
-        combined.addAll(tier2);
-        combined.addAll(tierFill);
-        combined.addAll(tier3);
-        combined.addAll(tier4);
 
         return combined.stream()
                 .map(s -> Map.<ProductResponseDTO, Double>entry(s.product, s.composite))
@@ -193,7 +155,11 @@ public class CompositeRanker {
     }
 
     private double genderScore(ProductResponseDTO p, String genderPref) {
-        if (genderPref == null) return 0.7;     // no pref → neutral
+        if (genderPref == null) {
+            // No profile gender → mild preference for unisex (broadest fit, safest first slot).
+            if (p.getSex() == null) return 0.6;
+            return p.getSex().equalsIgnoreCase("UNISEX") ? 0.8 : 0.6;
+        }
         if (p.getSex() == null) return 0.5;
         String g = p.getSex().toUpperCase();
         String pref = genderPref.toUpperCase();
