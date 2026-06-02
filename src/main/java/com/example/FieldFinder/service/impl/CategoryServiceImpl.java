@@ -120,10 +120,16 @@ public class CategoryServiceImpl implements CategoryService {
             Map.entry("tennis shoes", "SHOES"),
             Map.entry("basketball shoes", "SHOES"),
             Map.entry("running shoes", "SHOES"),
+            Map.entry("shoes", "SHOES"),
+            Map.entry("lifestyle", "SHOES"),
             Map.entry("sandals and slides", "SANDAL"),
             Map.entry("bags and backpacks", "BAG"),
             Map.entry("hats and headwears", "HAT"),
-            Map.entry("socks", "OTHER")
+            Map.entry("socks", "OTHER"),
+            Map.entry("running accessories", "OTHER"),
+            Map.entry("tennis accessories", "OTHER"),
+            Map.entry("basketball accessories", "OTHER"),
+            Map.entry("football accessories", "OTHER")
     );
 
     /** Danh mục rộng — không dùng substring để suy productType (tránh nhầm áo ↔ quần). */
@@ -323,11 +329,6 @@ public class CategoryServiceImpl implements CategoryService {
         }
 
         String strong = (name + " " + catName).trim();
-        Set<String> tagSet = product.getTags() == null ? Collections.emptySet()
-                : product.getTags().stream()
-                    .filter(t -> t != null)
-                    .map(String::toLowerCase)
-                    .collect(Collectors.toSet());
 
         // Strong signal: requested type keyword in product name or category → accept.
         for (String kw : kws) {
@@ -335,9 +336,7 @@ public class CategoryServiceImpl implements CategoryService {
         }
 
         // Cross-type exclusion: if name/category strongly matches a DIFFERENT, mutually
-        // exclusive type (e.g. "pants" → BOTTOM when SHOES was asked), the product is clearly
-        // something else. Reject before falling back to loose tag matching — tags are noisy
-        // (a pair of pants may carry a "giày thể thao" activity tag from seeding).
+        // exclusive type (e.g. "pants" → BOTTOM when SHOES was asked), reject.
         for (Map.Entry<String, List<String>> e : PRODUCT_TYPE_ALIASES.entrySet()) {
             if (e.getKey().equals(reqType) || "OTHER".equals(e.getKey())) continue;
             for (String kw : e.getValue()) {
@@ -345,12 +344,11 @@ public class CategoryServiceImpl implements CategoryService {
             }
         }
 
-        // Ambiguous (no strong type signal anywhere) → fall back to loose tag match.
-        for (String kw : kws) {
-            for (String t : tagSet) {
-                if (t.contains(kw)) return true;
-            }
-        }
+        // NOTE: image/outfit-level `tags` deliberately NOT used as a fallback — they leak
+        // cross-type items (e.g. "Running Accessories" matching TOP via an "áo" tag). In-category
+        // recall is now guaranteed upstream by the DB category-augment step in AIChat, so a
+        // product whose name AND clean category give no type signal is correctly treated as a
+        // non-match here.
         return false;
     }
 
