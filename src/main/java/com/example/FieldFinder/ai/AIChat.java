@@ -504,7 +504,8 @@ public class AIChat {
         ObjectNode generationConfig = rootNode.putObject("generationConfig");
         generationConfig.put("temperature", 0.1);
         generationConfig.put("response_mime_type", "application/json");
-        generationConfig.put("maxOutputTokens", 1024);
+        generationConfig.put("maxOutputTokens", 2048);
+        generationConfig.putObject("thinkingConfig").put("thinkingBudget", 0);
 
         Request request = new Request.Builder()
                 .url(GEMINI_API_URL + GOOGLE_API_KEY)
@@ -544,7 +545,8 @@ public class AIChat {
 
             ObjectNode generationConfig = rootNode.putObject("generationConfig");
             generationConfig.put("response_mime_type", "application/json");
-            generationConfig.put("maxOutputTokens", 512);
+            generationConfig.put("maxOutputTokens", 1024);
+            generationConfig.putObject("thinkingConfig").put("thinkingBudget", 0);
 
             Request request = new Request.Builder()
                     .url(GEMINI_API_URL + GOOGLE_API_KEY)
@@ -2338,7 +2340,10 @@ public class AIChat {
             ObjectNode generationConfig = rootNode.putObject("generationConfig");
             generationConfig.put("temperature", 0.1);
             generationConfig.put("response_mime_type", "application/json");
-            generationConfig.put("maxOutputTokens", 512);
+            generationConfig.put("maxOutputTokens", 1024);
+            // Gemini 2.5-flash bật "thinking" theo mặc định → nuốt output budget làm JSON bị cắt
+            // (JsonEOFException). Tắt thinking để dành token cho output tags.
+            generationConfig.putObject("thinkingConfig").put("thinkingBudget", 0);
 
             Request request = new Request.Builder()
                     .url(GEMINI_API_URL + GOOGLE_API_KEY)

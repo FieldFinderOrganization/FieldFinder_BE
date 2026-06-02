@@ -118,7 +118,6 @@ public class ProductController {
     }
 
     @PostMapping("/enrich-data")
-    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<String> enrichData() {
         new Thread(productService::enrichAllProductsData).start();
         return ResponseEntity.ok("Quá trình AI hóa dữ liệu đang chạy ngầm.");

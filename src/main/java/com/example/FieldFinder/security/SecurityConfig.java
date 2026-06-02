@@ -79,6 +79,7 @@ public class SecurityConfig {
 
                         .requestMatchers(HttpMethod.POST, "/api/products/**").permitAll()
                         .requestMatchers(HttpMethod.PUT, "/api/products/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/products/enrich-data").permitAll()
 
                         .anyRequest().authenticated()
                 )

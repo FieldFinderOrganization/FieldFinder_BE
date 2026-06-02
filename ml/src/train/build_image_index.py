@@ -5,6 +5,8 @@ Run từ ml/:
 """
 from __future__ import annotations
 
+import torch  # noqa: F401  — phải import TRƯỚC faiss (tránh xung đột DLL OpenMP/MKL trên Windows)
+
 import logging
 import pickle
 

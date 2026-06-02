@@ -33,6 +33,14 @@ build/
 ### VS Code ###
 .vscode/
 .env
+
+### Python venv / caches (KHÔNG commit — torch DLL >100MB) ###
+**/.venv/
+**/.venv311/
+**/venv/
+**/__pycache__/
+*.pyc
+ml/.cache/
 src/main/resources/firebase/serviceAccountKey.json
 scripts/~$nPham_CanThem.docx
 scripts/bulk_import_products.py
