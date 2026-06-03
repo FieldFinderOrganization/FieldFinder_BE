@@ -48,14 +48,6 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     @Query("SELECT p FROM Product p WHERE p.imageUrl IS NOT NULL AND p.imagePhash IS NULL")
     List<Product> findAllNeedingPhashBackfill();
 
-    @Query("SELECT p FROM Product p WHERE p.productId <> :excludeId AND " +
-           "(p.category.categoryId = :categoryId OR p.brand = :brand OR p.sex = :sex)")
-    List<Product> findSimilarProducts(@Param("excludeId") Long excludeId,
-                                      @Param("categoryId") Long categoryId,
-                                      @Param("brand") String brand,
-                                      @Param("sex") String sex,
-                                      org.springframework.data.domain.Pageable pageable);
-
     @Query("SELECT p FROM Product p WHERE " +
            "LOWER(p.category.name) LIKE '%football%' OR " +
            "LOWER(p.category.name) LIKE '%bóng đá%' OR " +

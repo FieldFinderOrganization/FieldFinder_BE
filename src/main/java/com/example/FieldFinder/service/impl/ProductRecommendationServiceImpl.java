@@ -9,6 +9,7 @@ import com.example.FieldFinder.entity.log.InteractionLog;
 import com.example.FieldFinder.repository.OrderRepository;
 import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.UserRepository;
+import com.example.FieldFinder.ai.ranking.SimilarProductRanker;
 import com.example.FieldFinder.service.MLRecommendationService;
 import com.example.FieldFinder.service.ProductRecommendationService;
 import com.example.FieldFinder.service.ProductService;
@@ -36,6 +37,7 @@ public class ProductRecommendationServiceImpl implements ProductRecommendationSe
     private final OrderRepository orderRepository;
     private final ProductService productService;
     private final MLRecommendationService mlService;
+    private final SimilarProductRanker similarProductRanker;
 
     @Autowired(required = false)
     private MongoTemplate mongoTemplate;
@@ -44,12 +46,14 @@ public class ProductRecommendationServiceImpl implements ProductRecommendationSe
                                             UserRepository userRepository,
                                             OrderRepository orderRepository,
                                             ProductService productService,
-                                            MLRecommendationService mlService) {
+                                            MLRecommendationService mlService,
+                                            SimilarProductRanker similarProductRanker) {
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.orderRepository = orderRepository;
         this.productService = productService;
         this.mlService = mlService;
+        this.similarProductRanker = similarProductRanker;
     }
 
     @Override
@@ -64,13 +68,14 @@ public class ProductRecommendationServiceImpl implements ProductRecommendationSe
             return new SuggestedProductsResponseDTO(List.of(), List.of(), List.of());
         }
 
-        // 1. Fetch Similar Products
+        // 1. Fetch Similar Products — tiered (hard guarantee): tier 0 cùng leaf+brand+gender,
+        //    tier 1 cùng leaf, tier 2 cùng type khác leaf. Thứ tự trong tầng áp CTR sau (bước 5).
         Long categoryId = currentProduct.getCategory() != null ? currentProduct.getCategory().getCategoryId() : null;
-        List<Product> similarEntities = productRepository.findSimilarProducts(
-                productId, categoryId, currentProduct.getBrand(), currentProduct.getSex(), PageRequest.of(0, safeLimit)
-        );
-        List<Long> similarIds = similarEntities.stream().map(Product::getProductId).toList();
-        log.info("[SUGGEST-PRODUCT] Found {} similar product entities", similarIds.size());
+        List<SimilarProductRanker.TierEntry> similarTiers = similarProductRanker.rank(currentProduct, safeLimit);
+        List<Long> similarIds = similarTiers.stream().map(SimilarProductRanker.TierEntry::productId).toList();
+        Map<Long, Integer> similarTierById = new HashMap<>();
+        for (SimilarProductRanker.TierEntry e : similarTiers) similarTierById.put(e.productId(), e.tier());
+        log.info("[SUGGEST-PRODUCT] Tiered similar -> {} ids", similarIds.size());
 
         // 2. Fetch Top Selling Products
         List<Product> topSellingEntities = productRepository.findTopSellingProducts(PageRequest.of(0, safeLimit));
@@ -127,7 +132,7 @@ public class ProductRecommendationServiceImpl implements ProductRecommendationSe
         // Lấy kết quả ML (đã chạy nền). Lỗi/timeout → map rỗng → giữ thứ tự heuristic.
         Map<String, Double> ctrScores = joinCtr(ctrFuture);
         log.info("[SUGGEST-PRODUCT][TIMING] joinCtr waited {} ms (total after hydrate)", System.currentTimeMillis() - tHydrate);
-        similarDtos = applyCtrOrder(similarDtos, ctrScores);
+        similarDtos = applyTieredCtrOrder(similarDtos, similarTierById, ctrScores);
         topSellingDtos = applyCtrOrder(topSellingDtos, ctrScores);
         historyDtos = applyCtrOrder(historyDtos, ctrScores);
 
@@ -137,11 +142,8 @@ public class ProductRecommendationServiceImpl implements ProductRecommendationSe
         return new SuggestedProductsResponseDTO(similarDtos, topSellingDtos, historyDtos);
     }
 
-    /** Chờ kết quả ML nền; lỗi/timeout → map rỗng (giữ thứ tự heuristic). */
     private Map<String, Double> joinCtr(CompletableFuture<Map<String, Double>> future) {
         try {
-            // Cap phần CHỜ THÊM sau hydrate. ML đã chạy nền suốt lúc hydrate rồi.
-            // Ngắn để ML down/treo không kéo response (circuit breaker sẽ tự mở sau vài fail).
             return future.get(1500, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
             log.warn("[SUGGEST-PRODUCT] CTR future not ready, fallback heuristic: {}", e.getMessage());
@@ -150,10 +152,6 @@ public class ProductRecommendationServiceImpl implements ProductRecommendationSe
         }
     }
 
-    /**
-     * Gọi ML DeepFM CTR cho tập ứng viên. Trả map<productId(String), ctrScore>.
-     * Map rỗng nếu ML tắt / circuit open / lỗi (đã xử lý trong MLRecommendationService).
-     */
     private Map<String, Double> rerankByCtr(Set<Long> candidateIds, UUID userId, Long anchorProductId) {
         if (candidateIds == null || candidateIds.isEmpty()) return Collections.emptyMap();
         List<String> candIds = candidateIds.stream().map(String::valueOf).toList();
@@ -174,10 +172,6 @@ public class ProductRecommendationServiceImpl implements ProductRecommendationSe
         }
     }
 
-    /**
-     * Sắp lại 1 nhóm theo điểm CTR giảm dần (ổn định). Score thiếu coi như 0.
-     * Map rỗng → giữ nguyên thứ tự gốc.
-     */
     private List<ProductResponseDTO> applyCtrOrder(List<ProductResponseDTO> items,
                                                    Map<String, Double> ctrScores) {
         if (ctrScores.isEmpty() || items.size() < 2) return items;
@@ -186,6 +180,20 @@ public class ProductRecommendationServiceImpl implements ProductRecommendationSe
                         (ProductResponseDTO d) ->
                                 ctrScores.getOrDefault(String.valueOf(d.getId()), 0.0))
                         .reversed())
+                .collect(Collectors.toList());
+    }
+
+    private List<ProductResponseDTO> applyTieredCtrOrder(List<ProductResponseDTO> items,
+                                                         Map<Long, Integer> tierById,
+                                                         Map<String, Double> ctrScores) {
+        if (items.size() < 2) return items;
+        return items.stream()
+                .sorted(Comparator
+                        .comparingInt((ProductResponseDTO d) ->
+                                tierById.getOrDefault(d.getId(), Integer.MAX_VALUE))
+                        .thenComparing(
+                                d -> ctrScores.getOrDefault(String.valueOf(d.getId()), 0.0),
+                                Comparator.reverseOrder()))
                 .collect(Collectors.toList());
     }
 
