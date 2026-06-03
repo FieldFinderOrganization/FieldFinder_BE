@@ -415,21 +415,22 @@ public class UserServiceImpl implements UserService {
                 }
             }
 
-            // Count brand frequency
-            Map<String, Long> brandCount = new HashMap<>();
+            // Weighted brand affinity by event INTENT strength (mua > thêm giỏ > click > xem).
+            // Mỗi event không còn đếm 1 đều nhau — brand được MUA nặng hơn brand chỉ lướt xem.
+            Map<String, Double> brandScore = new HashMap<>();
             for (InteractionLog e : events) {
                 try {
                     Long pid = Long.parseLong(e.getItemId());
                     String brand = brandMap.get(pid);
                     if (brand != null) {
-                        brandCount.merge(brand, 1L, Long::sum);
+                        brandScore.merge(brand, eventWeight(e.getEventType()), Double::sum);
                     }
                 } catch (Exception ignored) {}
             }
 
-            // Sort desc by count, take top limit
-            List<String> topBrands = brandCount.entrySet().stream()
-                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+            // Sort desc by weighted score, take top limit
+            List<String> topBrands = brandScore.entrySet().stream()
+                    .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
                     .limit(limit)
                     .map(Map.Entry::getKey)
                     .collect(Collectors.toList());
@@ -441,6 +442,18 @@ public class UserServiceImpl implements UserService {
         } catch (Exception e) {
             System.err.println("getUserTopBrands fail for " + userId + ": " + e.getMessage());
             return List.of();
+        }
+    }
+
+    /** Trọng số event theo intent strength: mua > thêm giỏ > click chat > xem. Heuristic. */
+    private static double eventWeight(String eventType) {
+        if (eventType == null) return 1.0;
+        switch (eventType) {
+            case "CREATE_ORDER":       return 5.0;
+            case "ADD_TO_CART":        return 3.0;
+            case "CHAT_RESULT_CLICK":  return 2.0;
+            case "VIEW_PRODUCT":       return 1.0;
+            default:                   return 1.0;
         }
     }
 }

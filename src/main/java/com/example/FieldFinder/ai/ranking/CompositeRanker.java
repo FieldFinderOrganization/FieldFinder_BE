@@ -61,12 +61,14 @@ public class CompositeRanker {
             double mlNorm = (mlScores.get(i) - minMl) / mlRange;
             boolean typeMatch = categoryService.productMatchesType(p, ctx.getProductType());
             boolean activityMatch = activityMatches(p, ctx.getActivityCats());
-            boolean brandMatch = brandMatches(p, ctx.getTopBrands());
+            // Brand score theo HẠNG trong topBrands (đã sort theo tần suất xem giảm dần):
+            // brand hay xem nhất → điểm cao nhất. KHÔNG còn nhị phân (Nike == Adidas).
+            double brandScore = brandRankScore(p, ctx.getTopBrands());
             boolean genderMatch = genderMatches(p, ctx.getGenderPref());
 
-            double composite = computeComposite(typeMatch, activityMatch, brandMatch,
+            double composite = computeComposite(typeMatch, activityMatch, brandScore,
                     p, mlNorm, ctx);
-            scored.add(new ScoredProduct(p, composite, typeMatch, activityMatch, brandMatch, genderMatch));
+            scored.add(new ScoredProduct(p, composite, typeMatch, activityMatch, brandScore, genderMatch));
         }
 
         boolean strictType = ctx.isStrictProductType()
@@ -76,12 +78,12 @@ public class CompositeRanker {
         // ≥3-or-collapse degrade chain (which dropped to "type only" whenever the queried
         // category was sparse, e.g. few basketball shoes in catalog):
         //   1. activity/category match (basketball shoes) first
-        //   2. then preferred brand from user history (e.g. Nike)
+        //   2. then preferred brand BY RANK (Nike viewed most > Adidas > K-Swiss)
         //   3. then gender fit (profile gender; unisex when no profile)
         //   4. then composite (ML/text relevance) as tiebreak
         Comparator<ScoredProduct> byPriority = Comparator
                 .comparing((ScoredProduct s) -> s.activity).reversed()
-                .thenComparing(s -> s.brand, Comparator.reverseOrder())
+                .thenComparing(s -> s.brandScore, Comparator.reverseOrder())
                 .thenComparing(s -> genderScore(s.product, ctx.getGenderPref()), Comparator.reverseOrder())
                 .thenComparing(s -> s.composite, Comparator.reverseOrder());
 
@@ -124,12 +126,12 @@ public class CompositeRanker {
 
     // ============== Composite scoring helpers ==============
 
-    private double computeComposite(boolean typeMatch, boolean activityMatch, boolean brandMatch,
+    private double computeComposite(boolean typeMatch, boolean activityMatch, double brandScore,
                                     ProductResponseDTO p, double mlNorm, RankingContext ctx) {
         double s = 0;
         s += ctx.getWType() * (typeMatch ? 1.0 : 0.0);
         s += ctx.getWActivity() * (activityMatch ? 1.0 : 0.0);
-        s += ctx.getWBrand() * (brandMatch ? 1.0 : 0.0);
+        s += ctx.getWBrand() * brandScore;
         s += ctx.getWGender() * genderScore(p, ctx.getGenderPref());
         s += ctx.getWMl() * mlNorm;
         s += ctx.getWText() * 0.5;  // placeholder for query token overlap
@@ -141,9 +143,19 @@ public class CompositeRanker {
         return activityCats.contains(p.getCategoryName());
     }
 
-    private boolean brandMatches(ProductResponseDTO p, List<String> topBrands) {
-        if (topBrands == null || topBrands.isEmpty() || p.getBrand() == null) return false;
-        return topBrands.stream().anyMatch(b -> b.equalsIgnoreCase(p.getBrand()));
+    /**
+     * Brand preference score theo HẠNG trong topBrands (list đã sort theo tần suất xem giảm dần).
+     * Brand đầu list (hay xem nhất) → 1.0; brand kế → giảm dần; ngoài list → 0.
+     * Vd topBrands=[Nike, Adidas, K-Swiss] → Nike 1.0, Adidas 0.66, K-Swiss 0.33.
+     */
+    private double brandRankScore(ProductResponseDTO p, List<String> topBrands) {
+        if (topBrands == null || topBrands.isEmpty() || p.getBrand() == null) return 0.0;
+        for (int i = 0; i < topBrands.size(); i++) {
+            if (topBrands.get(i).equalsIgnoreCase(p.getBrand())) {
+                return 1.0 - (double) i / topBrands.size();
+            }
+        }
+        return 0.0;
     }
 
     private boolean genderMatches(ProductResponseDTO p, String genderPref) {
@@ -193,7 +205,7 @@ public class CompositeRanker {
         final double composite;
         final boolean type;
         final boolean activity;
-        final boolean brand;
+        final double brandScore;   // theo hạng trong topBrands (1.0 = hay xem nhất, 0 = ngoài list)
         final boolean gender;
     }
 }
