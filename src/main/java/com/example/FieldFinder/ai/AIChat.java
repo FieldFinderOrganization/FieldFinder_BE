@@ -1529,6 +1529,39 @@ public class AIChat {
         return query;
     }
 
+    /**
+     * Brand user nêu thẳng trong query, đối chiếu với brand CÓ THẬT trong catalog (không bịa).
+     * Trả brand canonical (đúng case DB) để ranker so khớp p.getBrand(); null nếu không có.
+     * Ưu tiên brand dài nhất khớp (vd "New Balance" thắng "Balance").
+     */
+    private String detectQueryBrand(UUID userId, String productName, List<String> tags, String userInput) {
+        StringBuilder hayB = new StringBuilder();
+        if (productName != null) hayB.append(' ').append(productName);
+        if (userInput != null) hayB.append(' ').append(userInput);
+        if (tags != null) {
+            for (String t : tags) {
+                if (t != null) hayB.append(' ').append(t);
+            }
+        }
+        String hay = hayB.toString().toLowerCase();
+        if (hay.isBlank()) return null;
+
+        String best = null;
+        int bestLen = 0;
+        Set<String> seen = new HashSet<>();
+        for (ProductResponseDTO p : getProductsForAiAssistantCached(userId)) {
+            String brand = p.getBrand();
+            if (brand == null || brand.isBlank()) continue;
+            String b = brand.toLowerCase();
+            if (!seen.add(b)) continue;
+            if (hay.contains(b) && b.length() > bestLen) {
+                best = brand;
+                bestLen = b.length();
+            }
+        }
+        return best;
+    }
+
     @SuppressWarnings("unchecked")
     private BookingQuery handleRecommendByActivity(BookingQuery query, String sessionId, String userInput) {
         UUID userId = resolveCurrentUserId(sessionId);
@@ -1641,9 +1674,15 @@ public class AIChat {
                     .collect(Collectors.toCollection(HashSet::new));
             int added = 0;
             for (ProductResponseDTO p : getProductsForAiAssistantCached(userId)) {
-                if (p.getCategoryName() != null
-                        && resolvedCategories.contains(p.getCategoryName())
-                        && p.getId() != null && !haveIds.contains(p.getId())) {
+                if (p.getId() == null || haveIds.contains(p.getId())) continue;
+                // Union by category name OR detected type. Type match (via productMatchesType)
+                // covers generic queries: "Shoes" → mọi subcat (Running/Football/Basketball Shoes),
+                // nên pool không sụp về 2 khi ML down (circuit open → không có ML hits).
+                boolean catHit = p.getCategoryName() != null
+                        && resolvedCategories.contains(p.getCategoryName());
+                boolean typeHit = detectedType != null && !detectedType.isBlank()
+                        && categoryService.productMatchesType(p, detectedType);
+                if (catHit || typeHit) {
                     results.add(p);
                     retrievalScores.add(0.0);
                     haveIds.add(p.getId());
@@ -1705,6 +1744,10 @@ public class AIChat {
             // B.3: brand preference từ MongoDB user history (top 3)
             List<String> topBrands = userService.getUserTopBrands(userId, 3);
 
+            // Brand user nêu thẳng trong query (vd "balo adidas") — match brand có thật trong catalog.
+            // Khi có → ranker ưu tiên brand này và bỏ qua topBrands lịch sử (xem CompositeRanker).
+            String queryBrand = detectQueryBrand(userId, (String) query.data.get("productName"), tags, userInput);
+
             boolean strictType = detectedType != null && !detectedType.isBlank();
             com.example.FieldFinder.ai.ranking.RankingContext ctx =
                     com.example.FieldFinder.ai.ranking.RankingContext.builder()
@@ -1712,6 +1755,7 @@ public class AIChat {
                             .activity(activity)
                             .genderPref(sexPrefForCtx)
                             .topBrands(topBrands)
+                            .queryBrand(queryBrand)
                             .activityCats(new HashSet<>(resolvedCategories))
                             .strictProductType(strictType)
                             .build();
@@ -1751,6 +1795,17 @@ public class AIChat {
                     .limit(12)
                     .toList();
             retrievalScores = Collections.nCopies(results.size(), 0.0); // No vector scores for category fallback
+        }
+
+        // Last resort: catalog-wide name/type scan. Surfaces items mis-filed by category,
+        // e.g. skirts filed under "Shorts" but named "…Skirt" → khớp DRESS qua tên (productMatchesType 0a).
+        if ((results == null || results.isEmpty()) && detectedType != null && !detectedType.isBlank()) {
+            final String typeForScan = detectedType;
+            results = getProductsForAiAssistantCached(userId).stream()
+                    .filter(p -> categoryService.productMatchesType(p, typeForScan))
+                    .limit(12)
+                    .toList();
+            retrievalScores = Collections.nCopies(results.size(), 0.0);
         }
 
         if (results == null || results.isEmpty()) {

@@ -319,7 +319,15 @@ public class CategoryServiceImpl implements CategoryService {
         String name = product.getName() != null ? product.getName().toLowerCase() : "";
         String catName = product.getCategoryName() != null ? product.getCategoryName().toLowerCase() : "";
 
-        // 0) AUTHORITATIVE: resolve the product's own type from its (clean) leaf category
+        // 0a) NAME states the requested type directly (word-boundary keyword) → accept even if
+        //     the leaf category is mis-filed. E.g. a "...Skirt" product filed under "Shorts" is
+        //     asked as DRESS: trust the name. Additive — only ever turns the REQUESTED type ON,
+        //     so it can't reintroduce cross-type tag leak (the reject below is unchanged).
+        for (String kw : kws) {
+            if (containsProductTypeKeyword(name, kw)) return true;
+        }
+
+        // 0b) AUTHORITATIVE: resolve the product's own type from its (clean) leaf category
         //    name. Category taxonomy is reliable (e.g. "Pants And Leggings" → BOTTOM,
         //    "Basketball Shoes" → SHOES), unlike image/outfit-level tags. When it resolves
         //    to a concrete type we trust it fully and ignore name/tag noise.

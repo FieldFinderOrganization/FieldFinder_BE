@@ -27,6 +27,9 @@ public class RankingContext {
     /** User's top brands from MongoDB history (top N most-viewed) */
     private final List<String> topBrands;
 
+    /** Brand explicitly named in the query (e.g. "adidas" from "balo adidas"); null if none. */
+    private final String queryBrand;
+
     /** Categories that activity maps to: e.g. ["Tennis Shoes", "Tennis Clothing", "Tennis Accessories"] */
     private final Set<String> activityCats;
 

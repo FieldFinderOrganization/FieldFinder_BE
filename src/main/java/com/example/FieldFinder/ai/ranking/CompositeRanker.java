@@ -54,6 +54,11 @@ public class CompositeRanker {
         double minMl = mlScores.stream().mapToDouble(Double::doubleValue).min().orElse(0.0);
         double mlRange = Math.max(maxMl - minMl, 1e-9);
 
+        // When the query explicitly names a brand (e.g. "balo adidas"), that brand is the
+        // dominant signal: history top-brands are ignored (so they can't reorder the requested
+        // brand) and the requested brand sorts first — soft, non-matching items still fill.
+        boolean queryBrandActive = ctx.getQueryBrand() != null && !ctx.getQueryBrand().isBlank();
+
         // Score each candidate
         List<ScoredProduct> scored = new ArrayList<>();
         for (int i = 0; i < candidates.size(); i++) {
@@ -63,12 +68,16 @@ public class CompositeRanker {
             boolean activityMatch = activityMatches(p, ctx.getActivityCats());
             // Brand score theo HẠNG trong topBrands (đã sort theo tần suất xem giảm dần):
             // brand hay xem nhất → điểm cao nhất. KHÔNG còn nhị phân (Nike == Adidas).
-            double brandScore = brandRankScore(p, ctx.getTopBrands());
+            // Khi query đã nêu brand → bỏ qua topBrands lịch sử (không để Nike chen lên adidas).
+            double brandScore = brandRankScore(p, queryBrandActive ? List.of() : ctx.getTopBrands());
             boolean genderMatch = genderMatches(p, ctx.getGenderPref());
+            boolean queryBrandMatch = queryBrandActive
+                    && p.getBrand() != null
+                    && p.getBrand().equalsIgnoreCase(ctx.getQueryBrand());
 
             double composite = computeComposite(typeMatch, activityMatch, brandScore,
                     p, mlNorm, ctx);
-            scored.add(new ScoredProduct(p, composite, typeMatch, activityMatch, brandScore, genderMatch));
+            scored.add(new ScoredProduct(p, composite, typeMatch, activityMatch, brandScore, genderMatch, queryBrandMatch));
         }
 
         boolean strictType = ctx.isStrictProductType()
@@ -82,7 +91,8 @@ public class CompositeRanker {
         //   3. then gender fit (profile gender; unisex when no profile)
         //   4. then composite (ML/text relevance) as tiebreak
         Comparator<ScoredProduct> byPriority = Comparator
-                .comparing((ScoredProduct s) -> s.activity).reversed()
+                .comparing((ScoredProduct s) -> s.queryBrand, Comparator.reverseOrder())  // requested brand first
+                .thenComparing(s -> s.activity, Comparator.reverseOrder())
                 .thenComparing(s -> s.brandScore, Comparator.reverseOrder())
                 .thenComparing(s -> genderScore(s.product, ctx.getGenderPref()), Comparator.reverseOrder())
                 .thenComparing(s -> s.composite, Comparator.reverseOrder());
@@ -117,6 +127,7 @@ public class CompositeRanker {
                 + " | productType=" + ctx.getProductType()
                 + " | activity=" + ctx.getActivity()
                 + " | topBrands=" + ctx.getTopBrands()
+                + " | queryBrand=" + ctx.getQueryBrand()
                 + " | gender=" + ctx.getGenderPref());
 
         return combined.stream()
@@ -207,5 +218,6 @@ public class CompositeRanker {
         final boolean activity;
         final double brandScore;   // theo hạng trong topBrands (1.0 = hay xem nhất, 0 = ngoài list)
         final boolean gender;
+        final boolean queryBrand;  // true nếu khớp brand user nêu thẳng trong query (balo "adidas")
     }
 }
