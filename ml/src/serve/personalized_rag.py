@@ -49,6 +49,24 @@ class PersonalizedRAG:
         with open(C.PROCESSED_DIR / "encoders" / "encoders.pkl", "rb") as f:
             self.encoders = pickle.load(f)
 
+        # M2 — vocab drift guard: encoders item vocab phải khớp num_items của sasrec.pt.
+        # Lệch (vocab > num_items) = đã rebuild encoders/FAISS thêm sp mới nhưng CHƯA retrain
+        # SASRec → item_idx mới vượt bảng embedding. _safe_idx() chặn runtime, nhưng log để thấy
+        # và retrain. Đây là root cause của chuỗi 500 khi user có history.
+        try:
+            n_vocab = len(self.encoders["item"].classes_)
+            n_model = self.sasrec.num_items if self.sasrec is not None else None
+            if n_model is not None and n_vocab > n_model:
+                log.warning(
+                    "VOCAB DRIFT: encoders item vocab=%d > SASRec num_items=%d — "
+                    "retrain SASRec để khớp (idx >= %d sẽ bị clamp về UNK).",
+                    n_vocab, n_model, n_model,
+                )
+            else:
+                log.info("Vocab check OK: encoders item=%d, SASRec num_items=%s", n_vocab, n_model)
+        except Exception as e:
+            log.warning("Vocab drift check skipped: %s", e)
+
         # User → seq history cache. Key: user_id (str). Value: (item_idx_list, expires_at_unix)
         self._user_seq_cache: dict[str, tuple[list[int], float]] = {}
         self._seq_cache_ttl = 60.0  # seconds — short TTL so new purchases reflect quickly
@@ -163,8 +181,15 @@ class PersonalizedRAG:
         return df["item_idx"].tolist()
 
     # ============== SASRec rerank ==============
+    def _safe_idx(self, idx: int) -> int:
+        """Clamp item_idx vào [0, num_items-1]. Idx ngoài vocab SASRec (encoders đã rebuild
+        thêm sp mới nhưng sasrec.pt CHƯA retrain) → map về UNK(1). Tránh embedding lookup
+        out-of-range → CUDA device-side assert (poison context → mọi request sau đều 500)."""
+        n = self.sasrec.num_items if self.sasrec is not None else 0
+        return idx if 0 <= idx < n else 1
+
     def _sasrec_scores(self, user_id: str, item_keys: list[str]) -> np.ndarray:
-        """Trả score SASRec cho candidates. 0 nếu user/item không trong vocab."""
+        """Trả score SASRec cho candidates. 0 nếu user/item không trong vocab hoặc lỗi."""
         if self.sasrec is None or not user_id:
             return np.zeros(len(item_keys), dtype=np.float32)
 
@@ -177,19 +202,24 @@ class PersonalizedRAG:
         cand_idx = []
         for k in item_keys:
             if k in known:
-                cand_idx.append(int(item_le.transform([k])[0]))
+                cand_idx.append(self._safe_idx(int(item_le.transform([k])[0])))
             else:
                 cand_idx.append(1)  # UNK
 
         max_len = self.sasrec.max_len
-        seq = seq[-max_len:]
+        seq = [self._safe_idx(i) for i in seq[-max_len:]]
         pad_n = max_len - len(seq)
         input_ids = torch.tensor([[0] * pad_n + seq], dtype=torch.long, device=self.device)
         cand = torch.tensor([cand_idx], dtype=torch.long, device=self.device)
 
-        with torch.no_grad():
-            scores = self.sasrec.predict(input_ids, cand)
-        return scores.cpu().numpy()[0]
+        try:
+            with torch.no_grad():
+                scores = self.sasrec.predict(input_ids, cand)
+            return scores.cpu().numpy()[0]
+        except Exception as e:
+            # Degrade gracefully — non-personalized order beats a 500 (which trips BE circuit).
+            log.exception("SASRec predict failed (user=%s, n_cand=%d): %s", user_id, len(cand_idx), e)
+            return np.zeros(len(item_keys), dtype=np.float32)
 
     # ============== Predict next-K (no query) ==============
     def predict_next(self, user_id: str, top_k: int = 10, item_type: str | None = None) -> list[dict]:

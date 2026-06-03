@@ -278,13 +278,19 @@ async def retrieve_image(req: ImageRetrieveRequest):
 @app.post("/retrieve")
 async def retrieve(req: RetrieveRequest):
     """Personalized RAG retrieve — query + user → top K items + scores."""
-    rag = get_rag()
-    items = rag.retrieve(
-        query=req.query,
-        user_id=req.user_id,
-        top_k=req.top_k,
-        item_type=req.item_type,
-    )
+    try:
+        rag = get_rag()
+        items = rag.retrieve(
+            query=req.query,
+            user_id=req.user_id,
+            top_k=req.top_k,
+            item_type=req.item_type,
+        )
+    except Exception as e:
+        # Never 500 the recommend path: BE has a circuit breaker that disables ML for 60s
+        # after 5 fails. Log full trace, return empty → BE falls back to local vector search.
+        log.exception("retrieve failed (query=%r user=%s): %s", req.query, req.user_id, e)
+        items = []
     return {
         "query": req.query,
         "user_id": req.user_id,
