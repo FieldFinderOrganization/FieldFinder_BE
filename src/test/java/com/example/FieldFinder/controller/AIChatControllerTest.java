@@ -3,14 +3,16 @@ package com.example.FieldFinder.controller;
 import com.example.FieldFinder.ai.AIChat;
 import com.example.FieldFinder.dto.req.ChatClickRequestDTO;
 import com.example.FieldFinder.dto.req.ChatFeedbackRequestDTO;
+import com.example.FieldFinder.service.JwtService;
+import com.example.FieldFinder.service.RedisService;
 import com.example.FieldFinder.service.UserService;
 import com.example.FieldFinder.service.log.LogPublisherService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.mockito.InjectMocks;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -32,14 +34,20 @@ class AIChatControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @InjectMocks
+    @MockBean
     private AIChat aiChatService;
 
-    @InjectMocks
+    @MockBean
     private LogPublisherService logPublisherService;
 
-    @InjectMocks
+    @MockBean
     private UserService userService;
+
+    @MockBean
+    private RedisService redisService;
+
+    @MockBean
+    private JwtService jwtService;
 
     @Autowired
     private ObjectMapper objectMapper;

@@ -1,0 +1,38 @@
+package com.example.FieldFinder.ai;
+
+import com.example.FieldFinder.dto.res.ProductResponseDTO;
+import com.example.FieldFinder.service.CategoryService;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+class AIChatHelperTest {
+
+    @Test
+    void containsQueryToken_MatchesStandaloneBrandOnly() {
+        assertTrue(AIChat.containsQueryToken("tôi muốn puma size 42", "puma"));
+        assertTrue(AIChat.containsQueryToken("balo New Balance màu đen", "new balance"));
+        assertFalse(AIChat.containsQueryToken("spumante không phải brand", "puma"));
+    }
+
+    @Test
+    void strictTypeFilter_ReturnsEmptyWhenAllProductsWrongType() {
+        ProductResponseDTO wrong = ProductResponseDTO.builder().id(1L).name("Quần thể thao").build();
+        CategoryService categoryService = mock(CategoryService.class);
+        when(categoryService.productMatchesType(wrong, "SHOES")).thenReturn(false);
+
+        AIChat.StrictTypeFilterResult result = AIChat.strictTypeFilter(
+                List.of(wrong),
+                List.of(0.9),
+                "SHOES",
+                categoryService
+        );
+
+        assertTrue(result.products().isEmpty());
+        assertTrue(result.scores().isEmpty());
+    }
+}

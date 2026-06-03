@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -98,16 +99,20 @@ public class CategoryServiceImpl implements CategoryService {
             "ACCESSORY", List.of("balo", "ba lô", "nón", "mũ", "túi", "phụ kiện", "accessory", "bag", "hat", "cap")
     );
 
-    private static final Map<String, List<String>> PRODUCT_TYPE_ALIASES = Map.of(
-            "SHOES",   List.of("giày", "shoe", "sneaker", "football boot", "cleats"),
-            "SANDAL",  List.of("dép", "sandal", "slipper"),
-            "TOP",     List.of("áo", "shirt", "jersey", "hoodie", "jacket", "polo", "sơ mi", "tee"),
-            "BOTTOM",  List.of("quần", "shorts", "pants", "trousers", "jeans", "jogger", "quần short"),
-            "DRESS",   List.of("váy", "đầm", "dress", "skirt"),
-            "BAG",     List.of("balo", "ba lô", "túi", "bag", "backpack"),
-            "HAT",     List.of("nón", "mũ", "beanie", "hat", "cap"),
-            "OTHER",   List.of("phụ kiện", "accessory", "kính", "vớ", "găng")
-    );
+    private static final Map<String, List<String>> PRODUCT_TYPE_ALIASES = orderedProductTypeAliases();
+
+    private static Map<String, List<String>> orderedProductTypeAliases() {
+        Map<String, List<String>> aliases = new LinkedHashMap<>();
+        aliases.put("SHOES",  List.of("giày", "shoe", "sneaker", "football boot", "cleats"));
+        aliases.put("SANDAL", List.of("dép", "sandal", "slipper"));
+        aliases.put("TOP",    List.of("áo", "shirt", "jersey", "hoodie", "jacket", "polo", "sơ mi", "tee"));
+        aliases.put("BOTTOM", List.of("quần", "shorts", "pants", "trousers", "jeans", "jogger", "quần short"));
+        aliases.put("DRESS",  List.of("váy", "đầm", "dress", "skirt"));
+        aliases.put("BAG",    List.of("balo", "ba lô", "túi", "bag", "backpack"));
+        aliases.put("HAT",    List.of("nón", "mũ", "beanie", "hat", "cap"));
+        aliases.put("OTHER",  List.of("phụ kiện", "accessory", "kính", "vớ", "găng"));
+        return Collections.unmodifiableMap(aliases);
+    }
 
     /** categoryKeyword DB name → productType khi không mơ hồ. */
     private static final Map<String, String> CATEGORY_KEYWORD_TO_TYPE = Map.ofEntries(
@@ -270,18 +275,22 @@ public class CategoryServiceImpl implements CategoryService {
         }
         String bestType = null;
         int bestScore = 0;
+        int bestStrength = 0;
         for (Map.Entry<String, List<String>> entry : PRODUCT_TYPE_ALIASES.entrySet()) {
             int hits = 0;
+            int strength = 0;
             for (String kw : entry.getValue()) {
                 for (String h : hay) {
                     if (containsProductTypeKeyword(h, kw)) {
                         hits++;
+                        strength += kw.length();
                         break;
                     }
                 }
             }
-            if (hits > bestScore) {
+            if (hits > bestScore || (hits == bestScore && strength > bestStrength)) {
                 bestScore = hits;
+                bestStrength = strength;
                 bestType = entry.getKey();
             }
         }

@@ -231,4 +231,31 @@ class CategoryServiceImplTest {
             verify(categoryRepository, never()).save(any(Category.class));
         }
     }
+
+    @Nested
+    class detectProductTypeFromQuery {
+        @Test
+        void ambiguousTopBottomTie_IsDeterministic() {
+            for (int i = 0; i < 20; i++) {
+                String result = categoryService.detectProductTypeFromQuery(
+                        "shirt pants",
+                        null,
+                        null
+                );
+
+                assertEquals("TOP", result);
+            }
+        }
+
+        @Test
+        void longerKeywordStrengthWinsTie() {
+            String result = categoryService.detectProductTypeFromQuery(
+                    "quần short thể thao",
+                    List.of("áo"),
+                    null
+            );
+
+            assertEquals("BOTTOM", result);
+        }
+    }
 }

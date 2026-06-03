@@ -16,13 +16,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Wrapper gọi FastAPI ML service.
@@ -35,41 +32,30 @@ public class MLRecommendationService {
     private final WebClient mlWebClient;
     private final boolean enabled;
     private final int timeoutMs;
-
-    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
-    private final AtomicLong circuitOpenUntil = new AtomicLong(0);
-    private static final int FAILURE_THRESHOLD = 5;
-    private static final long CIRCUIT_OPEN_DURATION_MS = 60_000L;
+    private final MlCircuitBreaker circuitBreaker;
 
     public MLRecommendationService(
             @Qualifier("mlWebClient") WebClient mlWebClient,
             @Value("${ml.api.enabled:true}") boolean enabled,
-            @Value("${ml.api.timeout-ms:5000}") int timeoutMs) {
+            @Value("${ml.api.timeout-ms:5000}") int timeoutMs,
+            MlCircuitBreaker circuitBreaker) {
         this.mlWebClient = mlWebClient;
         this.enabled = enabled;
         this.timeoutMs = timeoutMs;
+        this.circuitBreaker = circuitBreaker;
     }
 
     private boolean circuitOpen() {
-        long openUntil = circuitOpenUntil.get();
-        return openUntil > 0 && Instant.now().toEpochMilli() < openUntil;
+        return !circuitBreaker.allowRequest();
     }
 
     private void recordFailure(String op, Throwable e) {
-        int n = consecutiveFailures.incrementAndGet();
-        log.warn("ML API {} failed ({}): {}", op, n, e.getMessage());
-        if (n >= FAILURE_THRESHOLD) {
-            long until = Instant.now().toEpochMilli() + CIRCUIT_OPEN_DURATION_MS;
-            circuitOpenUntil.set(until);
-            log.error("ML API circuit OPEN until {} (threshold {} reached)", Instant.ofEpochMilli(until), FAILURE_THRESHOLD);
-        }
+        circuitBreaker.recordFailure();
+        log.warn("ML API {} failed: {}", op, e.getMessage());
     }
 
     private void recordSuccess() {
-        if (consecutiveFailures.get() > 0) {
-            consecutiveFailures.set(0);
-            circuitOpenUntil.set(0);
-        }
+        circuitBreaker.recordSuccess();
     }
 
     /**

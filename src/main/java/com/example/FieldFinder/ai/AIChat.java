@@ -38,7 +38,7 @@ import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.security.MessageDigest;
 
@@ -71,9 +71,8 @@ public class AIChat {
     private final PhashIndex phashIndex;
     private final CategoryService categoryService;
     private final com.example.FieldFinder.ai.ranking.CompositeRanker compositeRanker;
-
-    private static final long MIN_INTERVAL_BETWEEN_CALLS_MS = 5000; // Gemini free = 15 RPM → 4s min, +1s buffer
-    private final AtomicLong nextAvailableTime = new AtomicLong(0);
+    private final AiChatSessionContextStore sessionContextStore;
+    private final GeminiRateLimiter geminiRateLimiter;
 
     // Pause flag: khi user đang chat thì tạm dừng background enrichment
     private volatile boolean enrichmentPaused = false;
@@ -82,14 +81,7 @@ public class AIChat {
 
     private final OpenWeatherService weatherService;
 
-    private final Map<String, PitchResponseDTO> sessionPitches = new HashMap<>();
-
-    private final Map<String, ProductResponseDTO> sessionLastProducts = new HashMap<>();
-
-    private final Map<String, String> sessionLastSizes = new HashMap<>();
-    private final Map<String, String> sessionLastActivity = new HashMap<>();
-
-    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService, PhashIndex phashIndex, CategoryService categoryService, com.example.FieldFinder.ai.ranking.CompositeRanker compositeRanker) {
+    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService, PhashIndex phashIndex, CategoryService categoryService, com.example.FieldFinder.ai.ranking.CompositeRanker compositeRanker, AiChatSessionContextStore sessionContextStore, GeminiRateLimiter geminiRateLimiter) {
         this.pitchService = pitchService;
         this.productService = productService;
         this.userService = userService;
@@ -101,6 +93,8 @@ public class AIChat {
         this.mlService = mlService;
         this.categoryService = categoryService;
         this.compositeRanker = compositeRanker;
+        this.sessionContextStore = sessionContextStore;
+        this.geminiRateLimiter = geminiRateLimiter;
     }
 
     /**
@@ -128,24 +122,6 @@ public class AIChat {
             System.err.println("ML retrieveProducts fallback: " + e.getMessage());
             return null;
         }
-    }
-
-    /**
-     * Score relevance: 2 = match category + sex, 1 = match 1 tiêu chí, 0 = không match.
-     */
-    private int relevanceScore(ProductResponseDTO p, java.util.Set<String> targetCats, String sexPref) {
-        int s = 0;
-        if (!targetCats.isEmpty() && p.getCategoryName() != null && targetCats.contains(p.getCategoryName())) {
-            s += 2;
-        }
-        if (sexPref != null && p.getSex() != null) {
-            String g = p.getSex().toUpperCase();
-            // sexPref = "WOMEN" / "MEN", sex value có thể "Women"/"Men"/"Unisex"
-            if (g.startsWith(sexPref.substring(0, 3)) || g.equals("UNISEX")) {
-                s += 1;
-            }
-        }
-        return s;
     }
 
     private List<PitchResponseDTO> retrievePitchesViaML(String query, UUID userId, int topK) {
@@ -364,7 +340,7 @@ public class AIChat {
         } catch (Exception ignored) {}
         List<PitchResponseDTO> data = pitchService.getAllPitches(PageRequest.of(0, 50), null, null, null).getContent();
         try {
-            redisService.saveDataWithTTL(key, mapper.writeValueAsString(data), 30, TimeUnit.MINUTES);
+            redisService.saveDataWithTTL(key, mapper.writeValueAsString(data), 90, TimeUnit.SECONDS);
         } catch (Exception ignored) {}
         return data;
     }
@@ -390,7 +366,7 @@ public class AIChat {
         Map<Long, ProductResponseDTO> fresh = productService.getProductsByIds(ids, null);
         try {
             redisService.saveDataWithTTL(key, mapper.writeValueAsString(new ArrayList<>(fresh.values())),
-                    30, TimeUnit.MINUTES);
+                    60, TimeUnit.SECONDS);
         } catch (Exception ignored) {}
         return fresh;
     }
@@ -406,25 +382,9 @@ public class AIChat {
         } catch (Exception ignored) {}
         List<ProductResponseDTO> data = productService.getProductsForAiAssistant(userId);
         try {
-            redisService.saveDataWithTTL(key, mapper.writeValueAsString(data), 30, TimeUnit.MINUTES);
+            redisService.saveDataWithTTL(key, mapper.writeValueAsString(data), 60, TimeUnit.SECONDS);
         } catch (Exception ignored) {}
         return data;
-    }
-
-    private void waitIfNeeded() throws InterruptedException {
-        long now = System.currentTimeMillis();
-        long myTurn;
-        while (true) {
-            long currentNext = nextAvailableTime.get();
-            myTurn = Math.max(now, currentNext);
-            if (nextAvailableTime.compareAndSet(currentNext, myTurn + MIN_INTERVAL_BETWEEN_CALLS_MS)) {
-                break;
-            }
-        }
-        long waitTime = myTurn - now;
-        if (waitTime > 0) {
-            Thread.sleep(waitTime);
-        }
     }
 
     private Response callWithRetry(Request request, String description) throws IOException, InterruptedException {
@@ -432,7 +392,7 @@ public class AIChat {
         long backoff = 6000; // 6s base — Gemini free tier cần nhiều thời gian hồi hơn 4s
 
         for (int i = 0; i <= maxRetries; i++) {
-            waitIfNeeded();
+            geminiRateLimiter.acquire();
             Response response;
             try {
                 response = client.newCall(request).execute();
@@ -599,7 +559,7 @@ public class AIChat {
                 }
                 if (!products.isEmpty()) {
                     if (sessionId != null) {
-                        sessionLastProducts.put(sessionId, products.get(0));
+                        sessionContextStore.setLastProduct(sessionId, products.get(0));
                     }
                     System.out.println("✅ pHash hit: " + products.size() + " product(s), top distance="
                             + hits.get(0).distance);
@@ -801,7 +761,7 @@ public class AIChat {
                                 + ", size=" + products.size() + ") → skip to Stage 2");
                         // fall through
                     } else {
-                        if (sessionId != null) sessionLastProducts.put(sessionId, products.get(0));
+                        if (sessionId != null) sessionContextStore.setLastProduct(sessionId, products.get(0));
                         boolean exactMatch = topClipCosine != null && topClipCosine >= 0.90;
                         boolean lowConf    = topClipCosine == null  || topClipCosine < 0.70;
                         result.message = exactMatch
@@ -846,7 +806,7 @@ public class AIChat {
 
             if (!finalResults.isEmpty()) {
                 if (sessionId != null) {
-                    sessionLastProducts.put(sessionId, finalResults.get(0));
+                    sessionContextStore.setLastProduct(sessionId, finalResults.get(0));
                     System.out.println("✅ Image Search Fallback: Saved Context for Session " + sessionId + " -> " + finalResults.get(0).getName());
                 }
 
@@ -962,7 +922,7 @@ public class AIChat {
                         query.message.contains("giá rẻ nhất"));
 
                 if (selectedPitch != null) {
-                    sessionPitches.put(sessionId, selectedPitch);
+                    sessionContextStore.setLastPitch(sessionId, selectedPitch);
                     query.data.put("selectedPitch", selectedPitch);
                 }
             }
@@ -970,7 +930,7 @@ public class AIChat {
 
         // Xử lý "sân này" với fallback (Logic này đã check từ khóa 'sân này' nên an toàn)
         if (userInput.contains("sân này")) {
-            PitchResponseDTO selectedPitch = sessionPitches.get(sessionId);
+            PitchResponseDTO selectedPitch = sessionContextStore.getLastPitch(sessionId);
             if (selectedPitch == null) {
                 selectedPitch = findPitchByContext(userInput, allPitches);
             }
@@ -1045,7 +1005,7 @@ public class AIChat {
             }
 
             if (p == null && sessionId != null) {
-                p = sessionLastProducts.get(sessionId);
+                p = sessionContextStore.getLastProduct(sessionId);
             }
 
             if (p != null) {
@@ -1121,7 +1081,7 @@ public class AIChat {
                             }
                         }
                         if (foundSize && quantity > 0) {
-                            if (sessionId != null) sessionLastSizes.put(sessionId, sizeToCheck);
+                            if (sessionId != null) sessionContextStore.setLastSize(sessionId, sizeToCheck);
                             boolean hasOrderIntent = userInput != null && (
                                     userInput.toLowerCase().contains("đặt") ||
                                             userInput.toLowerCase().contains("mua") ||
@@ -1146,7 +1106,7 @@ public class AIChat {
                 else if ("prepare_order".equals(action)) {
                     String sizeToOrder = (String) query.data.get("size");
                     if (sizeToOrder == null && sessionId != null) {
-                        sizeToOrder = sessionLastSizes.get(sessionId);
+                        sizeToOrder = sessionContextStore.getLastSize(sessionId);
                     }
 
                     int quantity = extractQuantityFromInput(userInput, query.data.get("quantity"));
@@ -1330,7 +1290,7 @@ public class AIChat {
         }
 
         if (foundProduct != null) {
-            sessionLastProducts.put(sessionId, foundProduct);
+            sessionContextStore.setLastProduct(sessionId, foundProduct);
 
             query.data.put("product", foundProduct);
 
@@ -1554,13 +1514,43 @@ public class AIChat {
             if (brand == null || brand.isBlank()) continue;
             String b = brand.toLowerCase();
             if (!seen.add(b)) continue;
-            if (hay.contains(b) && b.length() > bestLen) {
+            if (containsQueryToken(hay, b) && b.length() > bestLen) {
                 best = brand;
                 bestLen = b.length();
             }
         }
         return best;
     }
+
+    static boolean containsQueryToken(String haystack, String needle) {
+        if (haystack == null || needle == null || needle.isBlank()) return false;
+        Pattern pattern = Pattern.compile("(?iu)(?<![\\p{L}\\p{N}])"
+                + Pattern.quote(needle)
+                + "(?![\\p{L}\\p{N}])");
+        return pattern.matcher(haystack).find();
+    }
+
+    static StrictTypeFilterResult strictTypeFilter(
+            List<ProductResponseDTO> products,
+            List<Double> scores,
+            String productType,
+            CategoryService categoryService) {
+        List<ProductResponseDTO> filteredProducts = new ArrayList<>();
+        List<Double> filteredScores = new ArrayList<>();
+        if (products == null || scores == null || productType == null || categoryService == null) {
+            return new StrictTypeFilterResult(filteredProducts, filteredScores);
+        }
+        for (int i = 0; i < products.size(); i++) {
+            ProductResponseDTO product = products.get(i);
+            if (categoryService.productMatchesType(product, productType)) {
+                filteredProducts.add(product);
+                filteredScores.add(i < scores.size() ? scores.get(i) : 0.0);
+            }
+        }
+        return new StrictTypeFilterResult(filteredProducts, filteredScores);
+    }
+
+    record StrictTypeFilterResult(List<ProductResponseDTO> products, List<Double> scores) {}
 
     @SuppressWarnings("unchecked")
     private BookingQuery handleRecommendByActivity(BookingQuery query, String sessionId, String userInput) {
@@ -1579,7 +1569,7 @@ public class AIChat {
                 + " suggestedCategories=" + aiCategories);
 
         if (activity != null && sessionId != null) {
-            sessionLastActivity.put(sessionId, activity);
+            sessionContextStore.setLastActivity(sessionId, activity);
         }
 
         if (tags == null || tags.isEmpty()) {
@@ -1695,40 +1685,6 @@ public class AIChat {
             }
         }
 
-        // Re-rank: ưu tiên (1) category match activity, (2) sex match tags ("nữ"/"nam")
-        if (results != null && !results.isEmpty()) {
-            String sexPref = null;
-            List<String> tagsLower = tags == null ? Collections.emptyList()
-                    : tags.stream().map(t -> t == null ? "" : t.toLowerCase()).toList();
-            if (tagsLower.contains("nữ") || tagsLower.contains("nu") || tagsLower.contains("women") || tagsLower.contains("woman")) {
-                sexPref = "WOMEN";
-            } else if (tagsLower.contains("nam") || tagsLower.contains("men") || tagsLower.contains("man")) {
-                sexPref = "MEN";
-            }
-            final String sexPrefFinal = sexPref;
-            final java.util.Set<String> catSet = resolvedCategories == null
-                    ? java.util.Collections.<String>emptySet()
-                    : new java.util.HashSet<>(resolvedCategories);
-
-            // Pair (product, originalScore)
-            List<Object[]> pairs = new ArrayList<>();
-            for (int i = 0; i < results.size(); i++) {
-                pairs.add(new Object[]{results.get(i), retrievalScores.get(i)});
-            }
-            pairs.sort((a, b) -> {
-                ProductResponseDTO pa = (ProductResponseDTO) a[0];
-                ProductResponseDTO pb = (ProductResponseDTO) b[0];
-                int sa = relevanceScore(pa, catSet, sexPrefFinal);
-                int sb = relevanceScore(pb, catSet, sexPrefFinal);
-                if (sa != sb) return Integer.compare(sb, sa);
-                double da = (Double) a[1];
-                double db = (Double) b[1];
-                return Double.compare(db, da);
-            });
-            results = pairs.stream().map(p -> (ProductResponseDTO) p[0]).collect(Collectors.toList());
-            retrievalScores = pairs.stream().map(p -> (Double) p[1]).collect(Collectors.toList());
-        }
-
         // Composite rank + strict type filter (e.g. "giày đá bóng" → chỉ SHOES, không fill quần tier 3/4)
         if (results != null && !results.isEmpty()) {
             // sexPref derive from tags
@@ -1767,20 +1723,10 @@ public class AIChat {
             retrievalScores = ranked.stream().map(Map.Entry::getValue).collect(Collectors.toList());
 
             if (strictType) {
-                List<ProductResponseDTO> typeFiltered = new ArrayList<>();
-                List<Double> typeFilteredScores = new ArrayList<>();
-                final String typeForFilter = detectedType;
-                for (int i = 0; i < results.size(); i++) {
-                    ProductResponseDTO p = results.get(i);
-                    if (categoryService.productMatchesType(p, typeForFilter)) {
-                        typeFiltered.add(p);
-                        typeFilteredScores.add(retrievalScores.get(i));
-                    }
-                }
-                if (!typeFiltered.isEmpty()) {
-                    results = typeFiltered;
-                    retrievalScores = typeFilteredScores;
-                }
+                StrictTypeFilterResult filtered =
+                        strictTypeFilter(results, retrievalScores, detectedType, categoryService);
+                results = filtered.products();
+                retrievalScores = filtered.scores();
                 System.out.println("🔒 Strict type filter (" + detectedType + "): " + results.size() + " products");
             }
         }
@@ -2079,7 +2025,7 @@ public class AIChat {
                     query.message = "Không xác định được sân có giá phù hợp.";
                     break;
                 }
-                if (sessionId != null) sessionPitches.put(sessionId, picked);
+                if (sessionId != null) sessionContextStore.setLastPitch(sessionId, picked);
                 String scopeLabel = typeSpecified ? (" " + typeStr + envStr).trim() : " (tất cả loại sân)";
                 query.message = String.format("Sân %s%s là \"%s\" - %s VNĐ (%s).",
                         cheapest ? "rẻ nhất" : "mắc nhất",
@@ -2151,8 +2097,8 @@ public class AIChat {
                     break;
                 }
                 PitchResponseDTO target = null;
-                if (sessionId != null && sessionPitches.get(sessionId) != null) {
-                    PitchResponseDTO cached = sessionPitches.get(sessionId);
+                if (sessionId != null && sessionContextStore.getLastPitch(sessionId) != null) {
+                    PitchResponseDTO cached = sessionContextStore.getLastPitch(sessionId);
                     if (matched.stream().anyMatch(p -> p.getPitchId().equals(cached.getPitchId()))) {
                         target = cached;
                     }
