@@ -767,6 +767,10 @@ public class AIChat {
                         if (pinnedPid == null && clipExact) {
                             pinnedPid = products.get(0).getId();
                         }
+                        // Step 4-5: soft attribute boost (category/color/brand from the image) +
+                        // brand-diversity cap, then pin the exact product back to #0.
+                        String queryBrand = detectQueryBrand(resolvedMlUid, parsedProductName, parsedTags, caption);
+                        attributeRerank(products, scores, queryBrand, parsedColor, categoryIds, 3);
                         pinExactFirst(products, scores, pinnedPid, pinnedDto, pinnedScore, 10);
                         boolean hasExact = pinnedPid != null;
                         boolean lowConf  = topClipCosine == null || topClipCosine < 0.70;
@@ -928,6 +932,94 @@ public class AIChat {
         }
         while (products.size() > maxSize) products.remove(products.size() - 1);
         while (scores.size() > maxSize)   scores.remove(scores.size() - 1);
+    }
+
+    /**
+     * Step 4-5: re-order the image-search backfill (positions 2..N) by attribute match,
+     * then cap per-brand so one brand can't flood the list.
+     *
+     * <p>Each candidate keeps its CLIP/RRF base score; a soft boost is added for matching the
+     * query's category / color / brand (parsed from the uploaded image) only for sort purposes —
+     * the returned {@code scores} stay the original CLIP/RRF values, just re-ordered. Visual
+     * similarity still dominates; attributes break ties within a similar-visual band, producing
+     * the tiers cat+color+brand → cat+color → cat naturally (no rigid slots).
+     *
+     * <p>Mutates {@code products} and {@code scores} in place. Run BEFORE pinExactFirst.
+     */
+    private void attributeRerank(List<ProductResponseDTO> products, List<Double> scores,
+                                 String queryBrand, String queryColor,
+                                 List<Long> categoryIds, int brandCap) {
+        int n = products.size();
+        if (n <= 1) return;
+        final double W_CAT = 0.10, W_COLOR = 0.12, W_BRAND = 0.15;
+
+        Set<Long> catSet = (categoryIds != null) ? new HashSet<>(categoryIds) : Collections.emptySet();
+        String qBrand = (queryBrand != null && !queryBrand.isBlank()) ? queryBrand.toLowerCase() : null;
+        List<String> qColorTokens = new ArrayList<>();
+        if (queryColor != null && !queryColor.isBlank()) {
+            for (String t : queryColor.toLowerCase().split("\\s+")) {
+                if (!t.isBlank()) qColorTokens.add(t);
+            }
+        }
+
+        double[] base = new double[n];
+        double[] boosted = new double[n];
+        for (int i = 0; i < n; i++) {
+            ProductResponseDTO p = products.get(i);
+            base[i] = (i < scores.size() && scores.get(i) != null) ? scores.get(i) : 0.0;
+            double add = 0.0;
+            if (p != null) {
+                if (!catSet.isEmpty() && p.getCategoryId() != null && catSet.contains(p.getCategoryId())) {
+                    add += W_CAT;
+                }
+                if (!qColorTokens.isEmpty()) {
+                    String hay = buildAttrHaystack(p);
+                    for (String ct : qColorTokens) {
+                        if (containsQueryToken(hay, ct)) { add += W_COLOR; break; }
+                    }
+                }
+                if (qBrand != null && p.getBrand() != null && p.getBrand().toLowerCase().equals(qBrand)) {
+                    add += W_BRAND;
+                }
+            }
+            boosted[i] = base[i] + add;
+        }
+
+        List<Integer> order = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) order.add(i);
+        order.sort((a, b) -> Double.compare(boosted[b], boosted[a]));   // boosted desc
+
+        // Step 5: greedy per-brand cap — overflow appended at the tail (keeps full set, just de-clustered)
+        List<ProductResponseDTO> keepP = new ArrayList<>(n), overP = new ArrayList<>();
+        List<Double> keepS = new ArrayList<>(n), overS = new ArrayList<>();
+        Map<String, Integer> brandCount = new HashMap<>();
+        for (int oi : order) {
+            ProductResponseDTO p = products.get(oi);
+            String b = (p != null && p.getBrand() != null) ? p.getBrand().toLowerCase() : "";
+            int c = brandCount.getOrDefault(b, 0);
+            if (b.isEmpty() || c < brandCap) {
+                keepP.add(p); keepS.add(base[oi]);
+                if (!b.isEmpty()) brandCount.put(b, c + 1);
+            } else {
+                overP.add(p); overS.add(base[oi]);
+            }
+        }
+        keepP.addAll(overP); keepS.addAll(overS);
+
+        products.clear(); products.addAll(keepP);
+        scores.clear();   scores.addAll(keepS);
+    }
+
+    /** Lowercased name + tags of a product, for whole-token color matching. */
+    private String buildAttrHaystack(ProductResponseDTO p) {
+        StringBuilder sb = new StringBuilder();
+        if (p.getName() != null) sb.append(' ').append(p.getName());
+        if (p.getTags() != null) {
+            for (String t : p.getTags()) {
+                if (t != null) sb.append(' ').append(t);
+            }
+        }
+        return sb.toString().toLowerCase();
     }
 
     private String extractGeminiResponse(String rawJson) throws IOException {
