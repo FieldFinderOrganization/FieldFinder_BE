@@ -33,9 +33,19 @@ def get_clip():
     return _clip
 
 
+def _force_decodable(url: str) -> str:
+    """Cloudinary stores product images as .avif (Pillow <11.3 can't decode).
+    Force JPEG delivery via f_jpg transform — belt-and-suspenders alongside the
+    Pillow>=12.2 bump, so the build never silently skips avif even on an old Pillow."""
+    if ("res.cloudinary.com" in url and "/upload/" in url
+            and "f_jpg" not in url and "f_auto" not in url):
+        return url.replace("/upload/", "/upload/f_jpg/", 1)
+    return url
+
+
 def load_image_from_url(url: str, timeout: float = 15.0) -> Optional[Image.Image]:
     try:
-        r = requests.get(url, timeout=timeout)
+        r = requests.get(_force_decodable(url), timeout=timeout)
         if r.status_code != 200:
             return None
         return Image.open(io.BytesIO(r.content)).convert("RGB")

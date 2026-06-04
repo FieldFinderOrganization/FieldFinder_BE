@@ -53,7 +53,7 @@ public final class PhashUtil {
         if (url == null || url.isEmpty()) return null;
         try {
             HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+                    .uri(URI.create(toDecodableUrl(url)))
                     .timeout(Duration.ofSeconds(15))
                     .GET()
                     .build();
@@ -63,6 +63,19 @@ public final class PhashUtil {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Cloudinary stores product images as .avif, which Java ImageIO cannot decode →
+     * pHash stays null → product invisible to Stage 0 near-dup match. Force JPEG
+     * delivery via the f_jpg transform so ImageIO can always read it.
+     */
+    private static String toDecodableUrl(String url) {
+        if (url.contains("res.cloudinary.com") && url.contains("/upload/")
+                && !url.contains("f_jpg") && !url.contains("f_auto")) {
+            return url.replaceFirst("/upload/", "/upload/f_jpg/");
+        }
+        return url;
     }
 
     public static int hammingDistance(long a, long b) {
