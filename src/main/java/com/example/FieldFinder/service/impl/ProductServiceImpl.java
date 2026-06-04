@@ -534,7 +534,11 @@ public class ProductServiceImpl implements ProductService {
                 .and(ProductSpecification.hasSex(genders))
                 .and(ProductSpecification.hasBrand(effectiveBrand));
 
-        Page<Product> products = productRepository.findAll(spec, pageable);
+        Pageable effectivePageable = pageable.getSort().isSorted()
+                ? pageable
+                : PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
+                        org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "productId"));
+        Page<Product> products = productRepository.findAll(spec, effectivePageable);
 
         // Batch precompute public discounts cho cả page (1 query thay N)
         Map<Long, List<Discount>> discountsMap = precomputePublicDiscountsForProducts(products.getContent());
