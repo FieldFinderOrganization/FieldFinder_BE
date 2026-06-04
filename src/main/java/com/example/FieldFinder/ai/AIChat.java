@@ -802,6 +802,35 @@ public class AIChat {
                                 : detectQueryBrand(resolvedMlUid, parsedProductName, parsedTags, caption);
                         System.out.println("🏷️ image queryBrand='" + queryBrand + "' (source="
                                 + (anchorBrand != null ? "anchor pid=" + pinnedPid : "gemini-text") + ")");
+
+                        // Brand backfill: the ML pool is purely visual (CLIP only), so same-brand items
+                        // that LOOK different from the query — e.g. a canvas Chuck Taylor vs the queried
+                        // black zip sneaker — never reach the CLIP top-20; only the exact match does.
+                        // Reordering can't surface what ML never returned, so when the brand is known we
+                        // pull every same-brand same-type product straight from the catalog and merge it
+                        // in (the "more like this / same brand" approach, like SimilarProductRanker).
+                        if (queryBrand != null && !queryBrand.isBlank() && normType != null) {
+                            Set<Long> present = new HashSet<>();
+                            for (ProductResponseDTO p : products) {
+                                if (p != null && p.getId() != null) present.add(p.getId());
+                            }
+                            int added = 0;
+                            for (ProductResponseDTO p : getProductsForAiAssistantCached(resolvedMlUid)) {
+                                if (p == null || p.getId() == null || present.contains(p.getId())) continue;
+                                if (p.getBrand() != null && p.getBrand().equalsIgnoreCase(queryBrand)
+                                        && categoryService.productMatchesType(p, normType)) {
+                                    products.add(p);
+                                    scores.add(0.5);   // brand+type match from catalog, no visual cosine
+                                    present.add(p.getId());
+                                    added++;
+                                }
+                            }
+                            if (added > 0) {
+                                System.out.println("➕ brand backfill: +" + added + " " + queryBrand
+                                        + " " + normType + " from catalog (pool=" + products.size() + ")");
+                            }
+                        }
+
                         attributeRerank(products, scores, queryBrand, parsedColor, categoryIds, 3);
                         pinExactFirst(products, scores, pinnedPid, pinnedDto, pinnedScore, 10);
                         boolean hasExact = pinnedPid != null;
