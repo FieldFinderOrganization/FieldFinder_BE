@@ -1,7 +1,6 @@
 package com.example.FieldFinder.service.log;
 
 import com.example.FieldFinder.config.RabbitMQLogConfig;
-import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.entity.log.InteractionLog;
 import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.OpenWeatherService;

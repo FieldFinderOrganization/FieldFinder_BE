@@ -1,7 +1,6 @@
 package com.example.FieldFinder.service;
 
 import com.example.FieldFinder.dto.res.AuthTokenResponseDTO;
-import com.example.FieldFinder.dto.res.UserResponseDTO;
 import com.example.FieldFinder.entity.User;
 import io.jsonwebtoken.Claims;
 

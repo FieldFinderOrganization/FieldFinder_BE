@@ -533,6 +533,12 @@ public class AIChat {
         result.slotList = new ArrayList<>();
         result.pitchType = "ALL";
 
+        // In-shop exact match to pin at result #0 (pHash near-dup OR CLIP high-conf).
+        // Captured in Stage 0, applied before returning Stage 1 / Stage 2 results.
+        Long pinnedPid = null;
+        ProductResponseDTO pinnedDto = null;
+        double pinnedScore = 0.0;
+
         // ========== Stage 0: pHash near-duplicate match ==========
         long _t0 = System.currentTimeMillis();
         Long uploadHash = PhashUtil.computeFromBase64(base64Image);
@@ -558,19 +564,13 @@ public class AIChat {
                     }
                 }
                 if (!products.isEmpty()) {
-                    if (sessionId != null) {
-                        sessionContextStore.setLastProduct(sessionId, products.get(0));
-                    }
-                    System.out.println("✅ pHash hit: " + products.size() + " product(s), top distance="
-                            + hits.get(0).distance);
-                    result.message = String.format("Tôi nhận ra ảnh này là %s. Đây là sản phẩm khớp:",
-                            products.get(0).getName());
-                    result.data.put("action", "image_search_result");
-                    result.data.put("products", products);
-                    result.data.put("retrievalScores", scores);
-                    result.data.put("retrievalSource", "PHASH");
-                    _logTotal.run();
-                    return result;
+                    // No longer short-circuit. Record the exact match; Stage 1 builds the
+                    // "similar" backfill and pinExactFirst() pins this product at #0.
+                    pinnedPid = hits.get(0).productId;
+                    pinnedDto = pmap.get(pinnedPid);
+                    pinnedScore = 1.0 - (hits.get(0).distance / 64.0);
+                    System.out.println("✅ pHash exact: pid=" + pinnedPid + " dist=" + hits.get(0).distance
+                            + " → pin #0, backfill similars via Stage 1");
                 }
             }
         }
@@ -761,19 +761,29 @@ public class AIChat {
                                 + ", size=" + products.size() + ") → skip to Stage 2");
                         // fall through
                     } else {
+                        // Exact = pHash near-dup (already in pinnedPid) OR CLIP cosine ≥ 0.90.
+                        // When CLIP is high-conf, its #0 is already the exact item — just label it.
+                        boolean clipExact = topClipCosine != null && topClipCosine >= 0.90;
+                        if (pinnedPid == null && clipExact) {
+                            pinnedPid = products.get(0).getId();
+                        }
+                        pinExactFirst(products, scores, pinnedPid, pinnedDto, pinnedScore, 10);
+                        boolean hasExact = pinnedPid != null;
+                        boolean lowConf  = topClipCosine == null || topClipCosine < 0.70;
+
                         if (sessionId != null) sessionContextStore.setLastProduct(sessionId, products.get(0));
-                        boolean exactMatch = topClipCosine != null && topClipCosine >= 0.90;
-                        boolean lowConf    = topClipCosine == null  || topClipCosine < 0.70;
-                        result.message = exactMatch
-                                ? String.format("Tôi tìm thấy %d sản phẩm tương tự với ảnh bạn gửi:", products.size())
+                        result.message = hasExact
+                                ? String.format("Tôi nhận ra ảnh này là %s. Đây là sản phẩm khớp, kèm vài gợi ý tương tự:",
+                                                products.get(0).getName())
                                 : lowConf
                                   ? "Tôi không chắc về sản phẩm trong ảnh, nhưng đây là một số sản phẩm có thể phù hợp:"
-                                  : "Rất tiếc nhưng hiện tại shop không có sản phẩm mà bạn đang tìm kiếm, hãy xem qua danh sách sản phẩm gần giống dưới đây nhé:";
+                                  : "Tôi tìm thấy một số sản phẩm tương tự với ảnh bạn gửi:";
                         result.data.put("action", "image_search_result");
                         result.data.put("products", products);
                         result.data.put("retrievalScores", scores);
                         result.data.put("extractedTags", parsedTags);
-                        result.data.put("retrievalSource", "CLIP_HYBRID");
+                        if (hasExact) result.data.put("exactProductId", pinnedPid);
+                        result.data.put("retrievalSource", hasExact ? "CLIP_HYBRID_PINNED" : "CLIP_HYBRID");
                         _logTotal.run();
                         return result;
                     }
@@ -804,19 +814,29 @@ public class AIChat {
                 retrievalScores = Collections.nCopies(finalResults.size(), 0.0);
             }
 
-            if (!finalResults.isEmpty()) {
+            // Pin pHash exact (if any) even on the ML-down fallback path — mutable copies
+            // because retrievalScores may be an immutable Collections.nCopies list.
+            List<ProductResponseDTO> outProducts = new ArrayList<>(finalResults);
+            List<Double> outScores = new ArrayList<>(retrievalScores);
+            pinExactFirst(outProducts, outScores, pinnedPid, pinnedDto, pinnedScore, 10);
+            boolean hasExactFb = pinnedPid != null;
+
+            if (!outProducts.isEmpty()) {
                 if (sessionId != null) {
-                    sessionContextStore.setLastProduct(sessionId, finalResults.get(0));
-                    System.out.println("✅ Image Search Fallback: Saved Context for Session " + sessionId + " -> " + finalResults.get(0).getName());
+                    sessionContextStore.setLastProduct(sessionId, outProducts.get(0));
+                    System.out.println("✅ Image Search Fallback: Saved Context for Session " + sessionId + " -> " + outProducts.get(0).getName());
                 }
 
-                result.message = String.format("Dựa trên hình ảnh %s (%s), tôi tìm thấy %d sản phẩm tương tự:",
-                        fallbackProductName, fallbackColor, finalResults.size());
+                result.message = hasExactFb
+                        ? String.format("Tôi nhận ra ảnh này là %s. Đây là sản phẩm khớp, kèm vài gợi ý tương tự:", outProducts.get(0).getName())
+                        : String.format("Dựa trên hình ảnh %s (%s), tôi tìm thấy %d sản phẩm tương tự:",
+                                fallbackProductName, fallbackColor, outProducts.size());
                 result.data.put("action", "image_search_result");
-                result.data.put("products", finalResults);
+                result.data.put("products", outProducts);
                 result.data.put("extractedTags", cleanTags);
-                result.data.put("retrievalScores", retrievalScores);
-                result.data.put("retrievalSource", "TAG_FALLBACK");
+                result.data.put("retrievalScores", outScores);
+                if (hasExactFb) result.data.put("exactProductId", pinnedPid);
+                result.data.put("retrievalSource", hasExactFb ? "TAG_FALLBACK_PINNED" : "TAG_FALLBACK");
             } else {
                 result.message = String.format("Tôi nhận diện được đây là %s màu %s. Tuy nhiên, hiện tại cửa hàng không có sản phẩm nào khớp.", fallbackProductName, fallbackColor);
                 result.data.put("extractedTags", expandedTags);
@@ -877,6 +897,37 @@ public class AIChat {
         }
         _logTotal.run();
         return result;
+    }
+
+    /**
+     * Pin the in-shop exact product at result #0, dedup, cap at maxSize.
+     * exactPid = pHash near-dup or CLIP high-confidence match. Keeps the rest of the
+     * list as "similar" backfill so the user sees a full set, exact item first.
+     * Mutates {@code products} and {@code scores} in place (pass mutable lists).
+     */
+    private void pinExactFirst(List<ProductResponseDTO> products, List<Double> scores,
+                               Long exactPid, ProductResponseDTO exactDto,
+                               double exactScore, int maxSize) {
+        if (exactPid == null || products == null) return;
+        int found = -1;
+        for (int i = 0; i < products.size(); i++) {
+            ProductResponseDTO p = products.get(i);
+            if (p != null && exactPid.equals(p.getId())) { found = i; break; }
+        }
+        if (found == 0) return;                       // already first
+        if (found > 0) {                              // present lower → move to front
+            ProductResponseDTO p = products.remove(found);
+            Double s = found < scores.size() ? scores.remove(found) : exactScore;
+            products.add(0, p);
+            scores.add(0, s);
+        } else if (exactDto != null) {                // absent → insert at front
+            products.add(0, exactDto);
+            scores.add(0, exactScore);
+        } else {
+            return;                                   // nothing usable to pin
+        }
+        while (products.size() > maxSize) products.remove(products.size() - 1);
+        while (scores.size() > maxSize)   scores.remove(scores.size() - 1);
     }
 
     private String extractGeminiResponse(String rawJson) throws IOException {
