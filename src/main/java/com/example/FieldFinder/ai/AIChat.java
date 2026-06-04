@@ -791,7 +791,17 @@ public class AIChat {
 
                         // Step 4-5: soft attribute boost (category/color/brand from the image) +
                         // brand-diversity cap, then pin the exact product back to #0.
-                        String queryBrand = detectQueryBrand(resolvedMlUid, parsedProductName, parsedTags, caption);
+                        // Brand source: the recognized in-shop product (pHash/CLIP anchor) carries the
+                        // authoritative brand from the DB — reliable for an image-only query even when
+                        // Gemini didn't name the brand in its caption (e.g. logo-less shoe photo). Fall
+                        // back to Gemini-parsed text only when no product was matched.
+                        String anchorBrand = (pinnedDto != null && pinnedDto.getBrand() != null
+                                && !pinnedDto.getBrand().isBlank()) ? pinnedDto.getBrand() : null;
+                        String queryBrand = anchorBrand != null
+                                ? anchorBrand
+                                : detectQueryBrand(resolvedMlUid, parsedProductName, parsedTags, caption);
+                        System.out.println("🏷️ image queryBrand='" + queryBrand + "' (source="
+                                + (anchorBrand != null ? "anchor pid=" + pinnedPid : "gemini-text") + ")");
                         attributeRerank(products, scores, queryBrand, parsedColor, categoryIds, 3);
                         pinExactFirst(products, scores, pinnedPid, pinnedDto, pinnedScore, 10);
                         boolean hasExact = pinnedPid != null;
@@ -997,6 +1007,7 @@ public class AIChat {
 
         double[] base = new double[n];
         double[] boosted = new double[n];
+        boolean[] isQueryBrand = new boolean[n];   // candidate matches the requested/anchor brand
         for (int i = 0; i < n; i++) {
             ProductResponseDTO p = products.get(i);
             base[i] = (i < scores.size() && scores.get(i) != null) ? scores.get(i) : 0.0;
@@ -1013,6 +1024,7 @@ public class AIChat {
                 }
                 if (qBrand != null && p.getBrand() != null && p.getBrand().toLowerCase().equals(qBrand)) {
                     add += W_BRAND;
+                    isQueryBrand[i] = true;
                 }
             }
             boosted[i] = base[i] + add;
@@ -1020,9 +1032,17 @@ public class AIChat {
 
         List<Integer> order = new ArrayList<>(n);
         for (int i = 0; i < n; i++) order.add(i);
-        order.sort((a, b) -> Double.compare(boosted[b], boosted[a]));   // boosted desc
+        // Requested/anchor brand is the dominant sort key (mirrors the text path's CompositeRanker):
+        // all same-brand items lead, then the rest by boosted score. No-op when no brand detected
+        // (isQueryBrand all false → falls through to boosted desc, identical to the old behaviour).
+        order.sort((a, b) -> {
+            if (isQueryBrand[a] != isQueryBrand[b]) return isQueryBrand[a] ? -1 : 1;
+            return Double.compare(boosted[b], boosted[a]);
+        });
 
-        // Step 5: greedy per-brand cap — overflow appended at the tail (keeps full set, just de-clustered)
+        // Step 5: greedy per-brand cap — overflow appended at the tail (keeps full set, just de-clustered).
+        // The requested/anchor brand is EXEMPT from the cap: when the user searches a Converse shoe we
+        // want Converse to dominate, so the cap only de-clusters OTHER brands in the backfill.
         List<ProductResponseDTO> keepP = new ArrayList<>(n), overP = new ArrayList<>();
         List<Double> keepS = new ArrayList<>(n), overS = new ArrayList<>();
         Map<String, Integer> brandCount = new HashMap<>();
@@ -1030,7 +1050,7 @@ public class AIChat {
             ProductResponseDTO p = products.get(oi);
             String b = (p != null && p.getBrand() != null) ? p.getBrand().toLowerCase() : "";
             int c = brandCount.getOrDefault(b, 0);
-            if (b.isEmpty() || c < brandCap) {
+            if (b.isEmpty() || isQueryBrand[oi] || c < brandCap) {
                 keepP.add(p); keepS.add(base[oi]);
                 if (!b.isEmpty()) brandCount.put(b, c + 1);
             } else {
