@@ -634,10 +634,12 @@ public class AIChat {
         // Kick off ML future in parallel (image-only request; vision-enriched hints would require waiting).
         UUID resolvedMlUid = resolveCurrentUserId(sessionId);
         String mlUserId = resolvedMlUid != null ? resolvedMlUid.toString() : null;
+        // Over-fetch (30, not 10): ML retrieve is image-only/cross-category, so the category
+        // gate below drops wrong-type items — need a bigger pool to still fill ~10 same-type.
         MLRetrieveByImageRequest mlReqEarly = MLRetrieveByImageRequest.builder()
                 .imageBase64(cleanBase64)
-                .topK(10)
-                .retrieveK(30)
+                .topK(30)
+                .retrieveK(40)
                 .itemType("PRODUCT")
                 .userId(mlUserId)
                 .build();
@@ -764,9 +766,28 @@ public class AIChat {
                         // Exact = pHash near-dup (already in pinnedPid) OR CLIP cosine ≥ 0.90.
                         // When CLIP is high-conf, its #0 is already the exact item — just label it.
                         boolean clipExact = topClipCosine != null && topClipCosine >= 0.90;
-                        if (pinnedPid == null && clipExact) {
+                        if (pinnedPid == null && clipExact && !products.isEmpty()) {
                             pinnedPid = products.get(0).getId();
+                            pinnedDto = products.get(0);     // keep ref so the type gate can't drop it
                         }
+
+                        // Category gate (fixes áo→nón/giày, váy→áo/túi): keep only candidates of the
+                        // same productType as the image. ML retrieve is image-only → pool is
+                        // cross-category, and CLIP visual-sim alone confuses e.g. white shirt vs white
+                        // shoe. Reuses the text-path matcher (handles skirt-filed-under-Shorts). Relaxes
+                        // to the unfiltered pool only if the gate would empty it (Gemini mis-parse guard).
+                        String normType = normalizeAiProductType(parsedProductType);
+                        if (normType != null) {
+                            StrictTypeFilterResult gated = strictTypeFilter(products, scores, normType, categoryService);
+                            if (!gated.products().isEmpty()) {
+                                products = new ArrayList<>(gated.products());
+                                scores = new ArrayList<>(gated.scores());
+                                System.out.println("🔎 type gate '" + normType + "' → " + products.size() + " same-type candidates");
+                            } else {
+                                System.out.println("⚠️ type gate '" + normType + "' empty → keep unfiltered pool");
+                            }
+                        }
+
                         // Step 4-5: soft attribute boost (category/color/brand from the image) +
                         // brand-diversity cap, then pin the exact product back to #0.
                         String queryBrand = detectQueryBrand(resolvedMlUid, parsedProductName, parsedTags, caption);

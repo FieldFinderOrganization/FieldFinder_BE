@@ -1,0 +1,207 @@
+{
+  "2": {
+    "name": "Shoes",
+    "parent_id": null,
+    "type": "SUPER_CATEGORY"
+  },
+  "4": {
+    "name": "Lifestyle",
+    "parent_id": 2,
+    "type": "STANDARD"
+  },
+  "5": {
+    "name": "Running",
+    "parent_id": 17,
+    "type": "SUPER_CATEGORY"
+  },
+  "6": {
+    "name": "Featured",
+    "parent_id": null,
+    "type": "STANDARD"
+  },
+  "7": {
+    "name": "New Arrivals",
+    "parent_id": 6,
+    "type": "STANDARD"
+  },
+  "8": {
+    "name": "Bestseller",
+    "parent_id": 6,
+    "type": "STANDARD"
+  },
+  "9": {
+    "name": "Shop All Sale",
+    "parent_id": 6,
+    "type": "STANDARD"
+  },
+  "10": {
+    "name": "Clothing",
+    "parent_id": null,
+    "type": "SUPER_CATEGORY"
+  },
+  "12": {
+    "name": "Tops And T-Shirts",
+    "parent_id": 10,
+    "type": "STANDARD"
+  },
+  "13": {
+    "name": "Shorts",
+    "parent_id": 10,
+    "type": "STANDARD"
+  },
+  "14": {
+    "name": "Pants And Leggings",
+    "parent_id": 10,
+    "type": "STANDARD"
+  },
+  "15": {
+    "name": "Hoodies And Sweatshirts",
+    "parent_id": 10,
+    "type": "STANDARD"
+  },
+  "16": {
+    "name": "Jackets And Gilets",
+    "parent_id": 10,
+    "type": "STANDARD"
+  },
+  "17": {
+    "name": "Shop By Sport",
+    "parent_id": null,
+    "type": "SUPER_CATEGORY"
+  },
+  "18": {
+    "name": "Football",
+    "parent_id": 17,
+    "type": "SUPER_CATEGORY"
+  },
+  "19": {
+    "name": "Tennis",
+    "parent_id": 17,
+    "type": "SUPER_CATEGORY"
+  },
+  "20": {
+    "name": "Basketball",
+    "parent_id": 17,
+    "type": "SUPER_CATEGORY"
+  },
+  "21": {
+    "name": "Accessories",
+    "parent_id": null,
+    "type": "SUPER_CATEGORY"
+  },
+  "22": {
+    "name": "Gloves",
+    "parent_id": 21,
+    "type": "STANDARD"
+  },
+  "23": {
+    "name": "Socks",
+    "parent_id": 21,
+    "type": "STANDARD"
+  },
+  "24": {
+    "name": "Hats And Headwears",
+    "parent_id": 21,
+    "type": "STANDARD"
+  },
+  "25": {
+    "name": "Bags And Backpacks",
+    "parent_id": 21,
+    "type": "STANDARD"
+  },
+  "26": {
+    "name": "Nike",
+    "parent_id": null,
+    "type": "BRAND"
+  },
+  "27": {
+    "name": "Adidas",
+    "parent_id": null,
+    "type": "BRAND"
+  },
+  "28": {
+    "name": "Puma",
+    "parent_id": null,
+    "type": "BRAND"
+  },
+  "29": {
+    "name": "Converse",
+    "parent_id": null,
+    "type": "BRAND"
+  },
+  "30": {
+    "name": "K-Swiss",
+    "parent_id": null,
+    "type": "BRAND"
+  },
+  "31": {
+    "name": "Running Shoes",
+    "parent_id": 5,
+    "type": "STANDARD"
+  },
+  "32": {
+    "name": "Running Clothing",
+    "parent_id": 5,
+    "type": "STANDARD"
+  },
+  "33": {
+    "name": "Running Accessories",
+    "parent_id": 5,
+    "type": "STANDARD"
+  },
+  "34": {
+    "name": "Football Shoes",
+    "parent_id": 18,
+    "type": "STANDARD"
+  },
+  "35": {
+    "name": "Football Clothing",
+    "parent_id": 18,
+    "type": "STANDARD"
+  },
+  "36": {
+    "name": "Football Accessories",
+    "parent_id": 18,
+    "type": "STANDARD"
+  },
+  "37": {
+    "name": "Tennis Shoes",
+    "parent_id": 19,
+    "type": "STANDARD"
+  },
+  "38": {
+    "name": "Tennis Clothing",
+    "parent_id": 19,
+    "type": "STANDARD"
+  },
+  "39": {
+    "name": "Tennis Accessories",
+    "parent_id": 19,
+    "type": "STANDARD"
+  },
+  "40": {
+    "name": "Basketball Shoes",
+    "parent_id": 20,
+    "type": "STANDARD"
+  },
+  "41": {
+    "name": "Basketball Clothing",
+    "parent_id": 20,
+    "type": "STANDARD"
+  },
+  "42": {
+    "name": "Basketball Accessories",
+    "parent_id": 20,
+    "type": "STANDARD"
+  },
+  "43": {
+    "name": "Gym And Training",
+    "parent_id": 2,
+    "type": "STANDARD"
+  },
+  "44": {
+    "name": "Sandals And Slides",
+    "parent_id": 2,
+    "type": "STANDARD"
+  }
+}

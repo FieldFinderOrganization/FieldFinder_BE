@@ -1,0 +1,34 @@
+{
+  "_comment": "Labeled query set for Text-Query A/B eval (Baseline FAISS vs Composite reranker). intent = parsed query context (ptype/activity/gender/brand/category_keyword) that production Gemini+Java would derive. relevant_ids are computed at eval runtime by the intent-satisfaction oracle (see eval_text_query.py) and written back to text_query_labeled.json for review.",
+  "case_types": ["type_only", "activity", "brand", "gender", "combo"],
+  "queries": [
+    {"query": "giày thể thao", "ptype": "SHOES", "activity": null, "gender": null, "brand": null, "category_keyword": null, "case_type": "type_only"},
+    {"query": "balo", "ptype": "BAG", "activity": null, "gender": null, "brand": null, "category_keyword": "Bags And Backpacks", "case_type": "type_only"},
+    {"query": "áo thể thao", "ptype": "TOP", "activity": null, "gender": null, "brand": null, "category_keyword": null, "case_type": "type_only"},
+    {"query": "quần short", "ptype": "BOTTOM", "activity": null, "gender": null, "brand": null, "category_keyword": null, "case_type": "type_only"},
+    {"query": "dép quai ngang", "ptype": "SANDAL", "activity": null, "gender": null, "brand": null, "category_keyword": "Sandals And Slides", "case_type": "type_only"},
+    {"query": "nón thể thao", "ptype": "HAT", "activity": null, "gender": null, "brand": null, "category_keyword": "Hats And Headwears", "case_type": "type_only"},
+
+    {"query": "giày bóng rổ", "ptype": "SHOES", "activity": "basketball", "gender": null, "brand": null, "category_keyword": null, "case_type": "activity"},
+    {"query": "giày đá bóng", "ptype": "SHOES", "activity": "football", "gender": null, "brand": null, "category_keyword": null, "case_type": "activity"},
+    {"query": "giày tennis", "ptype": "SHOES", "activity": "tennis", "gender": null, "brand": null, "category_keyword": null, "case_type": "activity"},
+    {"query": "giày chạy bộ", "ptype": "SHOES", "activity": "running", "gender": null, "brand": null, "category_keyword": null, "case_type": "activity"},
+    {"query": "áo bóng đá", "ptype": "TOP", "activity": "football", "gender": null, "brand": null, "category_keyword": null, "case_type": "activity"},
+    {"query": "đồ tập gym", "ptype": null, "activity": "gym", "gender": null, "brand": null, "category_keyword": "Gym And Training", "case_type": "activity"},
+
+    {"query": "giày bóng rổ nike", "ptype": "SHOES", "activity": "basketball", "gender": null, "brand": "Nike", "category_keyword": null, "case_type": "brand"},
+    {"query": "giày đá bóng adidas", "ptype": "SHOES", "activity": "football", "gender": null, "brand": "Adidas", "category_keyword": null, "case_type": "brand"},
+    {"query": "giày tennis puma", "ptype": "SHOES", "activity": "tennis", "gender": null, "brand": "Puma", "category_keyword": null, "case_type": "brand"},
+    {"query": "balo nike", "ptype": "BAG", "activity": null, "gender": null, "brand": "Nike", "category_keyword": "Bags And Backpacks", "case_type": "brand"},
+    {"query": "giày k-swiss", "ptype": "SHOES", "activity": null, "gender": null, "brand": "K-Swiss", "category_keyword": null, "case_type": "brand"},
+    {"query": "giày converse", "ptype": "SHOES", "activity": null, "gender": null, "brand": "Converse", "category_keyword": null, "case_type": "brand"},
+
+    {"query": "giày nữ", "ptype": "SHOES", "activity": null, "gender": "WOMEN", "brand": null, "category_keyword": null, "case_type": "gender"},
+    {"query": "áo nam", "ptype": "TOP", "activity": null, "gender": "MEN", "brand": null, "category_keyword": null, "case_type": "gender"},
+    {"query": "giày chạy bộ nữ", "ptype": "SHOES", "activity": "running", "gender": "WOMEN", "brand": null, "category_keyword": null, "case_type": "gender"},
+
+    {"query": "giày bóng rổ nike nam", "ptype": "SHOES", "activity": "basketball", "gender": "MEN", "brand": "Nike", "category_keyword": null, "case_type": "combo"},
+    {"query": "giày tennis nữ adidas", "ptype": "SHOES", "activity": "tennis", "gender": "WOMEN", "brand": "Adidas", "category_keyword": null, "case_type": "combo"},
+    {"query": "áo bóng đá nam nike", "ptype": "TOP", "activity": "football", "gender": "MEN", "brand": "Nike", "category_keyword": null, "case_type": "combo"}
+  ]
+}
