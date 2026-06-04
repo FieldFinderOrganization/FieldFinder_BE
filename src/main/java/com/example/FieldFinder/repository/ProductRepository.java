@@ -15,8 +15,14 @@ import java.util.List;
 
 public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
 
-    /** LOAD graph: category + variants (1 bag). discounts lazy + @BatchSize. */
-    @EntityGraph(value = "Product.listView", type = EntityGraph.EntityGraphType.LOAD)
+    /**
+     * Paginated list query — fetch ONLY the single-valued category, NOT the variants collection.
+     * Fetching a collection here forces Hibernate to page in memory (HHH90003004): it loads every
+     * matching row, dedups, and windows in-memory → slow + too few distinct rows per page. With
+     * category-only the DB applies real OFFSET/LIMIT. Variants are hydrated separately by the caller
+     * via {@link #findAllListViewByIds}.
+     */
+    @EntityGraph(attributePaths = {"category"})
     Page<Product> findAll(Specification<Product> spec, Pageable pageable);
 
     @EntityGraph(value = "Product.listView", type = EntityGraph.EntityGraphType.LOAD)

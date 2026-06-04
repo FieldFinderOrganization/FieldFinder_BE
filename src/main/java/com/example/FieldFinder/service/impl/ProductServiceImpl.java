@@ -534,23 +534,37 @@ public class ProductServiceImpl implements ProductService {
                 .and(ProductSpecification.hasSex(genders))
                 .and(ProductSpecification.hasBrand(effectiveBrand));
 
+        // Stable-sort fallback: SQL OFFSET/LIMIT needs a deterministic order, else pages overlap
+        // across requests -> infinite scroll never ends. Add a productId tiebreaker when unsorted.
         Pageable effectivePageable = pageable.getSort().isSorted()
                 ? pageable
                 : PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
                         org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "productId"));
-        Page<Product> products = productRepository.findAll(spec, effectivePageable);
+
+        // Step 1: paginate root + category only -> real SQL OFFSET/LIMIT, exact page size, fast
+        // (no variants collection -> no in-memory paging / HHH90003004).
+        Page<Product> idPage = productRepository.findAll(spec, effectivePageable);
+
+        // Step 2: hydrate variants for just this page in 1 query, preserving page order.
+        List<Long> pageIds = idPage.getContent().stream().map(Product::getProductId).toList();
+        Map<Long, Product> hydrated = pageIds.isEmpty()
+                ? Collections.emptyMap()
+                : productRepository.findAllListViewByIds(pageIds).stream()
+                        .collect(Collectors.toMap(Product::getProductId, p -> p, (a, b) -> a));
+        List<Product> ordered = idPage.getContent().stream()
+                .map(p -> hydrated.getOrDefault(p.getProductId(), p))
+                .toList();
 
         // Batch precompute public discounts cho cả page (1 query thay N)
-        Map<Long, List<Discount>> discountsMap = precomputePublicDiscountsForProducts(products.getContent());
+        Map<Long, List<Discount>> discountsMap = precomputePublicDiscountsForProducts(ordered);
 
         // Base DTO: không có wallet/used. salePrice từ public discounts only.
-        List<ProductResponseDTO> dtos = products.getContent()
-                .stream()
+        List<ProductResponseDTO> dtos = ordered.stream()
                 .map(p -> mapToResponse(p, Collections.emptyList(), null,
                         discountsMap.getOrDefault(p.getProductId(), Collections.emptyList())))
                 .toList();
 
-        return CachedPage.from(new PageImpl<>(dtos, pageable, products.getTotalElements()));
+        return CachedPage.from(new PageImpl<>(dtos, pageable, idPage.getTotalElements()));
     }
 
     @Override
