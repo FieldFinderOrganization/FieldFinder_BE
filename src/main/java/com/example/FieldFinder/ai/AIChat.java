@@ -634,11 +634,12 @@ public class AIChat {
         // Kick off ML future in parallel (image-only request; vision-enriched hints would require waiting).
         UUID resolvedMlUid = resolveCurrentUserId(sessionId);
         String mlUserId = resolvedMlUid != null ? resolvedMlUid.toString() : null;
-        // Over-fetch (30, not 10): ML retrieve is image-only/cross-category, so the category
+        // Over-fetch (20, not 10): ML retrieve is image-only/cross-category, so the category
         // gate below drops wrong-type items — need a bigger pool to still fill ~10 same-type.
+        // 20 = ML ImageRetrieveRequest.top_k cap (Field le=20); 30 → HTTP 422.
         MLRetrieveByImageRequest mlReqEarly = MLRetrieveByImageRequest.builder()
                 .imageBase64(cleanBase64)
-                .topK(30)
+                .topK(20)
                 .retrieveK(40)
                 .itemType("PRODUCT")
                 .userId(mlUserId)
@@ -843,6 +844,17 @@ public class AIChat {
             // because retrievalScores may be an immutable Collections.nCopies list.
             List<ProductResponseDTO> outProducts = new ArrayList<>(finalResults);
             List<Double> outScores = new ArrayList<>(retrievalScores);
+            // Same category gate as Stage 1 — this ML-down fallback also leaked wrong types
+            // (váy→áo, giày→túi). Relax to unfiltered only if the gate would empty the list.
+            String fbType = normalizeAiProductType(parsedProductType);
+            if (fbType != null) {
+                StrictTypeFilterResult fbGate = strictTypeFilter(outProducts, outScores, fbType, categoryService);
+                if (!fbGate.products().isEmpty()) {
+                    outProducts = new ArrayList<>(fbGate.products());
+                    outScores = new ArrayList<>(fbGate.scores());
+                    System.out.println("🔎 [fallback] type gate '" + fbType + "' → " + outProducts.size() + " same-type");
+                }
+            }
             pinExactFirst(outProducts, outScores, pinnedPid, pinnedDto, pinnedScore, 10);
             boolean hasExactFb = pinnedPid != null;
 

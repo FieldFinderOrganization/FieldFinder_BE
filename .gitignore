@@ -48,3 +48,12 @@ scripts/export_products_for_ml.py
 scripts/products_template.csv
 scripts/products_to_add.csv
 scripts/SanPham_CanThem.docx
+ml/data/eval/BAOCAO_TextQuery_AB.md
+ml/data/eval/compare_results.md
+ml/data/eval/results_prev.json
+ml/data/eval/results_text_query.json
+ml/data/eval/results_text_query.md
+ml/data/eval/text_query_labeled.json
+ml/scripts/compare_results.py
+ml/scripts/eval_text_query.py
+ml/scripts/gen_textquery_report.py
