@@ -139,6 +139,22 @@ def _load_deepfm():
         "field_dims": ckpt["field_dims"],
         "encoders": encs,
     })
+
+    # Vocab-drift guard (DeepFM) — mirrors the SASRec check in PersonalizedRAG. field_dims[1] is
+    # the item embedding size; if encoders were rebuilt with more items but DeepFM wasn't retrained,
+    # item_idx can exceed it → out-of-range embedding lookup (CUDA device-side assert → poisons the
+    # context → every later request 500s). /recommend/ctr clamps such idx to UNK, but warn loudly.
+    try:
+        n_vocab = len(encs["item"].classes_)
+        n_item = ckpt["field_dims"][1]
+        if n_vocab > n_item:
+            log.warning("VOCAB DRIFT (DeepFM): encoders item=%d > field_dims item=%d — retrain DeepFM; "
+                        "/recommend/ctr clamps idx>=%d to UNK (CTR degraded).", n_vocab, n_item, n_item)
+        else:
+            log.info("Vocab check OK (DeepFM): item=%d, field_dims item=%d", n_vocab, n_item)
+    except Exception as e:
+        log.warning("DeepFM vocab drift check skipped: %s", e)
+
     return _deepfm_state
 
 
@@ -179,48 +195,68 @@ async def recommend_next(req: RecommendNextRequest):
 
 @app.post("/recommend/ctr")
 async def recommend_ctr(req: RecommendCTRRequest):
-    """DeepFM CTR rerank — input candidates, return scores."""
+    """DeepFM CTR rerank — input candidates, return scores.
+
+    Vocab-drift safe + never-500: every feature index is clamped to its trained field
+    dimension (out-of-range → UNK), so an encoder/DeepFM mismatch degrades to a neutral
+    score instead of an out-of-range embedding lookup — which on CUDA raises a device-side
+    assert that poisons the context and 500s every subsequent request. Mirrors SASRec's
+    `_safe_idx`. Any other failure returns empty scores so the BE circuit breaker isn't tripped.
+    """
     state = _load_deepfm()
     if not state:
         raise HTTPException(503, "DeepFM not loaded")
 
-    encs = state["encoders"]
-    device = state["device"]
-    model = state["model"]
+    empty = {"user_id": req.user_id, "scores": []}
+    try:
+        encs = state["encoders"]
+        device = state["device"]
+        model = state["model"]
+        fd = state["field_dims"]
 
-    # Encode features
-    user_le = encs["user"]
-    item_le = encs["item"]
-    uid = int(user_le.transform([req.user_id])[0]) if req.user_id in set(user_le.classes_) else 1
+        def _safe(v: int, j: int) -> int:
+            return v if 0 <= v < fd[j] else 1  # out-of-range field idx → UNK(1)
 
-    rows = []
-    for iid, itype in zip(req.candidate_ids, req.item_types):
-        key = f"P_{iid}" if itype == "PITCH" else f"T_{iid}"
-        item_idx = int(item_le.transform([key])[0]) if key in set(item_le.classes_) else 1
-        # Defaults cho context fields
-        ctx = req.context
-        weather_idx = _enc_safe(encs["weather"], ctx.get("weather", "UNKNOWN"))
-        os_idx = _enc_safe(encs["os"], ctx.get("os", "UNKNOWN"))
-        hour_idx = _enc_safe(encs["hour_bucket"], ctx.get("hour_bucket", "UNKNOWN"))
-        price_idx = _enc_safe(encs["price_bucket"], ctx.get("price_bucket", "UNKNOWN"))
-        gender_idx = _enc_safe(encs["user_gender_snap"], ctx.get("user_gender", "UNKNOWN"))
-        cat_idx = _enc_safe(encs["item_category_snap"], ctx.get("item_category", "UNKNOWN"))
-        type_idx = _enc_safe(encs["itemType"], itype)
+        user_le = encs["user"]
+        item_le = encs["item"]
+        user_classes = set(user_le.classes_)
+        item_classes = set(item_le.classes_)
+        uid = int(user_le.transform([req.user_id])[0]) if req.user_id in user_classes else 1
 
-        rows.append([uid, item_idx, weather_idx, os_idx, hour_idx, price_idx, gender_idx, cat_idx, type_idx])
+        rows = []
+        for iid, itype in zip(req.candidate_ids, req.item_types):
+            key = f"P_{iid}" if itype == "PITCH" else f"T_{iid}"
+            item_idx = int(item_le.transform([key])[0]) if key in item_classes else 1
+            ctx = req.context
+            row = [
+                uid,
+                item_idx,
+                _enc_safe(encs["weather"], ctx.get("weather", "UNKNOWN")),
+                _enc_safe(encs["os"], ctx.get("os", "UNKNOWN")),
+                _enc_safe(encs["hour_bucket"], ctx.get("hour_bucket", "UNKNOWN")),
+                _enc_safe(encs["price_bucket"], ctx.get("price_bucket", "UNKNOWN")),
+                _enc_safe(encs["user_gender_snap"], ctx.get("user_gender", "UNKNOWN")),
+                _enc_safe(encs["item_category_snap"], ctx.get("item_category", "UNKNOWN")),
+                _enc_safe(encs["itemType"], itype),
+            ]
+            rows.append([_safe(v, j) for j, v in enumerate(row)])
 
-    x = torch.tensor(rows, dtype=torch.long, device=device)
-    with torch.no_grad():
-        logits = model(x)
-        probs = torch.sigmoid(logits).cpu().numpy().tolist()
+        x = torch.tensor(rows, dtype=torch.long, device=device)
+        with torch.no_grad():
+            logits = model(x)
+            probs = torch.sigmoid(logits).cpu().numpy().tolist()
 
-    return {
-        "user_id": req.user_id,
-        "scores": [
-            {"item_id": iid, "item_type": itype, "ctr_score": float(s)}
-            for iid, itype, s in zip(req.candidate_ids, req.item_types, probs)
-        ],
-    }
+        return {
+            "user_id": req.user_id,
+            "scores": [
+                {"item_id": iid, "item_type": itype, "ctr_score": float(s)}
+                for iid, itype, s in zip(req.candidate_ids, req.item_types, probs)
+            ],
+        }
+    except Exception as e:
+        log.exception("recommend_ctr failed (user=%s, n=%d): %s",
+                      req.user_id, len(req.candidate_ids), e)
+        return empty
 
 
 @app.post("/retrieve/image")
