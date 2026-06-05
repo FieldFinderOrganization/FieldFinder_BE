@@ -31,6 +31,8 @@ services:
       - SPRING_RABBITMQ_HOST=rabbitmq
       - ML_API_BASE_URL=http://ml:8000
       - ML_API_ENABLED=true
+      - OSRM_BASE_URL=http://osrm:5000
+      - OSRM_ENABLED=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -58,6 +60,19 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
+  # Routing engine cho live-tracking (tuyến + snap-to-road). KHÔNG traffic.
+  # Cần tiền xử lý map 1 lần trước khi up — xem README "Live tracking — OSRM".
+  # app chịu lỗi OSRM được (osrm.enabled / trả 204), nên KHÔNG depends_on.
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: fieldfinder_osrm
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-routed --algorithm mld /data/vietnam-latest.osrm
+    restart: on-failure
 
   redis-master:
     image: redis:7-alpine

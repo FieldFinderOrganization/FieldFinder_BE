@@ -57,3 +57,5 @@ ml/data/eval/text_query_labeled.json
 ml/scripts/compare_results.py
 ml/scripts/eval_text_query.py
 ml/scripts/gen_textquery_report.py
+ml/scripts/bench_text_query.py
+ml/data/eval/perf_text_query.json

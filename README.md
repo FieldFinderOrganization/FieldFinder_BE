@@ -144,6 +144,33 @@ Backend will be available at `http://localhost:8080`.
 
 API documentation (Swagger UI): `http://localhost:8080/swagger-ui/index.html`
 
+### Live tracking — OSRM routing (optional)
+
+Live shipper tracking vẽ tuyến đường + snap marker bám đường qua OSRM self-host
+(miễn phí, **không** dùng traffic; ETA tĩnh). Tiền xử lý bản đồ **1 lần** trước khi `up`:
+
+```bash
+mkdir -p osrm-data
+# 1. Tải bản đồ Việt Nam (Geofabrik, ~400MB)
+curl -L -o osrm-data/vietnam-latest.osm.pbf \
+  https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+
+# 2. Tiền xử lý MLD pipeline (chạy 1 lần; mất vài phút)
+docker run -t -v "${PWD}/osrm-data:/data" osrm/osrm-backend \
+  osrm-extract -p /opt/car.lua /data/vietnam-latest.osm.pbf
+docker run -t -v "${PWD}/osrm-data:/data" osrm/osrm-backend \
+  osrm-partition /data/vietnam-latest.osrm
+docker run -t -v "${PWD}/osrm-data:/data" osrm/osrm-backend \
+  osrm-customize /data/vietnam-latest.osrm
+
+# 3. Chạy OSRM
+docker compose up -d osrm
+# Kiểm tra: curl "http://localhost:5000/route/v1/driving/106.70,10.77;106.69,10.78?overview=false"
+```
+
+Tắt tính năng (BE tự fallback nội suy đường thẳng) bằng `OSRM_ENABLED=false`.
+Endpoint: `GET /api/orders/{id}/route?fromLat=&fromLng=&toLat=&toLng=` → `{ geometry, distanceMeters, durationSeconds }` (polyline mã hoá precision-5), hoặc `204` khi OSRM tắt/lỗi.
+
 ## Project Structure
 
 ```
