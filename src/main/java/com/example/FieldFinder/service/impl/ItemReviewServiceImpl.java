@@ -76,6 +76,7 @@ public class ItemReviewServiceImpl implements ItemReviewService {
     }
 
     @Override
+    @Transactional
     public List<ItemReviewResponseDTO> getReviewsByProduct(Long productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy sản phẩm"));
@@ -85,6 +86,7 @@ public class ItemReviewServiceImpl implements ItemReviewService {
     }
 
     @Override
+    @Transactional
     public List<ItemReviewResponseDTO> getReviewsByUser(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng"));
@@ -94,6 +96,7 @@ public class ItemReviewServiceImpl implements ItemReviewService {
     }
 
     @Override
+    @Transactional
     public List<ItemReviewResponseDTO> getAllItemReviews() {
         return reviewRepository.findAll()
                 .stream()
