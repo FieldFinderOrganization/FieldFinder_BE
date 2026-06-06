@@ -12,4 +12,5 @@ import java.util.List;
 public interface ItemReviewRepository extends JpaRepository<Item_Review, Long> {
     List<Item_Review> findByProduct(Product product);
     List<Item_Review> findByUser(User user);
+    boolean existsByUserAndProduct(User user, Product product);
 }

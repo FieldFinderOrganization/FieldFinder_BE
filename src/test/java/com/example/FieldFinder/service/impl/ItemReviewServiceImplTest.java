@@ -87,6 +87,22 @@ class ItemReviewServiceImplTest {
         }
 
         @Test
+        void duplicate_ThrowsConflict() {
+            ItemReviewRequestDTO req = new ItemReviewRequestDTO();
+            req.setUserId(userId);
+            req.setProductId(1L);
+            req.setRating(5);
+            req.setComment("Đánh giá lần 2");
+
+            when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+            when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+            when(reviewRepository.existsByUserAndProduct(user, product)).thenReturn(true);
+
+            assertThrows(ResponseStatusException.class, () -> service.createReview(req));
+            verify(reviewRepository, never()).save(any(Item_Review.class));
+        }
+
+        @Test
         void userNotFound_ThrowsException() {
             ItemReviewRequestDTO req = new ItemReviewRequestDTO();
             req.setUserId(userId);

@@ -38,6 +38,10 @@ public class ItemReviewServiceImpl implements ItemReviewService {
         Product product = productRepository.findById(request.getProductId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find product!"));
 
+        if (reviewRepository.existsByUserAndProduct(user, product)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Bạn đã đánh giá sản phẩm này rồi");
+        }
+
         Item_Review review = Item_Review.builder()
                 .user(user)
                 .product(product)
