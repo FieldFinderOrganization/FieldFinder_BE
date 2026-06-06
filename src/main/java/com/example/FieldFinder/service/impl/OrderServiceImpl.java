@@ -375,7 +375,7 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional(readOnly = true)
     public List<OrderResponseDTO> getAvailableOrdersForShipper() {
-        return orderRepository.findByStatusAndShipperIsNull(OrderStatus.CONFIRMED)
+        return orderRepository.findByStatusAndShipperIsNullOrderByOrderIdDesc(OrderStatus.CONFIRMED)
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
@@ -408,7 +408,7 @@ public class OrderServiceImpl implements OrderService {
     public List<OrderResponseDTO> getOrdersByShipperId(UUID shipperId) {
         User shipper = userRepository.findById(shipperId)
                 .orElseThrow(() -> new RuntimeException("Shipper not found!"));
-        return orderRepository.findByShipper(shipper)
+        return orderRepository.findByShipperOrderByOrderIdDesc(shipper)
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
