@@ -20,7 +20,10 @@ public class CloudinaryService {
     public Map<String, Object> uploadProductImage(MultipartFile file, List<String> categories) throws IOException {
         Map params = ObjectUtils.asMap(
                 "folder", "field_finder_products",
-                "resource_type", "image"
+                "resource_type", "image",
+                // Transcode on upload → never store AVIF/WebP, which older Android
+                // image decoders can't render (broken-image box in the app).
+                "format", "jpg"
         );
 
         Map uploadResult = cloudinary.uploader().upload(file.getBytes(), params);
@@ -41,7 +44,8 @@ public class CloudinaryService {
 
     private Map<String, Object> buildResponseMap(Map uploadResult) {
         Map<String, Object> result = new HashMap<>();
-        result.put("url", uploadResult.get("url"));
+        // secure_url = https (Android blocks cleartext http on API 28+); url = http.
+        result.put("url", uploadResult.get("secure_url"));
         result.put("public_id", uploadResult.get("public_id"));
         return result;
     }
