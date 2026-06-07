@@ -61,7 +61,7 @@ public class CatalogCacheWarmup implements ApplicationRunner {
             // Base cache: 1 set (no userId). Warm cả 2 size mobile+web dùng.
             for (int size : WARMUP_PAGE_SIZES) {
                 for (int p = 0; p < WARMUP_MAX_PAGES; p++) {
-                    productService.getAllProducts(PageRequest.of(p, size), null, null, null, null);
+                    productService.getAllProducts(PageRequest.of(p, size), null, null, null, null, null);
                     productCalls++;
                 }
             }

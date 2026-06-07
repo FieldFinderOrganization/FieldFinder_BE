@@ -39,4 +39,20 @@ public class ProductSpecification {
             return criteriaBuilder.equal(criteriaBuilder.lower(root.get("brand")), brand.toLowerCase());
         };
     }
+
+    /**
+     * Tìm theo từ khóa tên: khớp LIKE (không phân biệt hoa thường) trên tên
+     * hoặc thương hiệu sản phẩm. Dùng cho thanh tìm kiếm tab Shop (search toàn DB).
+     */
+    public static Specification<Product> hasNameLike(String name) {
+        return (root, query, criteriaBuilder) -> {
+            if (name == null || name.isBlank()) {
+                return null;
+            }
+            String pattern = "%" + name.toLowerCase().trim() + "%";
+            return criteriaBuilder.or(
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("name")), pattern),
+                    criteriaBuilder.like(criteriaBuilder.lower(root.get("brand")), pattern));
+        };
+    }
 }

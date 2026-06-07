@@ -472,9 +472,9 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId) {
+    public Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, String name, UUID userId) {
         // Lấy page base từ cache (không kèm userId trong key — share giữa users).
-        CachedPage<ProductResponseDTO> basePage = self.getAllProductsCached(pageable, categoryId, genders, brand);
+        CachedPage<ProductResponseDTO> basePage = self.getAllProductsCached(pageable, categoryId, genders, brand, name);
         if (userId == null || basePage.content().isEmpty()) {
             return basePage.toPage();
         }
@@ -513,7 +513,7 @@ public class ProductServiceImpl implements ProductService {
      */
     @Transactional(readOnly = true)
     @Cacheable(value = "products_category", keyGenerator = "productListCacheKeyGenerator")
-    public CachedPage<ProductResponseDTO> getAllProductsCached(Pageable pageable, Long categoryId, Set<String> genders, String brand) {
+    public CachedPage<ProductResponseDTO> getAllProductsCached(Pageable pageable, Long categoryId, Set<String> genders, String brand, String name) {
         Set<Long> categoryIds = null;
         String effectiveBrand = brand;
 
@@ -532,7 +532,8 @@ public class ProductServiceImpl implements ProductService {
         Specification<Product> spec = Specification.<Product>unrestricted()
                 .and(ProductSpecification.hasCategoryIds(categoryIds))
                 .and(ProductSpecification.hasSex(genders))
-                .and(ProductSpecification.hasBrand(effectiveBrand));
+                .and(ProductSpecification.hasBrand(effectiveBrand))
+                .and(ProductSpecification.hasNameLike(name));
 
         // Stable-sort fallback: SQL OFFSET/LIMIT needs a deterministic order, else pages overlap
         // across requests -> infinite scroll never ends. Add a productId tiebreaker when unsorted.
@@ -600,7 +601,7 @@ public class ProductServiceImpl implements ProductService {
         final int pageSize = 100;
         CachedPage<ProductResponseDTO> chunk;
         do {
-            chunk = self.getAllProductsCached(PageRequest.of(pageIdx, pageSize), null, null, null);
+            chunk = self.getAllProductsCached(PageRequest.of(pageIdx, pageSize), null, null, null, null);
             all.addAll(chunk.content());
             pageIdx++;
         } while (chunk.hasNext());

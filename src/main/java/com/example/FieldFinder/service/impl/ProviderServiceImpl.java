@@ -46,8 +46,19 @@ public class ProviderServiceImpl implements ProviderService {
 
     @Override
     public ProviderResponseDTO getProviderByUserId(UUID userId) {
+        // Auto-create an empty provider profile the first time a field owner (PROVIDER)
+        // opens "Quản lý kinh doanh". Without this, accounts that have the PROVIDER role
+        // but no providers row would get a 400 (RuntimeException -> BAD_REQUEST).
         Provider provider = providerRepository.findByUser_UserId(userId)
-                .orElseThrow(() -> new RuntimeException("Provider not found for userId: " + userId));
+                .orElseGet(() -> {
+                    User user = userRepository.findByUserId(userId)
+                            .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng với id: " + userId));
+                    if (user.getRole() != User.Role.PROVIDER) {
+                        throw new RuntimeException("Người dùng không phải là chủ sân (provider): " + userId);
+                    }
+                    Provider created = Provider.builder().user(user).build();
+                    return providerRepository.save(created);
+                });
         return mapToDto(provider);
     }
 

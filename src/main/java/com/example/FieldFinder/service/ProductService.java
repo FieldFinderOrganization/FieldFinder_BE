@@ -16,7 +16,7 @@ public interface ProductService {
 
     ProductResponseDTO getProductById(Long id, UUID userId);
     Map<Long, ProductResponseDTO> getProductsByIds(List<Long> ids, UUID userId);
-    Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, UUID userId);
+    Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, String name, UUID userId);
 
     List<ProductResponseDTO> getProductsForAiAssistant(UUID userId);
 

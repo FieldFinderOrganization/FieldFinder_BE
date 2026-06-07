@@ -65,9 +65,10 @@ public class ProductController {
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) Set<String> genders,
             @RequestParam(required = false) String brand,
+            @RequestParam(required = false) String name,
             Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
-        return productService.getAllProducts(pageable, categoryId, genders, brand, userId);
+        return productService.getAllProducts(pageable, categoryId, genders, brand, name, userId);
     }
 
     @GetMapping("/top-selling")

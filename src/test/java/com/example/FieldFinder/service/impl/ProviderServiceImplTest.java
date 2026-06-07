@@ -126,12 +126,40 @@ class ProviderServiceImplTest {
         }
 
         @Test
-        void notFound_ThrowsException() {
+        void noProviderRow_ProviderRole_AutoCreates() {
+            user.setRole(User.Role.PROVIDER);
             when(providerRepository.findByUser_UserId(userId)).thenReturn(Optional.empty());
+            when(userRepository.findByUserId(userId)).thenReturn(Optional.of(user));
+            when(providerRepository.save(any(Provider.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            ProviderResponseDTO result = service.getProviderByUserId(userId);
+
+            assertNotNull(result);
+            assertEquals(userId, result.getUserId());
+            verify(providerRepository).save(any(Provider.class));
+        }
+
+        @Test
+        void noProviderRow_userNotFound_ThrowsException() {
+            when(providerRepository.findByUser_UserId(userId)).thenReturn(Optional.empty());
+            when(userRepository.findByUserId(userId)).thenReturn(Optional.empty());
 
             RuntimeException ex = assertThrows(RuntimeException.class,
                     () -> service.getProviderByUserId(userId));
-            assertTrue(ex.getMessage().contains("Provider not found for userId"));
+            assertTrue(ex.getMessage().contains("Không tìm thấy người dùng"));
+            verify(providerRepository, never()).save(any());
+        }
+
+        @Test
+        void noProviderRow_notProviderRole_ThrowsException() {
+            user.setRole(User.Role.USER);
+            when(providerRepository.findByUser_UserId(userId)).thenReturn(Optional.empty());
+            when(userRepository.findByUserId(userId)).thenReturn(Optional.of(user));
+
+            RuntimeException ex = assertThrows(RuntimeException.class,
+                    () -> service.getProviderByUserId(userId));
+            assertTrue(ex.getMessage().contains("không phải là chủ sân"));
+            verify(providerRepository, never()).save(any());
         }
     }
 
