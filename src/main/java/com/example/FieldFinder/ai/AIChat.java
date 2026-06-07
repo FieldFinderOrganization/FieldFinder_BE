@@ -2185,6 +2185,10 @@ public class AIChat {
         if (query.pitchType == null) query.pitchType = "ALL";
 
         String action = (String) query.data.get("action");
+        // "gần tôi" without an explicit listing action -> treat as a personalized recommendation.
+        if (query.nearMe && (action == null || "list_pitches".equals(action))) {
+            action = "recommend_pitch";
+        }
         PitchEnvironment env = null;
         if (query.environment != null) {
             try { env = PitchEnvironment.valueOf(query.environment); } catch (Exception ignored) {}
@@ -2196,6 +2200,14 @@ public class AIChat {
                 .filter(p -> "ALL".equals(query.pitchType) || p.getType().name().equalsIgnoreCase(query.pitchType))
                 .filter(p -> requestedEnvironment == null || p.getEnvironment() == requestedEnvironment)
                 .collect(Collectors.toList());
+
+        // Hard filter theo khu vực user nêu (vd "sân 5 ở Gò Vấp") -> chỉ giữ sân có địa chỉ khớp.
+        final String areaFilter = (query.location != null && !query.location.isBlank()) ? query.location.trim().toLowerCase() : null;
+        if (areaFilter != null) {
+            matched = matched.stream()
+                    .filter(p -> p.getAddress() != null && p.getAddress().toLowerCase().contains(areaFilter))
+                    .collect(Collectors.toList());
+        }
 
         boolean isAvailabilityCheck = "book_pitch".equals(action) || "check_pitch_availability".equals(action);
         if (isAvailabilityCheck && query.bookingDate != null && !query.slotList.isEmpty()) {
@@ -2420,12 +2432,24 @@ public class AIChat {
                 }
                 break;
             }
+            case "recommend_pitch": {
+                List<PitchResponseDTO> ranked = rankRecommendedPitches(matched, sessionId, query.location, 10);
+                if (ranked.isEmpty()) {
+                    query.message = String.format("Hiện chưa có%s %s nào phù hợp để gợi ý cho bạn.", envStr, typeStr);
+                } else if (query.message == null || query.message.isEmpty()) {
+                    String near = query.nearMe ? "gần bạn, " : "";
+                    query.message = String.format("Gợi ý %d sân phù hợp với bạn (%stheo khu vực & sở thích) 👇", ranked.size(), near);
+                }
+                query.data.put("matchedPitches", ranked);
+                break;
+            }
             case "list_pitches":
             default: {
+                String areaStr = areaFilter != null ? " ở " + query.location.trim() : "";
                 if (matched.isEmpty()) {
-                    query.message = String.format("Rất tiếc, không tìm thấy%s %s nào phù hợp.", envStr, typeStr);
+                    query.message = String.format("Rất tiếc, không tìm thấy%s %s nào phù hợp%s.", envStr, typeStr, areaStr);
                 } else {
-                    query.message = String.format("Đã tìm thấy %d%s %s. Xem danh sách bên dưới 👇", matched.size(), envStr, typeStr);
+                    query.message = String.format("Đã tìm thấy %d%s %s%s. Xem danh sách bên dưới 👇", matched.size(), envStr, typeStr, areaStr);
                 }
                 query.data.put("matchedPitches", matched);
                 break;
@@ -2462,6 +2486,47 @@ public class AIChat {
             query.message = "Mình đã ghi nhận yêu cầu sân của bạn, nhưng chưa có dữ liệu phù hợp để trả lời.";
         }
         return query;
+    }
+
+    /**
+     * P1 lightweight recommendation ranking (no GPS coords yet).
+     * Scores candidates by the user's profile district + preferred pitch type,
+     * plus any explicit location keyword, then caps the result at `limit`.
+     * Cold start (no profile / no signals) -> returns first `limit` candidates.
+     */
+    private List<PitchResponseDTO> rankRecommendedPitches(List<PitchResponseDTO> candidates, String sessionId, String explicitLocation, int limit) {
+        if (candidates == null || candidates.isEmpty()) return new ArrayList<>();
+        String district = null;
+        String prefType = null;
+        try {
+            UUID uid = resolveCurrentUserId(sessionId);
+            if (uid != null) {
+                var profile = userService.getUserById(uid);
+                if (profile != null) {
+                    if (profile.getDistrict() != null) district = profile.getDistrict().toLowerCase();
+                    if (profile.getPreferredPitchType() != null) prefType = profile.getPreferredPitchType().name();
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("rankRecommendedPitches profile error: " + e.getMessage());
+        }
+        final String fDistrict = district;
+        final String fPrefType = prefType;
+        final String fArea = (explicitLocation != null && !explicitLocation.isBlank()) ? explicitLocation.trim().toLowerCase() : null;
+        return candidates.stream()
+                .sorted((a, b) -> Double.compare(scoreRecommendedPitch(b, fDistrict, fPrefType, fArea),
+                                                 scoreRecommendedPitch(a, fDistrict, fPrefType, fArea)))
+                .limit(Math.max(1, limit))
+                .collect(Collectors.toList());
+    }
+
+    private double scoreRecommendedPitch(PitchResponseDTO p, String district, String prefType, String area) {
+        double score = 0.0;
+        String addr = p.getAddress() != null ? p.getAddress().toLowerCase() : "";
+        if (area != null && addr.contains(area)) score += 0.6;
+        if (district != null && !district.isBlank() && addr.contains(district)) score += 0.4;
+        if (prefType != null && p.getType() != null && p.getType().name().equals(prefType)) score += 0.3;
+        return score;
     }
 
     private PitchEnvironment detectEnvironmentFromInput(String userInput) {
@@ -2731,8 +2796,10 @@ public class AIChat {
           "pitchType": "FIVE_A_SIDE" | "SEVEN_A_SIDE" | "ELEVEN_A_SIDE" | "ALL",
           "message": "thông điệp mặc định" (hoặc null),
           "environment": "INDOOR" | "OUTDOOR" | null,
+          "location": "tên khu vực/quận/đường nếu user nêu" (hoặc null),
+          "nearMe": true | false,
           "data": {
-            "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | "list_on_sale" | "count_on_sale" | "max_discount_product" | "best_selling_product" | "search_by_price_range" | "cheapest_product" | "most_expensive_product" | "product_detail" | "recommend_by_activity" | "list_pitches" | "count_pitches_by_type" | "check_pitch_availability" | "book_pitch" | "list_my_bookings" | "cheapest_pitch" | "most_expensive_pitch" | null,
+            "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | "list_on_sale" | "count_on_sale" | "max_discount_product" | "best_selling_product" | "search_by_price_range" | "cheapest_product" | "most_expensive_product" | "product_detail" | "recommend_by_activity" | "list_pitches" | "recommend_pitch" | "count_pitches_by_type" | "check_pitch_availability" | "book_pitch" | "list_my_bookings" | "cheapest_pitch" | "most_expensive_pitch" | null,
             "productName": "...",
             "city": "...",
             "size": "...",
@@ -2765,6 +2832,15 @@ public class AIChat {
           + Nếu KHÔNG nêu loại sân cụ thể (vd: "sân rẻ nhất", "tìm sân giá thấp nhất") -> action: "cheapest_pitch" hoặc "most_expensive_pitch", `pitchType`: "ALL" (tìm trên TOÀN BỘ sân, không giới hạn loại).
           + Nếu có nêu loại sân (vd: "sân 5 mắc nhất", "sân 7 rẻ nhất") -> action như trên NHƯNG `pitchType` PHẢI đúng loại ("FIVE_A_SIDE" / "SEVEN_A_SIDE" / "ELEVEN_A_SIDE") để chỉ tìm trong loại đó.
         - Câu hỏi đơn đặt của tôi -> action: "list_my_bookings".
+        - VỊ TRÍ / KHU VỰC: nếu user nêu khu vực, quận, phường hoặc tên đường cụ thể (vd "sân 5 ở Gò Vấp", "khu vực quận 1", "sân ở Thủ Đức", "sân gần Bình Thạnh") -> điền `location` = đúng tên khu vực đó (vd "Gò Vấp", "quận 1", "Thủ Đức", "Bình Thạnh"). VẪN giữ `pitchType`/`environment` nếu user có nêu loại sân hoặc môi trường.
+        - GẦN TÔI: nếu user nói "gần tôi", "gần đây", "quanh đây", "chỗ tôi", "gần chỗ tôi", "ở gần" (không nêu tên khu vực cụ thể) -> `nearMe`: true (và để `location` = null).
+        - GỢI Ý SÂN: nếu user nhờ gợi ý sân CHUNG, không nêu loại/giá/khu vực cụ thể (vd "gợi ý sân giúp mình", "tìm sân cho tôi", "sân nào phù hợp với tôi", "có sân nào hay không", "đề xuất sân") -> action: "recommend_pitch", `pitchType`: "ALL". PHÂN BIỆT với "list_pitches" (user muốn xem TẤT CẢ của một loại cụ thể, vd "cho xem tất cả sân 5", "liệt kê sân 7").
+        - VÍ DỤ SÂN:
+          + "tìm sân 5 ở Gò Vấp" -> action: "list_pitches", pitchType: "FIVE_A_SIDE", location: "Gò Vấp"
+          + "sân 7 ngoài trời khu vực quận 1" -> action: "list_pitches", pitchType: "SEVEN_A_SIDE", environment: "OUTDOOR", location: "quận 1"
+          + "tìm sân gần tôi" / "sân nào gần đây" -> action: "recommend_pitch", pitchType: "ALL", nearMe: true
+          + "gợi ý sân giúp mình" / "sân nào phù hợp với tôi" -> action: "recommend_pitch", pitchType: "ALL"
+          + "cho xem tất cả sân 7" -> action: "list_pitches", pitchType: "SEVEN_A_SIDE"
 
         ❗️ QUY TẮC XỬ LÝ SẢN PHẨM:
         - Nếu hỏi về giá sản phẩm (rẻ nhất/mắc nhất), dùng action "cheapest_product" hoặc "most_expensive_product".
@@ -2833,6 +2909,8 @@ public class AIChat {
         public String message;
         public Map<String, Object> data;
         public String environment;
+        public String location;
+        public boolean nearMe;
 
         @Override
         public String toString() {
@@ -2843,6 +2921,8 @@ public class AIChat {
                     ", message='" + message + '\'' +
                     ", data=" + data +
                     ",  environment='" + environment + '\'' +
+                    ", location='" + location + '\'' +
+                    ", nearMe=" + nearMe +
                     '}';
         }
     }
