@@ -20,6 +20,8 @@ public class PitchResponseDTO {
     private String description;
     private List<String> imageUrls;
     private String address;
+    private Double latitude;
+    private Double longitude;
     private String providerUserId;
     private String providerName;
 
@@ -34,6 +36,8 @@ public class PitchResponseDTO {
         dto.setDescription(pitch.getDescription());
         dto.setImageUrls(pitch.getImageUrls());
         dto.setAddress(pitch.getProviderAddress().getAddress());
+        dto.setLatitude(pitch.getProviderAddress().getLatitude());
+        dto.setLongitude(pitch.getProviderAddress().getLongitude());
         var providerUser = pitch.getProviderAddress().getProvider().getUser();
         dto.setProviderUserId(providerUser.getUserId().toString());
         dto.setProviderName(providerUser.getName());

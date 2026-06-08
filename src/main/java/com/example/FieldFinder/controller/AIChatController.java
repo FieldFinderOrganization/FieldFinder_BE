@@ -35,7 +35,9 @@ public class AIChatController {
         try {
             AIChat.BookingQuery response = aiChatService.parseBookingInput(
                     request.getUserInput(),
-                    request.getSessionId()
+                    request.getSessionId(),
+                    request.getLatitude(),
+                    request.getLongitude()
             );
             return ResponseEntity.ok(response);
 

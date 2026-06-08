@@ -81,6 +81,11 @@ public class AIChat {
 
     private final OpenWeatherService weatherService;
 
+    // Optional: present only when MongoDB is configured. Used to read VIEW_PITCH interaction logs
+    // for "đã xem" personalization signals. Null-safe everywhere it's used.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.data.mongodb.core.MongoTemplate mongoTemplate;
+
     public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService, PhashIndex phashIndex, CategoryService categoryService, com.example.FieldFinder.ai.ranking.CompositeRanker compositeRanker, AiChatSessionContextStore sessionContextStore, GeminiRateLimiter geminiRateLimiter) {
         this.pitchService = pitchService;
         this.productService = productService;
@@ -2052,6 +2057,10 @@ public class AIChat {
     }
 
     public BookingQuery parseBookingInput(String userInput, String sessionId) throws IOException, InterruptedException {
+        return parseBookingInput(userInput, sessionId, null, null);
+    }
+
+    public BookingQuery parseBookingInput(String userInput, String sessionId, Double userLat, Double userLng) throws IOException, InterruptedException {
         if (isGreeting(userInput)) {
             BookingQuery query = new BookingQuery();
             query.message = "Xin chào! Tôi có thể giúp bạn đặt sân bóng hoặc tìm kiếm sản phẩm thể thao (giày, áo...).";
@@ -2118,11 +2127,12 @@ public class AIChat {
             if ("recommend_by_activity".equals(action)) {
                 return handleRecommendByActivity(query, sessionId, userInput);
             }
-            if ("list_pitches".equals(action) || "count_pitches_by_type".equals(action)
+            if ("list_pitches".equals(action) || "recommend_pitch".equals(action)
+                    || "count_pitches_by_type".equals(action)
                     || "check_pitch_availability".equals(action) || "book_pitch".equals(action)
                     || "list_my_bookings".equals(action) || "cheapest_pitch".equals(action)
                     || "most_expensive_pitch".equals(action)) {
-                return handlePitchQuery(query, userInput, sessionId, allPitches);
+                return handlePitchQuery(query, userInput, sessionId, allPitches, userLat, userLng);
             }
             if (action.contains("product") || action.contains("stock") ||
                     action.contains("sales") || action.contains("sale") ||
@@ -2179,7 +2189,7 @@ public class AIChat {
         return query;
     }
 
-    private BookingQuery handlePitchQuery(BookingQuery query, String userInput, String sessionId, List<PitchResponseDTO> allPitches) {
+    private BookingQuery handlePitchQuery(BookingQuery query, String userInput, String sessionId, List<PitchResponseDTO> allPitches, Double userLat, Double userLng) {
         if (query.data == null) query.data = new HashMap<>();
         if (query.slotList == null) query.slotList = new ArrayList<>();
         if (query.pitchType == null) query.pitchType = "ALL";
@@ -2433,12 +2443,20 @@ public class AIChat {
                 break;
             }
             case "recommend_pitch": {
-                List<PitchResponseDTO> ranked = rankRecommendedPitches(matched, sessionId, query.location, 10);
+                PitchRankResult rr = rankRecommendedPitches(matched, sessionId, query.location, userLat, userLng, query.nearMe, 10);
+                List<PitchResponseDTO> ranked = rr.pitches;
                 if (ranked.isEmpty()) {
                     query.message = String.format("Hiện chưa có%s %s nào phù hợp để gợi ý cho bạn.", envStr, typeStr);
                 } else if (query.message == null || query.message.isEmpty()) {
-                    String near = query.nearMe ? "gần bạn, " : "";
-                    query.message = String.format("Gợi ý %d sân phù hợp với bạn (%stheo khu vực & sở thích) 👇", ranked.size(), near);
+                    List<String> bits = new ArrayList<>();
+                    if (rr.usedProximity) bits.add("gần bạn");
+                    if (rr.usedHistory)   bits.add("theo lịch sử đặt/xem");
+                    if (rr.usedProfile)   bits.add("hợp sở thích");
+                    String basis = bits.isEmpty() ? "" : " (" + String.join(", ", bits) + ")";
+                    query.message = String.format("Gợi ý %d sân phù hợp với bạn%s 👇", ranked.size(), basis);
+                    if (query.nearMe && !rr.usedProximity) {
+                        query.message += "\n(Bật chia sẻ vị trí để mình gợi ý sân gần bạn chính xác hơn nhé.)";
+                    }
                 }
                 query.data.put("matchedPitches", ranked);
                 break;
@@ -2488,45 +2506,204 @@ public class AIChat {
         return query;
     }
 
+    /** Result of personalized pitch ranking + which signal groups actually contributed. */
+    private static class PitchRankResult {
+        final List<PitchResponseDTO> pitches;
+        final boolean usedProximity;
+        final boolean usedHistory;
+        final boolean usedProfile;
+        PitchRankResult(List<PitchResponseDTO> p, boolean prox, boolean hist, boolean prof) {
+            this.pitches = p; this.usedProximity = prox; this.usedHistory = hist; this.usedProfile = prof;
+        }
+    }
+
     /**
-     * P1 lightweight recommendation ranking (no GPS coords yet).
-     * Scores candidates by the user's profile district + preferred pitch type,
-     * plus any explicit location keyword, then caps the result at `limit`.
-     * Cold start (no profile / no signals) -> returns first `limit` candidates.
+     * Personalized pitch recommendation ranking.
+     * score = 0.40*proximity + 0.35*history + 0.15*profile + 0.10*explicitArea.
+     * History (rebook/viewed/fav-type/fav-area) outweighs profile per product spec
+     * (profile is editable, behaviour is stronger signal). Proximity uses request GPS
+     * (userLat/userLng) and falls back to saved profile coords. Returns ≤ {@code limit}
+     * pitches sorted by score desc — never the full catalog.
      */
-    private List<PitchResponseDTO> rankRecommendedPitches(List<PitchResponseDTO> candidates, String sessionId, String explicitLocation, int limit) {
-        if (candidates == null || candidates.isEmpty()) return new ArrayList<>();
-        String district = null;
-        String prefType = null;
+    private PitchRankResult rankRecommendedPitches(List<PitchResponseDTO> candidates, String sessionId,
+                                                   String explicitLocation, Double userLat, Double userLng,
+                                                   boolean nearMe, int limit) {
+        if (candidates == null || candidates.isEmpty()) {
+            return new PitchRankResult(new ArrayList<>(), false, false, false);
+        }
+
+        UUID uid = resolveCurrentUserId(sessionId);
+        PitchUserSignals sig = buildPitchUserSignals(uid, userLat, userLng);
+
+        final Double lat = sig.lat;
+        final Double lng = sig.lng;
+        final boolean hasCoords = lat != null && lng != null;
+        final String fArea = (explicitLocation != null && !explicitLocation.isBlank())
+                ? explicitLocation.trim().toLowerCase() : null;
+
+        // Flags: which signal groups actually moved the ranking (for the response message).
+        boolean[] used = {false, false, false}; // [0]=proximity [1]=history [2]=profile
+
+        List<PitchResponseDTO> ranked = candidates.stream()
+                .sorted((a, b) -> Double.compare(
+                        scorePitch(b, sig, hasCoords, lat, lng, fArea, used),
+                        scorePitch(a, sig, hasCoords, lat, lng, fArea, used)))
+                .limit(Math.max(1, limit))
+                .collect(Collectors.toList());
+
+        System.out.println("🎯 Pitch reco: candidates=" + candidates.size() + " returned=" + ranked.size()
+                + " coords=" + hasCoords + " favType=" + sig.favType + " booked=" + sig.bookedPitchIds.size()
+                + " viewed=" + sig.viewedPitchIds.size() + " district=" + sig.district);
+
+        return new PitchRankResult(ranked, used[0], used[1], used[2]);
+    }
+
+    private double scorePitch(PitchResponseDTO p, PitchUserSignals sig, boolean hasCoords,
+                              Double lat, Double lng, String area, boolean[] used) {
+        double score = 0.0;
+        String addr = p.getAddress() != null ? p.getAddress().toLowerCase() : "";
+
+        // Proximity (0..1): closer = higher. 0km->1.0, 1km->0.5, 4km->0.2.
+        if (hasCoords && p.getLatitude() != null && p.getLongitude() != null) {
+            double km = haversineKm(lat, lng, p.getLatitude(), p.getLongitude());
+            double prox = 1.0 / (1.0 + km);
+            used[0] = true;
+            score += 0.40 * prox;
+        }
+
+        // History (0..1): rebook > viewed, plus favourite type + favourite area.
+        double hist = 0.0;
+        if (p.getPitchId() != null && sig.bookedPitchIds.contains(p.getPitchId())) hist = 1.0;
+        else if (p.getPitchId() != null && sig.viewedPitchIds.contains(p.getPitchId())) hist = 0.6;
+        if (sig.favType != null && p.getType() != null && p.getType().name().equals(sig.favType)) hist += 0.4;
+        if (!sig.bookedAreaTokens.isEmpty()) {
+            for (String tok : sig.bookedAreaTokens) {
+                if (addr.contains(tok)) { hist += 0.3; break; }
+            }
+        }
+        hist = Math.min(1.0, hist);
+        if (hist > 0) used[1] = true;
+        score += 0.35 * hist;
+
+        // Profile (0..1): district + preferred type (lower weight than history).
+        double prof = 0.0;
+        if (sig.district != null && !sig.district.isBlank() && addr.contains(sig.district)) prof += 0.6;
+        if (sig.prefType != null && p.getType() != null && p.getType().name().equals(sig.prefType)) prof += 0.4;
+        prof = Math.min(1.0, prof);
+        if (prof > 0) used[2] = true;
+        score += 0.15 * prof;
+
+        // Explicit area keyword from the query (mild tie-breaker; usually already hard-filtered).
+        if (area != null && addr.contains(area)) score += 0.10;
+
+        return score;
+    }
+
+    /** Aggregated personalization signals for a user, computed once per request. */
+    private static class PitchUserSignals {
+        Double lat, lng;
+        String district;
+        String prefType;
+        Set<UUID> bookedPitchIds = new HashSet<>();
+        Set<UUID> viewedPitchIds = new HashSet<>();
+        String favType;                                  // most-booked pitch type
+        Set<String> bookedAreaTokens = new HashSet<>();  // address keywords from booked pitches
+    }
+
+    private PitchUserSignals buildPitchUserSignals(UUID uid, Double reqLat, Double reqLng) {
+        PitchUserSignals s = new PitchUserSignals();
+        s.lat = reqLat;
+        s.lng = reqLng;
+        if (uid == null) return s;
+
+        // Profile: district, preferred type, fallback coords.
         try {
-            UUID uid = resolveCurrentUserId(sessionId);
-            if (uid != null) {
-                var profile = userService.getUserById(uid);
-                if (profile != null) {
-                    if (profile.getDistrict() != null) district = profile.getDistrict().toLowerCase();
-                    if (profile.getPreferredPitchType() != null) prefType = profile.getPreferredPitchType().name();
+            var profile = userService.getUserById(uid);
+            if (profile != null) {
+                if (profile.getDistrict() != null) s.district = profile.getDistrict().toLowerCase();
+                if (profile.getPreferredPitchType() != null) s.prefType = profile.getPreferredPitchType().name();
+                if (s.lat == null || s.lng == null) {
+                    s.lat = profile.getLatitude();
+                    s.lng = profile.getLongitude();
                 }
             }
         } catch (Exception e) {
-            System.err.println("rankRecommendedPitches profile error: " + e.getMessage());
+            System.err.println("buildPitchUserSignals profile error: " + e.getMessage());
         }
-        final String fDistrict = district;
-        final String fPrefType = prefType;
-        final String fArea = (explicitLocation != null && !explicitLocation.isBlank()) ? explicitLocation.trim().toLowerCase() : null;
-        return candidates.stream()
-                .sorted((a, b) -> Double.compare(scoreRecommendedPitch(b, fDistrict, fPrefType, fArea),
-                                                 scoreRecommendedPitch(a, fDistrict, fPrefType, fArea)))
-                .limit(Math.max(1, limit))
-                .collect(Collectors.toList());
+
+        // Booking history: booked pitch ids, favourite type, booked-area tokens.
+        try {
+            Map<UUID, PitchResponseDTO> byId = new HashMap<>();
+            for (PitchResponseDTO p : getAllPitchesCached()) {
+                if (p.getPitchId() != null) byId.put(p.getPitchId(), p);
+            }
+            Map<String, Integer> typeCount = new HashMap<>();
+            var bookings = bookingService.getBookingsByUser(uid);
+            for (var b : bookings) {
+                if (b.getPitchId() == null) continue;
+                s.bookedPitchIds.add(b.getPitchId());
+                PitchResponseDTO p = byId.get(b.getPitchId());
+                if (p != null) {
+                    if (p.getType() != null) typeCount.merge(p.getType().name(), 1, Integer::sum);
+                    if (p.getAddress() != null) {
+                        for (String tok : p.getAddress().toLowerCase().split("[,\\-]")) {
+                            String t = tok.trim();
+                            if (t.length() >= 4) s.bookedAreaTokens.add(t);
+                        }
+                    }
+                }
+            }
+            s.favType = typeCount.entrySet().stream()
+                    .max(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey).orElse(null);
+        } catch (Exception e) {
+            System.err.println("buildPitchUserSignals booking error: " + e.getMessage());
+        }
+
+        // Viewed-but-not-booked pitches from interaction logs (Mongo VIEW_PITCH).
+        try {
+            s.viewedPitchIds.addAll(loadViewedPitchIds(uid, 50));
+        } catch (Exception e) {
+            System.err.println("buildPitchUserSignals view error: " + e.getMessage());
+        }
+
+        return s;
     }
 
-    private double scoreRecommendedPitch(PitchResponseDTO p, String district, String prefType, String area) {
-        double score = 0.0;
-        String addr = p.getAddress() != null ? p.getAddress().toLowerCase() : "";
-        if (area != null && addr.contains(area)) score += 0.6;
-        if (district != null && !district.isBlank() && addr.contains(district)) score += 0.4;
-        if (prefType != null && p.getType() != null && p.getType().name().equals(prefType)) score += 0.3;
-        return score;
+    /** Recently viewed pitch ids from Mongo interaction logs. Empty if Mongo unavailable. */
+    private Set<UUID> loadViewedPitchIds(UUID userId, int limit) {
+        Set<UUID> ids = new HashSet<>();
+        if (mongoTemplate == null || userId == null) return ids;
+        try {
+            org.springframework.data.mongodb.core.query.Query q =
+                    org.springframework.data.mongodb.core.query.Query.query(
+                            org.springframework.data.mongodb.core.query.Criteria.where("userId").is(userId.toString())
+                                    .and("eventType").is("VIEW_PITCH")
+                                    .and("itemType").is("PITCH"))
+                            .with(org.springframework.data.domain.Sort.by(
+                                    org.springframework.data.domain.Sort.Direction.DESC, "timestamp"));
+            q.limit(limit);
+            List<com.example.FieldFinder.entity.log.InteractionLog> logs =
+                    mongoTemplate.find(q, com.example.FieldFinder.entity.log.InteractionLog.class);
+            for (var l : logs) {
+                if (l.getItemId() == null) continue;
+                try { ids.add(UUID.fromString(l.getItemId())); } catch (IllegalArgumentException ignored) {}
+            }
+        } catch (Exception e) {
+            System.err.println("loadViewedPitchIds error: " + e.getMessage());
+        }
+        return ids;
+    }
+
+    /** Haversine great-circle distance in km. */
+    private static double haversineKm(double lat1, double lng1, double lat2, double lng2) {
+        double R = 6371.0;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
     private PitchEnvironment detectEnvironmentFromInput(String userInput) {
