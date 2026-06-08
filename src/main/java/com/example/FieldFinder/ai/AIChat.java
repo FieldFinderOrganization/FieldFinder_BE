@@ -2544,6 +2544,29 @@ public class AIChat {
         // Flags: which signal groups actually moved the ranking (for the response message).
         boolean[] used = {false, false, false}; // [0]=proximity [1]=history [2]=profile
 
+        // "Gần tôi": với intent vị trí cụ thể (vd "tìm sân gần tôi", "sân nào gần đây"),
+        // ưu tiên KHOẢNG CÁCH GPS thay vì blend cá nhân hoá. Chỉ áp dụng khi thực sự có
+        // toạ độ và có ít nhất một sân có toạ độ; nếu không, rơi về xếp hạng cá nhân hoá
+        // bên dưới (message sẽ nhắc bật chia sẻ vị trí vì usedProximity=false).
+        if (nearMe && hasCoords) {
+            List<PitchResponseDTO> byDistance = candidates.stream()
+                    .filter(p -> p.getLatitude() != null && p.getLongitude() != null)
+                    .sorted((a, b) -> Double.compare(
+                            haversineKm(lat, lng, a.getLatitude(), a.getLongitude()),
+                            haversineKm(lat, lng, b.getLatitude(), b.getLongitude())))
+                    .limit(Math.max(1, limit))
+                    .collect(Collectors.toList());
+            if (!byDistance.isEmpty()) {
+                double nearestKm = haversineKm(lat, lng,
+                        byDistance.get(0).getLatitude(), byDistance.get(0).getLongitude());
+                System.out.println("🎯 Pitch reco [nearMe]: candidates=" + candidates.size()
+                        + " returned=" + byDistance.size()
+                        + " sorted=distance nearestKm=" + String.format("%.2f", nearestKm));
+                return new PitchRankResult(byDistance, true, false, false);
+            }
+            // Không sân nào có toạ độ -> rơi về blend cá nhân hoá bên dưới.
+        }
+
         List<PitchResponseDTO> ranked = candidates.stream()
                 .sorted((a, b) -> Double.compare(
                         scorePitch(b, sig, hasCoords, lat, lng, fArea, used),
