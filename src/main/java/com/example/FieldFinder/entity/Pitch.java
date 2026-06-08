@@ -56,6 +56,12 @@ public class Pitch {
     @Column(name = "Description")
     private String description;
 
+    @Column(name = "latitude")
+    private Double latitude;
+
+    @Column(name = "longitude")
+    private Double longitude;
+
     @Convert(converter = StringListConverter.class)
     @Column(name = "image_url", columnDefinition = "TEXT")
     @Builder.Default

@@ -3,6 +3,7 @@ package com.example.FieldFinder.controller;
 import com.example.FieldFinder.dto.req.PitchRequestDTO;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import com.example.FieldFinder.service.PitchService;
+import com.example.FieldFinder.service.RoutingService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -20,13 +21,15 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/pitches")
 public class PitchController {
     private final PitchService pitchService;
+    private final RoutingService routingService;
 
     private static final Set<String> VALID_SORT_FIELDS = Set.of(
             "pitchId", "name", "price", "type", "environment", "description"
     );
 
-    public PitchController(PitchService pitchService) {
+    public PitchController(PitchService pitchService, RoutingService routingService) {
         this.pitchService = pitchService;
+        this.routingService = routingService;
     }
 
     @PostMapping
@@ -69,6 +72,31 @@ public class PitchController {
     public ResponseEntity<PitchResponseDTO> getPitchById(@PathVariable UUID pitchId) {
         PitchResponseDTO pitch = pitchService.getPitchById(pitchId);
         return ResponseEntity.ok(pitch);
+    }
+
+    /**
+     * Tuyến đường user→sân để app vẽ polyline (dẫn đường). from = vị trí user hiện tại,
+     * to = toạ độ sân. 204 nếu sân chưa có toạ độ hoặc OSRM tắt/lỗi (app fallback đường thẳng).
+     */
+    @GetMapping("/{pitchId}/route")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> getRouteToPitch(@PathVariable UUID pitchId,
+                                             @RequestParam double fromLat,
+                                             @RequestParam double fromLng) {
+        PitchResponseDTO pitch = pitchService.getPitchById(pitchId);
+        if (pitch.getLatitude() == null || pitch.getLongitude() == null) {
+            return ResponseEntity.noContent().build();
+        }
+        return routingService.route(fromLat, fromLng, pitch.getLatitude(), pitch.getLongitude())
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /** Seed toạ độ riêng cho sân cũ (chạy 1 lần). Trả số sân đã cập nhật. */
+    @PostMapping("/admin/backfill-coordinates")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Integer> backfillCoordinates() {
+        return ResponseEntity.ok(pitchService.backfillPitchCoordinates());
     }
 
     private Pageable sanitizePageable(Pageable pageable) {

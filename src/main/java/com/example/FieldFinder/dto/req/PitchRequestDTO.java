@@ -18,4 +18,6 @@ public class PitchRequestDTO {
     private BigDecimal price;
     private String description;
     private List<String> imageUrls;
+    private Double latitude;
+    private Double longitude;
 }

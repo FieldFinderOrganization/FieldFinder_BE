@@ -35,10 +35,12 @@ public class PitchResponseDTO {
         dto.setPrice(pitch.getPrice());
         dto.setDescription(pitch.getDescription());
         dto.setImageUrls(pitch.getImageUrls());
-        dto.setAddress(pitch.getProviderAddress().getAddress());
-        dto.setLatitude(pitch.getProviderAddress().getLatitude());
-        dto.setLongitude(pitch.getProviderAddress().getLongitude());
-        var providerUser = pitch.getProviderAddress().getProvider().getUser();
+        var pa = pitch.getProviderAddress();
+        dto.setAddress(pa.getAddress());
+        // Toạ độ riêng của sân; fallback toạ độ khu vực khi sân chưa được nạp (data cũ).
+        dto.setLatitude(pitch.getLatitude() != null ? pitch.getLatitude() : pa.getLatitude());
+        dto.setLongitude(pitch.getLongitude() != null ? pitch.getLongitude() : pa.getLongitude());
+        var providerUser = pa.getProvider().getUser();
         dto.setProviderUserId(providerUser.getUserId().toString());
         dto.setProviderName(providerUser.getName());
         return dto;

@@ -1,5 +1,8 @@
 HELP.md
 target/
+
+# OSRM routing data (large binaries — preprocessed locally, see README "Live tracking — OSRM")
+osrm-data/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/

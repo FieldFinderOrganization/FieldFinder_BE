@@ -25,6 +25,9 @@ public interface PitchRepository extends JpaRepository<Pitch, UUID>, JpaSpecific
 
     List<Pitch> findByProviderAddressProviderAddressId(UUID providerAddressId);
 
+    /** Sân chưa có toạ độ riêng (cần seed jitter quanh tâm khu vực). */
+    List<Pitch> findByLatitudeIsNullOrLongitudeIsNull();
+
     Optional<Pitch> findById(UUID uuid);
 
     @Query("SELECT p.type, COUNT(p) FROM Pitch p GROUP BY p.type")

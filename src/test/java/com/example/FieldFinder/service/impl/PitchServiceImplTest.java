@@ -22,6 +22,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -71,6 +72,9 @@ class PitchServiceImplTest {
                 .price(new BigDecimal("200000"))
                 .description("Sân cỏ nhân tạo")
                 .build();
+
+        // @InjectMocks không cấp được @Lazy self-reference → set thủ công cho getAllPitches.
+        ReflectionTestUtils.setField(service, "self", service);
     }
 
     private PitchRequestDTO buildRequest() {

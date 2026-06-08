@@ -17,5 +17,8 @@ public interface PitchService {
 
     PitchResponseDTO getPitchById(UUID pitchId);
 
+    /** Seed toạ độ riêng cho sân cũ: jitter quanh tâm khu vực, vẫn trong quận. Trả số sân đã cập nhật. */
+    int backfillPitchCoordinates();
+
     void evictAllListPitchCaches();
 }
