@@ -8,7 +8,9 @@ import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.mapper.CategoryMapper;
 import com.example.FieldFinder.service.BookingService;
 import com.example.FieldFinder.dto.req.MLRetrieveByImageRequest;
+import com.example.FieldFinder.dto.res.ProviderBookingResponseDTO;
 import com.example.FieldFinder.service.CategoryService;
+import com.example.FieldFinder.service.GeocodingService;
 import com.example.FieldFinder.service.MLRecommendationService;
 import com.example.FieldFinder.service.OpenWeatherService;
 import com.example.FieldFinder.service.PhashIndex;
@@ -80,17 +82,19 @@ public class AIChat {
     public void resumeEnrichment() { this.enrichmentPaused = false; }
 
     private final OpenWeatherService weatherService;
+    private final GeocodingService geocodingService;
 
     // Optional: present only when MongoDB is configured. Used to read VIEW_PITCH interaction logs
     // for "đã xem" personalization signals. Null-safe everywhere it's used.
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private org.springframework.data.mongodb.core.MongoTemplate mongoTemplate;
 
-    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService, PhashIndex phashIndex, CategoryService categoryService, com.example.FieldFinder.ai.ranking.CompositeRanker compositeRanker, AiChatSessionContextStore sessionContextStore, GeminiRateLimiter geminiRateLimiter) {
+    public AIChat(PitchService pitchService, ProductService productService, UserService userService, OpenWeatherService weatherService, GeocodingService geocodingService, LogPublisherService logPublisherService, BookingService bookingService, RedisService redisService, MLRecommendationService mlService, PhashIndex phashIndex, CategoryService categoryService, com.example.FieldFinder.ai.ranking.CompositeRanker compositeRanker, AiChatSessionContextStore sessionContextStore, GeminiRateLimiter geminiRateLimiter) {
         this.pitchService = pitchService;
         this.productService = productService;
         this.userService = userService;
         this.weatherService = weatherService;
+        this.geocodingService = geocodingService;
         this.logPublisherService = logPublisherService;
         this.bookingService = bookingService;
         this.redisService = redisService;
@@ -1651,36 +1655,49 @@ public class AIChat {
         return String.format("%,.0f", amount);
     }
 
-    private BookingQuery handleWeatherQuery(BookingQuery query, String sessionId) {
+    private BookingQuery handleWeatherQuery(BookingQuery query, String sessionId, Double userLat, Double userLng) {
         if (query.data == null) {
             query.data = new HashMap<>();
         }
 
         Object cityObj = query.data.get("city");
-        String city = (cityObj != null) ? cityObj.toString() : "Hà Nội";
+        String explicitCity = (cityObj != null) ? cityObj.toString() : null;
+        String city = resolveWeatherCity(explicitCity, sessionId, userLat, userLng);
 
         try {
             String weather = weatherService.getCurrentWeather(city);
             PitchEnvironment env = suggestEnvironmentByWeather(weather);
+            String envLabel = env == PitchEnvironment.INDOOR ? "trong nhà (Indoor)" : "ngoài trời (Outdoor)";
 
-            List<PitchResponseDTO> suggestedPitches =
-                    getAllPitchesCached().stream()
-                            .filter(p -> p.getEnvironment() == env)
-                            .limit(5)
-                            .toList();
+            List<PitchResponseDTO> envFiltered = getAllPitchesCached().stream()
+                    .filter(p -> p.getEnvironment() == env)
+                    .collect(Collectors.toList());
+            PitchRankResult rr = rankRecommendedPitches(envFiltered, sessionId, null, userLat, userLng, true, 10);
+            List<PitchResponseDTO> suggestedPitches = rr.pitches;
 
-            query.message = String.format(
-                    "Thời tiết ở %s hiện là %s 🌤️. Tôi gợi ý bạn chọn sân %s.",
-                    city,
-                    weather,
-                    env == PitchEnvironment.INDOOR
-                            ? "trong nhà (Indoor)"
-                            : "ngoài trời (Outdoor)"
-            );
+            StringBuilder msg = new StringBuilder();
+            msg.append(String.format("Thời tiết ở %s hiện là %s 🌤️\n", city, weather));
+            msg.append(explainEnvironmentChoice(weather, env));
+            if (!suggestedPitches.isEmpty()) {
+                List<String> bits = new ArrayList<>();
+                if (rr.usedProximity) bits.add("gần bạn");
+                if (rr.usedHistory) bits.add("theo lịch sử đặt/xem");
+                if (rr.usedProfile) bits.add("hợp sở thích");
+                String basis = bits.isEmpty() ? "" : " (" + String.join(", ", bits) + ")";
+                msg.append(String.format(
+                        "\nDưới đây là %d sân %s phù hợp%s 👇",
+                        suggestedPitches.size(), envLabel, basis));
+            } else {
+                msg.append(String.format("\nHiện chưa có sân %s trong hệ thống.", envLabel));
+            }
+            query.message = msg.toString();
 
             query.data.clear();
             query.data.put("action", "weather_pitch_suggestion");
             query.data.put("environment", env.name());
+            query.data.put("weather", weather);
+            query.data.put("weatherCity", city);
+            query.data.put("matchedPitches", suggestedPitches);
             query.data.put("pitches", suggestedPitches);
 
         } catch (Exception e) {
@@ -2074,8 +2091,9 @@ public class AIChat {
         String finalPrompt = buildSystemPrompt(allPitches);
 
         BookingQuery query;
+        String cleanJson = null;
         try {
-            String cleanJson = callGeminiAPI(userInput, finalPrompt);
+            cleanJson = callGeminiAPI(userInput, finalPrompt);
             System.out.println("🟢 Gemini parsed JSON: " + (cleanJson != null && cleanJson.length() > 800 ? cleanJson.substring(0, 800) + "..." : cleanJson));
             query = parseAIResponse(cleanJson);
         } catch (IOException e) {
@@ -2122,7 +2140,7 @@ public class AIChat {
             }
 
             if ("get_weather".equals(action)) {
-                return handleWeatherQuery(query, sessionId);
+                return handleWeatherQuery(query, sessionId, userLat, userLng);
             }
             if ("recommend_by_activity".equals(action)) {
                 return handleRecommendByActivity(query, sessionId, userInput);
@@ -2132,7 +2150,7 @@ public class AIChat {
                     || "check_pitch_availability".equals(action) || "book_pitch".equals(action)
                     || "list_my_bookings".equals(action) || "cheapest_pitch".equals(action)
                     || "most_expensive_pitch".equals(action)) {
-                return handlePitchQuery(query, userInput, sessionId, allPitches, userLat, userLng);
+                return handlePitchQuery(query, userInput, sessionId, allPitches, userLat, userLng, cleanJson);
             }
             if (action.contains("product") || action.contains("stock") ||
                     action.contains("sales") || action.contains("sale") ||
@@ -2189,15 +2207,27 @@ public class AIChat {
         return query;
     }
 
-    private BookingQuery handlePitchQuery(BookingQuery query, String userInput, String sessionId, List<PitchResponseDTO> allPitches, Double userLat, Double userLng) {
+    private BookingQuery handlePitchQuery(BookingQuery query, String userInput, String sessionId,
+                                          List<PitchResponseDTO> allPitches, Double userLat, Double userLng,
+                                          String geminiRawJson) {
         if (query.data == null) query.data = new HashMap<>();
         if (query.slotList == null) query.slotList = new ArrayList<>();
         if (query.pitchType == null) query.pitchType = "ALL";
 
+        AiReasoningTrace reasoning = new AiReasoningTrace();
+        reasoning.step("📥 User input: \"" + userInput + "\"");
+        if (geminiRawJson != null) {
+            reasoning.parsed("geminiRawJson", geminiRawJson.length() > 1200
+                    ? geminiRawJson.substring(0, 1200) + "..." : geminiRawJson);
+        }
+        recordGeminiPitchParse(reasoning, query, userLat, userLng);
+
         String action = (String) query.data.get("action");
+        String originalAction = action;
         // "gần tôi" without an explicit listing action -> treat as a personalized recommendation.
         if (query.nearMe && (action == null || "list_pitches".equals(action))) {
             action = "recommend_pitch";
+            reasoning.step("🔄 Override action: " + originalAction + " → recommend_pitch (vì nearMe=true)");
         }
         PitchEnvironment env = null;
         if (query.environment != null) {
@@ -2210,24 +2240,39 @@ public class AIChat {
                 .filter(p -> "ALL".equals(query.pitchType) || p.getType().name().equalsIgnoreCase(query.pitchType))
                 .filter(p -> requestedEnvironment == null || p.getEnvironment() == requestedEnvironment)
                 .collect(Collectors.toList());
+        reasoning.step(String.format("🔍 Lọc loại sân (%s) + môi trường (%s): %d/%d sân",
+                query.pitchType,
+                requestedEnvironment != null ? requestedEnvironment.name() : "không lọc",
+                matched.size(), allPitches.size()));
 
         // Hard filter theo khu vực user nêu (vd "sân 5 ở Gò Vấp") -> chỉ giữ sân có địa chỉ khớp.
         final String areaFilter = (query.location != null && !query.location.isBlank()) ? query.location.trim().toLowerCase() : null;
         if (areaFilter != null) {
+            int beforeArea = matched.size();
             matched = matched.stream()
                     .filter(p -> p.getAddress() != null && p.getAddress().toLowerCase().contains(areaFilter))
                     .collect(Collectors.toList());
+            reasoning.step(String.format("📍 Lọc khu vực '%s': %d/%d sân", query.location, matched.size(), beforeArea));
+        } else {
+            reasoning.step("📍 Không lọc khu vực (user không nêu location)");
         }
 
         boolean isAvailabilityCheck = "book_pitch".equals(action) || "check_pitch_availability".equals(action);
         if (isAvailabilityCheck && query.bookingDate != null && !query.slotList.isEmpty()) {
             try {
                 LocalDate date = LocalDate.parse(query.bookingDate);
+                int beforeAvail = matched.size();
                 matched = matched.stream().filter(p -> {
                     List<Integer> booked = bookingService.getBookedTimeSlots(p.getPitchId(), date);
                     return query.slotList.stream().noneMatch(booked::contains);
                 }).collect(Collectors.toList());
-            } catch (Exception e) {}
+                reasoning.step(String.format("⏰ Lọc slot trống (ngày %s, slot %s): %d/%d sân còn trống",
+                        query.bookingDate, query.slotList, matched.size(), beforeAvail));
+            } catch (Exception e) {
+                reasoning.step("⚠️ Lỗi parse ngày khi lọc availability: " + e.getMessage());
+            }
+        } else if (isAvailabilityCheck) {
+            reasoning.step("⏰ Bỏ qua lọc slot (thiếu bookingDate hoặc slotList)");
         }
 
         String envStr = requestedEnvironment != null ? " " + formatEnvironment(requestedEnvironment) : "";
@@ -2286,6 +2331,7 @@ public class AIChat {
                 break;
             }
             case "check_pitch_availability": {
+                reasoning.step("🎯 Xử lý check_pitch_availability");
                 if (matched.isEmpty()) {
                     if (query.bookingDate != null && !query.slotList.isEmpty()) {
                         query.message = String.format("Ngày %s: Rất tiếc, các%s %s đều đã được đặt kín trong khung giờ %s.", query.bookingDate, envStr, typeStr, query.slotList);
@@ -2335,7 +2381,39 @@ public class AIChat {
                 break;
             }
             case "book_pitch": {
+                reasoning.step("🎯 Xử lý book_pitch");
+                if (query.bookingDate != null && !query.slotList.isEmpty()) {
+                    UUID bookUserId = resolveCurrentUserId(sessionId);
+                    try {
+                        LocalDate bookDate = LocalDate.parse(query.bookingDate);
+                        Optional<ProviderBookingResponseDTO> conflict =
+                                findUserScheduleConflict(bookUserId, bookDate, query.slotList);
+                        if (conflict.isPresent()) {
+                            ProviderBookingResponseDTO existing = conflict.get();
+                            reasoning.step(String.format("❌ Trùng lịch cá nhân: đã có đơn \"%s\" (%s) ngày %s trùng slot %s",
+                                    existing.getPitchName(), formatSlotRange(existing.getSlots()),
+                                    query.bookingDate, query.slotList));
+                            reasoning.parsed("outcome", "schedule_conflict");
+                            query.message = String.format(
+                                    "Bạn đã có lịch đặt sân \"%s\" (%s) ngày %s — trùng với khung giờ %s bạn muốn đặt. Vui lòng chọn giờ khác hoặc hủy đơn cũ trước nhé.",
+                                    existing.getPitchName() != null ? existing.getPitchName() : "không xác định",
+                                    formatSlotRange(existing.getSlots()),
+                                    query.bookingDate,
+                                    formatSlotRange(query.slotList));
+                            query.data.put("scheduleConflict", true);
+                            query.data.put("conflictingBooking", existing);
+                            break;
+                        }
+                        reasoning.step("✅ Không trùng lịch cá nhân");
+                    } catch (Exception e) {
+                        reasoning.step("⚠️ Lỗi kiểm tra trùng lịch: " + e.getMessage());
+                    }
+                } else {
+                    reasoning.step("⏭️ Bỏ qua kiểm tra trùng lịch (thiếu ngày hoặc slot)");
+                }
                 if (matched.isEmpty()) {
+                    reasoning.step("❌ Không còn sân phù hợp sau các bước lọc");
+                    reasoning.parsed("outcome", "no_pitch_matched");
                     if (query.bookingDate != null && !query.slotList.isEmpty()) {
                         query.message = String.format("Rất tiếc,%s %s đều đã kín lịch trong khung giờ %s ngày %s.", envStr, typeStr, query.slotList, query.bookingDate);
                     } else {
@@ -2348,6 +2426,7 @@ public class AIChat {
                     PitchResponseDTO cached = sessionContextStore.getLastPitch(sessionId);
                     if (matched.stream().anyMatch(p -> p.getPitchId().equals(cached.getPitchId()))) {
                         target = cached;
+                        reasoning.step("🏟️ Chọn sân từ session cache: \"" + cached.getName() + "\"");
                     }
                 }
                 if (target == null) {
@@ -2355,8 +2434,12 @@ public class AIChat {
                     for (PitchResponseDTO pitch : matched) {
                         if (lowerInput.contains(pitch.getName().toLowerCase())) {
                             target = pitch;
+                            reasoning.step("🏟️ Khớp tên sân trong input: \"" + pitch.getName() + "\"");
                             break;
                         }
+                    }
+                    if (target == null) {
+                        reasoning.step("🏟️ Không khớp tên sân cụ thể trong input → sẽ list sân hoặc chọn mặc định");
                     }
                 }
 
@@ -2382,6 +2465,8 @@ public class AIChat {
                             finalMatched.add(p);
                         }
                         if (finalMatched.isEmpty()) {
+                            reasoning.step("❌ Không sân nào còn đủ slot yêu cầu (sau kiểm tra chi tiết từng sân)");
+                            reasoning.parsed("outcome", "all_slots_full");
                             query.message = String.format("Rất tiếc, các%s %s đều không còn trống đủ khung giờ %s ngày %s.",
                                     envStr, typeStr, query.slotList, query.bookingDate);
                         } else {
@@ -2389,6 +2474,10 @@ public class AIChat {
                             int maxSlot = Collections.max(query.slotList);
                             int startHour = minSlot + 5;
                             int endHour = maxSlot + 6;
+                            reasoning.step(String.format("📋 Chế độ list: %d sân trống đủ slot %s (%dh-%dh)",
+                                    finalMatched.size(), query.slotList, startHour, endHour));
+                            reasoning.parsed("outcome", "list_pitches_for_booking");
+                            reasoning.parsed("listedPitchCount", finalMatched.size());
                             query.message = String.format("Có %d%s %s trống từ %dh đến %dh ngày %s. Chọn sân bên dưới để đặt 👇",
                                     finalMatched.size(), envStr, typeStr, startHour, endHour, query.bookingDate);
                             query.data.put("availability", availability);
@@ -2399,12 +2488,16 @@ public class AIChat {
                             query.data.put("slotList", query.slotList);
                         }
                     } catch (Exception e) {
+                        reasoning.step("⚠️ Lỗi parse ngày trong book_pitch list mode: " + e.getMessage());
                         query.message = "Ngày bạn cung cấp không hợp lệ. Vui lòng nhập theo dạng yyyy-MM-dd.";
                     }
                     break;
                 }
 
-                if (target == null) target = matched.get(0);
+                if (target == null) {
+                    target = matched.get(0);
+                    reasoning.step("🏟️ Fallback chọn sân đầu tiên trong danh sách: \"" + target.getName() + "\"");
+                }
 
                 if (query.bookingDate != null && !query.slotList.isEmpty()) {
                     int minSlot = Collections.min(query.slotList);
@@ -2418,6 +2511,9 @@ public class AIChat {
                             target.getName(), typeStr, envStr, target.getAddress());
                 }
 
+                reasoning.parsed("outcome", "direct_booking");
+                reasoning.parsed("selectedPitch", target.getName());
+                reasoning.step("✅ Chuẩn bị đặt trực tiếp sân \"" + target.getName() + "\"");
                 query.data.put("pendingBooking", true);
                 query.data.put("suggestedPitch", target);
                 query.data.put("showBookingButton", true);
@@ -2443,6 +2539,7 @@ public class AIChat {
                 break;
             }
             case "recommend_pitch": {
+                reasoning.step("🎯 Xử lý recommend_pitch (cá nhân hóa)");
                 PitchRankResult rr = rankRecommendedPitches(matched, sessionId, query.location, userLat, userLng, query.nearMe, 10);
                 List<PitchResponseDTO> ranked = rr.pitches;
                 if (ranked.isEmpty()) {
@@ -2458,11 +2555,15 @@ public class AIChat {
                         query.message += "\n(Bật chia sẻ vị trí để mình gợi ý sân gần bạn chính xác hơn nhé.)";
                     }
                 }
+                reasoning.step(String.format("✅ Gợi ý %d sân (proximity=%s, history=%s, profile=%s)",
+                        ranked.size(), rr.usedProximity, rr.usedHistory, rr.usedProfile));
+                reasoning.parsed("outcome", "recommend_pitch");
                 query.data.put("matchedPitches", ranked);
                 break;
             }
             case "list_pitches":
             default: {
+                reasoning.step("🎯 Xử lý " + action);
                 String areaStr = areaFilter != null ? " ở " + query.location.trim() : "";
                 if (matched.isEmpty()) {
                     query.message = String.format("Rất tiếc, không tìm thấy%s %s nào phù hợp%s.", envStr, typeStr, areaStr);
@@ -2473,6 +2574,11 @@ public class AIChat {
                 break;
             }
         }
+
+        reasoning.step("💬 Response: " + (query.message != null ? query.message : "(null)"));
+        reasoning.parsed("finalAction", action);
+        reasoning.parsed("finalMatchedCount", matched.size());
+        query.data.put("aiReasoning", reasoning.toMap());
 
         try {
             String userIdStr = null;
@@ -2487,6 +2593,7 @@ public class AIChat {
             metadata.put("requested_pitch_type", query.pitchType);
             metadata.put("aiResponseText", query.message);
             metadata.put("modelVersion", MODEL_VERSION);
+            metadata.put("aiReasoning", reasoning.toMap());
             if (requestedEnvironment != null) metadata.put("requested_environment", requestedEnvironment.name());
             if (query.bookingDate != null) metadata.put("booking_date", query.bookingDate);
             if (!query.slotList.isEmpty()) metadata.put("slot_list", query.slotList);
@@ -2504,6 +2611,47 @@ public class AIChat {
             query.message = "Mình đã ghi nhận yêu cầu sân của bạn, nhưng chưa có dữ liệu phù hợp để trả lời.";
         }
         return query;
+    }
+
+    private void recordGeminiPitchParse(AiReasoningTrace trace, BookingQuery query, Double userLat, Double userLng) {
+        String action = query.data != null ? (String) query.data.get("action") : null;
+        trace.parsed("action", action);
+        trace.parsed("bookingDate", query.bookingDate);
+        trace.parsed("slotList", query.slotList);
+        trace.parsed("pitchType", query.pitchType);
+        trace.parsed("environment", query.environment);
+        trace.parsed("location", query.location);
+        trace.parsed("nearMe", query.nearMe);
+        trace.parsed("userLat", userLat);
+        trace.parsed("userLng", userLng);
+        String slotRange = (query.slotList != null && !query.slotList.isEmpty())
+                ? formatSlotRange(query.slotList) : "chưa có";
+        trace.step(String.format(
+                "🤖 Gemini hiểu → action=%s | loại sân=%s | ngày=%s | giờ=%s (%s) | env=%s | khu vực=%s | nearMe=%s | GPS=(%s,%s)",
+                action, query.pitchType, query.bookingDate, query.slotList, slotRange,
+                query.environment, query.location, query.nearMe, userLat, userLng));
+    }
+
+    /** Step-by-step trace of AI decision-making for pitch/booking flows. */
+    private static final class AiReasoningTrace {
+        private final List<String> steps = new ArrayList<>();
+        private final Map<String, Object> parsed = new LinkedHashMap<>();
+
+        void step(String message) {
+            steps.add(message);
+            System.out.println("[AI-REASONING] " + message);
+        }
+
+        void parsed(String key, Object value) {
+            parsed.put(key, value);
+        }
+
+        Map<String, Object> toMap() {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("steps", new ArrayList<>(steps));
+            out.put("parsed", new LinkedHashMap<>(parsed));
+            return out;
+        }
     }
 
     /** Result of personalized pitch ranking + which signal groups actually contributed. */
@@ -2853,10 +3001,95 @@ public class AIChat {
         }
     }
 
-    private PitchEnvironment suggestEnvironmentByWeather(String weather) {
+    private String resolveWeatherCity(String explicitCity, String sessionId, Double userLat, Double userLng) {
+        if (explicitCity != null && !explicitCity.isBlank()) {
+            return explicitCity.trim();
+        }
+        if (userLat != null && userLng != null) {
+            Optional<String> fromGps = geocodingService.reverseGeocodeCity(userLat, userLng);
+            if (fromGps.isPresent()) return fromGps.get();
+        }
+        UUID uid = resolveCurrentUserId(sessionId);
+        if (uid != null) {
+            try {
+                var profile = userService.getUserById(uid);
+                if (profile != null) {
+                    if (profile.getProvince() != null && !profile.getProvince().isBlank()) {
+                        return profile.getProvince().trim();
+                    }
+                    if (profile.getLatitude() != null && profile.getLongitude() != null) {
+                        Optional<String> fromProfile = geocodingService.reverseGeocodeCity(
+                                profile.getLatitude(), profile.getLongitude());
+                        if (fromProfile.isPresent()) return fromProfile.get();
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("resolveWeatherCity profile error: " + e.getMessage());
+            }
+        }
+        return "Ho Chi Minh City";
+    }
+
+    static PitchEnvironment suggestEnvironmentByWeather(String weather) {
         String w = weather.toLowerCase();
-        if (w.contains("mưa") || w.contains("rain") || w.contains("storm") || w.contains("bão") || w.contains("ẩm")) return PitchEnvironment.INDOOR;
+        if (w.contains("quang") || w.contains("clear") || w.contains("nắng") || w.contains("sunny")
+                || w.contains("ít mây") || w.contains("few clouds")) {
+            return PitchEnvironment.OUTDOOR;
+        }
+        if (w.contains("mưa") || w.contains("rain") || w.contains("storm") || w.contains("bão")
+                || w.contains("dông") || w.contains("sấm") || w.contains("sét") || w.contains("thunder")
+                || w.contains("drizzle") || w.contains("shower") || w.contains("ẩm")
+                || w.contains("mây đen") || w.contains("u ám") || w.contains("âm u")
+                || w.contains("overcast") || w.contains("nhiều mây") || w.contains("broken clouds")
+                || w.contains("scattered clouds") || w.contains("mây")) {
+            return PitchEnvironment.INDOOR;
+        }
         return PitchEnvironment.OUTDOOR;
+    }
+
+    static String explainEnvironmentChoice(String weather, PitchEnvironment env) {
+        String w = weather.toLowerCase();
+        if (env == PitchEnvironment.INDOOR) {
+            if (w.contains("mưa") || w.contains("rain") || w.contains("drizzle") || w.contains("shower")) {
+                return "Trời đang mưa nên mình gợi ý sân trong nhà để bạn không bị ướt và trơn sân.";
+            }
+            if (w.contains("bão") || w.contains("storm") || w.contains("dông") || w.contains("sấm") || w.contains("thunder")) {
+                return "Thời tiết xấu (mưa bão/sấm sét) — sân trong nhà an toàn và ổn định hơn.";
+            }
+            if (w.contains("mây") || w.contains("u ám") || w.contains("âm u") || w.contains("overcast")) {
+                return "Trời nhiều mây/u ám, có thể mưa bất chợt — mình gợi ý sân trong nhà để trận đấu không bị gián đoạn.";
+            }
+            if (w.contains("ẩm")) {
+                return "Không khí ẩm ướt — sân trong nhà sẽ thoải mái hơn.";
+            }
+            return "Với điều kiện thời tiết hiện tại, sân trong nhà là lựa chọn phù hợp hơn.";
+        }
+        return "Thời tiết khá thuận lợi — sân ngoài trời sẽ thoáng mát và trải nghiệm tự nhiên hơn.";
+    }
+
+    private Optional<ProviderBookingResponseDTO> findUserScheduleConflict(UUID userId, LocalDate date, List<Integer> requestedSlots) {
+        if (userId == null || date == null || requestedSlots == null || requestedSlots.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            for (ProviderBookingResponseDTO booking : bookingService.getBookingsByUser(userId)) {
+                if (booking.getBookingDate() == null || !date.equals(booking.getBookingDate())) continue;
+                if ("CANCELED".equalsIgnoreCase(booking.getStatus())) continue;
+                if (booking.getSlots() == null || booking.getSlots().isEmpty()) continue;
+                boolean overlap = requestedSlots.stream().anyMatch(booking.getSlots()::contains);
+                if (overlap) return Optional.of(booking);
+            }
+        } catch (Exception e) {
+            System.err.println("findUserScheduleConflict error: " + e.getMessage());
+        }
+        return Optional.empty();
+    }
+
+    private String formatSlotRange(List<Integer> slots) {
+        if (slots == null || slots.isEmpty()) return "";
+        int minSlot = Collections.min(slots);
+        int maxSlot = Collections.max(slots);
+        return String.format("%dh đến %dh", minSlot + 5, maxSlot + 6);
     }
 
     /** Gemini Vision chấp nhận: png, jpeg, webp, heic, heif. KHÔNG hỗ trợ avif/gif. */
@@ -3015,6 +3248,11 @@ public class AIChat {
           }
         }
         
+        ❗️ QUY TẮC THỜI TIẾT:
+        - Câu hỏi thời tiết (vd: "thời tiết hôm nay", "trời mưa không", "thời tiết thế nào") -> action: "get_weather".
+        - Nếu user KHÔNG nêu tên thành phố -> để `city` = null (backend sẽ tự lấy vị trí GPS hoặc tỉnh/thành trong profile).
+        - Nếu user nêu thành phố cụ thể (vd "thời tiết Hồ Chí Minh") -> `city`: "Hồ Chí Minh" hoặc "Ho Chi Minh City".
+
         ❗️ QUY TẮC XỬ LÝ SÂN:
         - `pitchType`: Loại sân (5, 7, 11 người).
         - `environment`: "INDOOR" (trong nhà/có mái che), "OUTDOOR" (ngoài trời).

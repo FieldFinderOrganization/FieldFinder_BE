@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -51,5 +52,40 @@ public class GeocodingService {
     @Async
     public CompletableFuture<Optional<LatLng>> geocodeAsync(String address) {
         return CompletableFuture.completedFuture(geocode(address));
+    }
+
+    /**
+     * Reverse-geocode coordinates to a city name suitable for weather lookup.
+     * Tries city → town → state → province from Nominatim address components.
+     */
+    public Optional<String> reverseGeocodeCity(double lat, double lng) {
+        try {
+            JsonNode root = webClient.get()
+                    .uri("https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json&accept-language=vi",
+                            lat, lng)
+                    .header("User-Agent", userAgent)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .timeout(Duration.ofSeconds(8))
+                    .block();
+            if (root == null) return Optional.empty();
+
+            JsonNode address = root.path("address");
+            for (String key : List.of("city", "town", "municipality", "county", "state", "province")) {
+                String value = address.path(key).asText(null);
+                if (value != null && !value.isBlank()) {
+                    return Optional.of(value);
+                }
+            }
+            String display = root.path("display_name").asText(null);
+            if (display != null && !display.isBlank()) {
+                String first = display.split(",")[0].trim();
+                if (!first.isBlank()) return Optional.of(first);
+            }
+            return Optional.empty();
+        } catch (Exception e) {
+            log.warn("Reverse geocode failed for ({}, {}): {}", lat, lng, e.getMessage());
+            return Optional.empty();
+        }
     }
 }
