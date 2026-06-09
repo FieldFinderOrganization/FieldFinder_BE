@@ -22,7 +22,7 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     List<Booking> findAllByStatus(BookingStatus status);
 
     @Query("SELECT DISTINCT b FROM Booking b " +
-            "JOIN b.bookingDetails bd " +
+            "LEFT JOIN FETCH b.bookingDetails bd " +
             "JOIN bd.pitch p " +
             "JOIN p.providerAddress pa " +
             "JOIN pa.provider prov " +
