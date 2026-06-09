@@ -1,6 +1,7 @@
 package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.Enum.BookingStatus;
+import com.example.FieldFinder.Enum.PaymentMethod;
 import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.Enum.RefundSourceType;
 import com.example.FieldFinder.entity.Booking;
@@ -150,17 +151,17 @@ class BookingServiceImplTest {
     }
 
     @Test
-    void cancel_paidConfirmed_lessThan10Min_throws_noRefund() {
-        // slot bắt đầu sau 5 phút → không đủ 10 phút trước
+    void cancel_paidConfirmed_lessThanWindow_throws_noRefund() {
+        // slot bắt đầu sau 30 phút → không đủ 60 phút trước
         LocalTime now = LocalTime.now();
         Booking b = buildBooking(BookingStatus.CONFIRMED, PaymentStatus.PAID,
-                now.plusMinutes(5), LocalDate.now());
+                now.plusMinutes(30), LocalDate.now());
         when(bookingRepository.findById(b.getBookingId())).thenReturn(Optional.of(b));
 
         assertThatThrownBy(() ->
                 service.cancelBookingByUser(b.getBookingId(), userId, null))
                 .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("ít nhất 10 phút");
+                .hasMessageContaining("ít nhất 60 phút");
 
         verifyNoInteractions(refundService);
     }
@@ -181,9 +182,9 @@ class BookingServiceImplTest {
     }
 
     @Test
-    void cancel_paidConfirmed_within10Min_issuesRefund_marksRefunded() {
-        // slot bắt đầu sau 60 phút → còn cửa sổ
-        LocalTime start = LocalTime.now().plusMinutes(60);
+    void cancel_paidConfirmed_bank_withinWindow_issuesRefund_marksRefunded() {
+        // slot bắt đầu sau 120 phút → còn cửa sổ (>60p)
+        LocalTime start = LocalTime.now().plusMinutes(120);
         Booking b = buildBooking(BookingStatus.CONFIRMED, PaymentStatus.PAID,
                 start, LocalDate.now());
         when(bookingRepository.findById(b.getBookingId())).thenReturn(Optional.of(b));
@@ -192,6 +193,7 @@ class BookingServiceImplTest {
 
         Payment payment = Payment.builder()
                 .paymentId(7L)
+                .paymentMethod(PaymentMethod.BANK)
                 .paymentStatus(PaymentStatus.PAID)
                 .build();
         when(paymentRepository.findFirstByBooking_BookingIdOrderByCreatedAtDesc(b.getBookingId()))
@@ -216,5 +218,32 @@ class BookingServiceImplTest {
         assertThat(payment.getPaymentStatus()).isEqualTo(PaymentStatus.REFUNDED);
         assertThat(payment.getProcessedAt()).isNotNull();
         verify(paymentRepository).save(payment);
+    }
+
+    @Test
+    void cancel_paidConfirmed_cash_withinWindow_cancelsButNoRefund() {
+        // CASH: hủy là hủy, không tạo mã hoàn tiền, không đánh dấu REFUNDED
+        LocalTime start = LocalTime.now().plusMinutes(120);
+        Booking b = buildBooking(BookingStatus.CONFIRMED, PaymentStatus.PAID,
+                start, LocalDate.now());
+        when(bookingRepository.findById(b.getBookingId())).thenReturn(Optional.of(b));
+        when(paymentRepository.findAllByBookingIds(anyList()))
+                .thenReturn(List.of());
+
+        Payment payment = Payment.builder()
+                .paymentId(7L)
+                .paymentMethod(PaymentMethod.CASH)
+                .paymentStatus(PaymentStatus.PAID)
+                .build();
+        when(paymentRepository.findFirstByBooking_BookingIdOrderByCreatedAtDesc(b.getBookingId()))
+                .thenReturn(Optional.of(payment));
+
+        service.cancelBookingByUser(b.getBookingId(), userId, "đổi lịch");
+
+        assertThat(b.getStatus()).isEqualTo(BookingStatus.CANCELED);
+        // payment + booking giữ nguyên PAID, không refund
+        assertThat(b.getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(payment.getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
+        verify(refundService, never()).issueRefundCredit(any(), any(), any(), any(), any());
     }
 }

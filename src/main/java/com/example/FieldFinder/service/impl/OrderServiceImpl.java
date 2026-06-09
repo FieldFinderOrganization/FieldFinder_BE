@@ -465,7 +465,9 @@ public class OrderServiceImpl implements OrderService {
 
         orderRepository.save(order);
 
-        if (isPaidWithinWindow) {
+        // Chỉ phát hành mã hoàn tiền cho đơn thanh toán BANK (đã trả tiền thật).
+        // CASH (COD) hủy là hủy, không tạo mã khuyến mãi.
+        if (isPaidWithinWindow && order.getPaymentMethod() == PaymentMethod.BANK) {
             BigDecimal refundAmount = BigDecimal.valueOf(
                     order.getTotalAmount() != null ? order.getTotalAmount() : 0.0);
             if (refundAmount.signum() > 0) {

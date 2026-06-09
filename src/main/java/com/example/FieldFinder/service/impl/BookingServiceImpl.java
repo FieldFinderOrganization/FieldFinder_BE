@@ -54,7 +54,7 @@ public class BookingServiceImpl implements BookingService {
     private final UserDiscountRepository userDiscountRepository;
 
     /** Khoảng thời gian tối thiểu trước slot đầu mới được hủy + hoàn tiền. */
-    private static final long BOOKING_REFUND_MIN_MINUTES_BEFORE = 10;
+    private static final long BOOKING_REFUND_MIN_MINUTES_BEFORE = 60;
 
     @Override
     public List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate) {
@@ -488,27 +488,32 @@ public class BookingServiceImpl implements BookingService {
         // Save DB first (within transaction), unlock Redis AFTER commit
         cancelBooking(booking, "User requested cancellation");
 
-        // Phát hành mã hoàn tiền nếu booking đã thanh toán
+        // Chỉ phát hành mã hoàn tiền cho booking thanh toán BANK (đã trả tiền thật).
+        // CASH (trả tại sân) hủy là hủy, không tạo mã khuyến mãi.
         if (isPaidConfirmed && booking.getTotalPrice() != null
                 && booking.getTotalPrice().signum() > 0) {
-            refundService.issueRefundCredit(
-                    booking.getUser(),
-                    RefundSourceType.BOOKING,
-                    booking.getBookingId().toString(),
-                    booking.getTotalPrice(),
-                    reason != null && !reason.isBlank()
-                            ? reason
-                            : "User cancel booking ≥10m before start");
-
-            paymentRepository
+            Payment latestPayment = paymentRepository
                     .findFirstByBooking_BookingIdOrderByCreatedAtDesc(booking.getBookingId())
-                    .ifPresent(p -> {
-                        p.setPaymentStatus(PaymentStatus.REFUNDED);
-                        p.setProcessedAt(LocalDateTime.now());
-                        paymentRepository.save(p);
-                    });
-            booking.setPaymentStatus(PaymentStatus.REFUNDED);
-            bookingRepository.save(booking);
+                    .orElse(null);
+            boolean isBank = latestPayment != null
+                    && latestPayment.getPaymentMethod() == PaymentMethod.BANK;
+
+            if (isBank) {
+                refundService.issueRefundCredit(
+                        booking.getUser(),
+                        RefundSourceType.BOOKING,
+                        booking.getBookingId().toString(),
+                        booking.getTotalPrice(),
+                        reason != null && !reason.isBlank()
+                                ? reason
+                                : "User cancel booking ≥60m before start");
+
+                latestPayment.setPaymentStatus(PaymentStatus.REFUNDED);
+                latestPayment.setProcessedAt(LocalDateTime.now());
+                paymentRepository.save(latestPayment);
+                booking.setPaymentStatus(PaymentStatus.REFUNDED);
+                bookingRepository.save(booking);
+            }
         }
 
         // Unlock Redis slots only after the transaction commits successfully

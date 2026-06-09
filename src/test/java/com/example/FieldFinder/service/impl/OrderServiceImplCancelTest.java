@@ -174,7 +174,8 @@ class OrderServiceImplCancelTest {
         service.cancelOrderByUser(1L, userId, "wrong size");
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELED);
-        verify(productService).releaseStock(7L, "M", 2);
+        // đơn đã thanh toán (committed) → trả lại tồn kho thật
+        verify(productService).restoreStock(7L, "M", 2);
 
         ArgumentCaptor<BigDecimal> amountCap = ArgumentCaptor.forClass(BigDecimal.class);
         ArgumentCaptor<String> reasonCap = ArgumentCaptor.forClass(String.class);
@@ -200,6 +201,22 @@ class OrderServiceImplCancelTest {
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELED);
         verifyNoInteractions(refundService);
+    }
+
+    @Test
+    void cancel_cashWithinWindow_cancelsButNoRefund() {
+        // CASH (COD): hủy là hủy, không tạo mã hoàn tiền dù còn trong cửa sổ 24h
+        Order order = paidOrder(LocalDateTime.now().minusHours(5));
+        order.setStatus(OrderStatus.CONFIRMED);
+        order.setPaymentMethod(PaymentMethod.CASH);
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
+
+        service.cancelOrderByUser(1L, userId, "đổi ý");
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELED);
+        verifyNoInteractions(refundService);
+        verify(paymentRepository, never())
+                .findFirstByOrder_OrderIdOrderByCreatedAtDesc(anyLong());
     }
 
 }

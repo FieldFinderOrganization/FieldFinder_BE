@@ -68,16 +68,12 @@ public class PitchController {
     }
 
     @GetMapping("/{pitchId}")
-    @PreAuthorize("isAuthenticated()")
+    // @PreAuthorize("isAuthenticated()")
     public ResponseEntity<PitchResponseDTO> getPitchById(@PathVariable UUID pitchId) {
         PitchResponseDTO pitch = pitchService.getPitchById(pitchId);
         return ResponseEntity.ok(pitch);
     }
 
-    /**
-     * Tuyến đường user→sân để app vẽ polyline (dẫn đường). from = vị trí user hiện tại,
-     * to = toạ độ sân. 204 nếu sân chưa có toạ độ hoặc OSRM tắt/lỗi (app fallback đường thẳng).
-     */
     @GetMapping("/{pitchId}/route")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> getRouteToPitch(@PathVariable UUID pitchId,
@@ -92,7 +88,6 @@ public class PitchController {
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
-    /** Seed toạ độ riêng cho sân cũ (chạy 1 lần). Trả số sân đã cập nhật. */
     @PostMapping("/admin/backfill-coordinates")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Integer> backfillCoordinates() {
