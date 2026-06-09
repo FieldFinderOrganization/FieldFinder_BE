@@ -34,6 +34,7 @@ public class DiscountResponseDTO {
     private LocalDate startDate;
     private LocalDate endDate;
     private String status;
+    private String kind; // PROMOTION | REFUND_CREDIT — FE phân biệt mã quảng cáo vs mã hoàn tiền
 
     public static DiscountResponseDTO fromEntity(Discount discount) {
         return DiscountResponseDTO.builder()
@@ -55,6 +56,7 @@ public class DiscountResponseDTO {
                 .endDate(discount.getEndDate())
                 .quantity(discount.getQuantity())
                 .status(discount.getStatus().name())
+                .kind(discount.getKind() != null ? discount.getKind().name() : "PROMOTION")
                 .build();
     }
 }
