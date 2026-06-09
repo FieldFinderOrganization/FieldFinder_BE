@@ -30,10 +30,19 @@ public class ProductListCacheKeyGenerator implements KeyGenerator {
                 ? ""
                 : genders.stream().sorted().collect(Collectors.joining(","));
 
+        // Sort phải vào key: cùng (page,category,brand,...) nhưng khác sort = page khác.
+        // Bỏ sort -> mọi lựa chọn sắp xếp giá đều hit chung 1 cache entry -> sort vô hiệu.
+        String spart = pageable.getSort().isSorted()
+                ? pageable.getSort().stream()
+                        .map(o -> o.getProperty() + "," + o.getDirection())
+                        .collect(Collectors.joining(";"))
+                : "u";
+
         return pageable.getPageNumber() + ":" + pageable.getPageSize() + ":"
                 + (categoryId == null ? "n" : categoryId) + ":"
                 + gpart + ":"
                 + (brand == null ? "n" : brand) + ":"
-                + (name == null || name.isBlank() ? "n" : name.toLowerCase().trim());
+                + (name == null || name.isBlank() ? "n" : name.toLowerCase().trim()) + ":"
+                + spart;
     }
 }
