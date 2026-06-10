@@ -19,4 +19,6 @@ public class ItemReviewResponseDTO {
     private int rating;
     private String comment;
     private LocalDateTime createdAt;
+    private String status;            // PENDING | APPROVED | REJECTED
+    private String moderationReason;  // lý do nếu bị từ chối
 }

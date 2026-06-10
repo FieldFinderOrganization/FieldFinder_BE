@@ -1,10 +1,13 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.Enum.ReviewStatus;
 import com.example.FieldFinder.dto.req.ReviewRequestDTO;
 import com.example.FieldFinder.dto.res.ReviewResponseDTO;
 import com.example.FieldFinder.entity.Pitch;
 import com.example.FieldFinder.entity.Review;
 import com.example.FieldFinder.entity.User;
+import com.example.FieldFinder.moderation.ModerationResult;
+import com.example.FieldFinder.moderation.ModerationService;
 import com.example.FieldFinder.repository.PitchRepository;
 import com.example.FieldFinder.repository.ReviewRepository;
 import com.example.FieldFinder.repository.UserRepository;
@@ -31,6 +34,7 @@ class ReviewServiceImplTest {
     @Mock ReviewRepository reviewRepository;
     @Mock PitchRepository pitchRepository;
     @Mock UserRepository userRepository;
+    @Mock ModerationService moderationService;
 
     @InjectMocks ReviewServiceImpl service;
 
@@ -82,6 +86,7 @@ class ReviewServiceImplTest {
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
             when(reviewRepository.findByPitch_PitchIdAndUser_UserId(pitchId, userId))
                     .thenReturn(Optional.empty());
+            when(moderationService.moderate(any())).thenReturn(ModerationResult.pass());
             when(reviewRepository.save(any(Review.class))).thenReturn(review);
 
             ReviewResponseDTO result = service.addReview(buildRequest());
@@ -130,6 +135,7 @@ class ReviewServiceImplTest {
         @Test
         void existing_updatesAndReturnsDTO() {
             when(reviewRepository.findById(reviewId)).thenReturn(Optional.of(review));
+            when(moderationService.moderate(any())).thenReturn(ModerationResult.pass());
             when(reviewRepository.save(any(Review.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ReviewRequestDTO req = buildRequest();
@@ -178,7 +184,8 @@ class ReviewServiceImplTest {
     class getReviewsByPitch {
         @Test
         void hasData_ReturnsList() {
-            when(reviewRepository.findByPitch_PitchId(pitchId)).thenReturn(List.of(review));
+            when(reviewRepository.findByPitch_PitchIdAndStatus(pitchId, ReviewStatus.APPROVED))
+                    .thenReturn(List.of(review));
 
             List<ReviewResponseDTO> result = service.getReviewsByPitch(pitchId);
 
@@ -188,7 +195,8 @@ class ReviewServiceImplTest {
 
         @Test
         void empty_ReturnsEmpty() {
-            when(reviewRepository.findByPitch_PitchId(pitchId)).thenReturn(List.of());
+            when(reviewRepository.findByPitch_PitchIdAndStatus(pitchId, ReviewStatus.APPROVED))
+                    .thenReturn(List.of());
 
             assertTrue(service.getReviewsByPitch(pitchId).isEmpty());
         }

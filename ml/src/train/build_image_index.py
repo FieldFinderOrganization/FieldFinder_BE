@@ -29,7 +29,7 @@ META_PATH = C.CHECKPOINT_DIR / "items_image_meta.pkl"
 def fetch_products() -> pd.DataFrame:
     engine = create_engine(C.MYSQL_URL, connect_args=C.MYSQL_CONNECT_ARGS)
     sql = text("""
-        SELECT product_id, name, brand, sex, image_url, category_id, tags
+        SELECT product_id, name, brand, sex, image_url, category_id, tags, dominant_color
         FROM products
         WHERE image_url IS NOT NULL AND image_url <> ''
     """)
@@ -92,6 +92,8 @@ def main():
             "image_url": str(row["image_url"]),
             "category_id": cat_id,
             "tags": parse_tags(row.get("tags")),
+            "dominant_color": (str(row.get("dominant_color")).strip().lower()
+                               if row.get("dominant_color") is not None else ""),
         })
 
     faiss.write_index(index, str(INDEX_PATH))

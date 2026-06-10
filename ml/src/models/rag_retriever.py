@@ -43,6 +43,10 @@ def build_item_text(row: pd.Series) -> str:
     brand = row.get("brand", "")
     if brand and brand not in ("UNKNOWN", "NA"):
         parts.append(f"thương hiệu: {brand}")
+    # màu chủ đạo CHUẨN (1 màu, sạch) — khác tags nhiễu; giúp "giày nike màu đen" khớp đúng màu.
+    color = row.get("dominant_color", "")
+    if isinstance(color, str) and color and color not in ("UNKNOWN", "NA"):
+        parts.append(f"màu: {color}")
     sex = row.get("sex", "")
     if sex and sex not in ("UNKNOWN", "NA"):
         parts.append(f"giới tính: {sex}")

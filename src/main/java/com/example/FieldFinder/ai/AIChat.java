@@ -194,56 +194,18 @@ public class AIChat {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Chuẩn hóa màu trong tag: mỗi surface form màu (black/than/grey…) → THÊM màu canonical VN tương ứng,
+     * KHÔNG nới chéo sang màu khác. Thay cho bản cũ vốn gộp grey→đen, navy→xanh, hồng→cam+đỏ+tím
+     * (thủ phạm kéo hàng sai màu vào kết quả). Xem {@link com.example.FieldFinder.util.ColorVocab}.
+     */
     private List<String> expandColorTags(List<String> tags) {
-        List<String> expandedTags = new ArrayList<>(tags);
-
+        List<String> out = new ArrayList<>(tags);
         for (String tag : tags) {
-            String t = tag.toLowerCase();
-
-            if (t.contains("kem") || t.contains("cream") || t.contains("be") || t.contains("beige") || t.contains("sữa")) {
-                expandedTags.add("trắng");
-                expandedTags.add("white");
-            }
-
-            // 2. Nhóm MÀU NÓNG (Hồng <=> Cam <=> Đỏ)
-            if (t.contains("hồng") || t.contains("pink") || t.contains("mận")) {
-                expandedTags.add("cam");
-                expandedTags.add("orange");
-                expandedTags.add("đỏ");
-                expandedTags.add("red");
-                expandedTags.add("tím");
-                expandedTags.add("purple");
-            }
-            // Nếu AI thấy Cam, tìm luôn cả Hồng và Đỏ
-            if (t.contains("cam") || t.contains("orange") || t.contains("coral")) {
-                expandedTags.add("hồng");
-                expandedTags.add("pink");
-                expandedTags.add("đỏ");
-                expandedTags.add("red");
-            }
-            // Nếu AI thấy Đỏ, tìm luôn cả Cam và Hồng
-            if (t.contains("đỏ") || t.contains("red") || t.contains("crimson")) {
-                expandedTags.add("cam");
-                expandedTags.add("orange");
-                expandedTags.add("hồng");
-                expandedTags.add("pink");
-            }
-
-            // 3. Nhóm XANH (Dương / Navy / Trời)
-            if (t.contains("navy") || t.contains("chàm") || t.contains("biển") || t.contains("sky")) {
-                expandedTags.add("xanh");
-                expandedTags.add("blue");
-                expandedTags.add("xanh dương");
-            }
-
-            // 4. Nhóm ĐEN (Đen / Xám đậm)
-            if (t.contains("than") || t.contains("ghi") || t.contains("grey") || t.contains("gray")) {
-                expandedTags.add("đen");
-                expandedTags.add("black");
-            }
+            String canon = com.example.FieldFinder.util.ColorVocab.canonical(tag);
+            if (canon != null) out.add(canon);
         }
-
-        return expandedTags.stream().distinct().collect(Collectors.toList());
+        return out.stream().distinct().collect(Collectors.toList());
     }
 
     public List<Double> getEmbedding(String text) {
@@ -840,7 +802,9 @@ public class AIChat {
                             }
                         }
 
-                        attributeRerank(products, scores, queryBrand, parsedColor, categoryIds, 3);
+                        // Màu chủ đạo ảnh (Gemini) → canonical; rerank so với dominantColor sạch của sp.
+                        String imgQueryColor = com.example.FieldFinder.util.ColorVocab.canonical(parsedColor);
+                        attributeRerank(products, scores, queryBrand, imgQueryColor, categoryIds, 3);
                         pinExactFirst(products, scores, pinnedPid, pinnedDto, pinnedScore, 10);
                         boolean hasExact = pinnedPid != null;
                         boolean lowConf  = topClipCosine == null || topClipCosine < 0.70;
@@ -1032,20 +996,18 @@ public class AIChat {
                                  List<Long> categoryIds, int brandCap) {
         int n = products.size();
         if (n <= 1) return;
-        final double W_CAT = 0.10, W_COLOR = 0.12, W_BRAND = 0.15;
+        // W_COLOR nâng lên: màu là ràng buộc mạnh user/ảnh nêu rõ (trước đây 0.12, hay bị tag nhiễu lấn).
+        final double W_CAT = 0.10, W_COLOR = 0.20, W_BRAND = 0.15;
 
         Set<Long> catSet = (categoryIds != null) ? new HashSet<>(categoryIds) : Collections.emptySet();
         String qBrand = (queryBrand != null && !queryBrand.isBlank()) ? queryBrand.toLowerCase() : null;
-        List<String> qColorTokens = new ArrayList<>();
-        if (queryColor != null && !queryColor.isBlank()) {
-            for (String t : queryColor.toLowerCase().split("\\s+")) {
-                if (!t.isBlank()) qColorTokens.add(t);
-            }
-        }
+        // queryColor đã canonical (vd "đen"); null = ảnh không rõ màu → bỏ qua tín hiệu màu.
+        String qColor = (queryColor != null && !queryColor.isBlank()) ? queryColor : null;
 
         double[] base = new double[n];
         double[] boosted = new double[n];
         boolean[] isQueryBrand = new boolean[n];   // candidate matches the requested/anchor brand
+        boolean[] isQueryColor = new boolean[n];   // candidate's dominantColor matches the image color
         for (int i = 0; i < n; i++) {
             ProductResponseDTO p = products.get(i);
             base[i] = (i < scores.size() && scores.get(i) != null) ? scores.get(i) : 0.0;
@@ -1054,11 +1016,9 @@ public class AIChat {
                 if (!catSet.isEmpty() && p.getCategoryId() != null && catSet.contains(p.getCategoryId())) {
                     add += W_CAT;
                 }
-                if (!qColorTokens.isEmpty()) {
-                    String hay = buildAttrHaystack(p);
-                    for (String ct : qColorTokens) {
-                        if (containsQueryToken(hay, ct)) { add += W_COLOR; break; }
-                    }
+                if (qColor != null && colorMatches(p, qColor)) {
+                    add += W_COLOR;
+                    isQueryColor[i] = true;
                 }
                 if (qBrand != null && p.getBrand() != null && p.getBrand().toLowerCase().equals(qBrand)) {
                     add += W_BRAND;
@@ -1070,11 +1030,12 @@ public class AIChat {
 
         List<Integer> order = new ArrayList<>(n);
         for (int i = 0; i < n; i++) order.add(i);
-        // Requested/anchor brand is the dominant sort key (mirrors the text path's CompositeRanker):
-        // all same-brand items lead, then the rest by boosted score. No-op when no brand detected
-        // (isQueryBrand all false → falls through to boosted desc, identical to the old behaviour).
+        // Sort keys (mirror text-path CompositeRanker): brand nêu thẳng > màu khớp > điểm boosted.
+        // Màu là khóa mạnh — sp đúng màu lên trước, sai màu rớt xuống (KHÔNG loại, an toàn recall).
+        // No-op khi không có brand/màu (mọi cờ false → về boosted desc như cũ).
         order.sort((a, b) -> {
             if (isQueryBrand[a] != isQueryBrand[b]) return isQueryBrand[a] ? -1 : 1;
+            if (isQueryColor[a] != isQueryColor[b]) return isQueryColor[a] ? -1 : 1;
             return Double.compare(boosted[b], boosted[a]);
         });
 
@@ -1099,6 +1060,19 @@ public class AIChat {
 
         products.clear(); products.addAll(keepP);
         scores.clear();   scores.addAll(keepS);
+    }
+
+    /**
+     * Sản phẩm có khớp màu canonical {@code qColor}? Ưu tiên dominantColor (màu thật, sạch);
+     * nếu chưa seed (null) → fallback dò màu trong name+tags qua ColorVocab (nguyên-token, không nới chéo).
+     */
+    private boolean colorMatches(ProductResponseDTO p, String qColor) {
+        if (p == null || qColor == null) return false;
+        String dom = p.getDominantColor();
+        if (dom != null && !dom.isBlank()) {
+            return qColor.equalsIgnoreCase(dom);
+        }
+        return com.example.FieldFinder.util.ColorVocab.textMatchesColor(buildAttrHaystack(p), qColor);
     }
 
     /** Lowercased name + tags of a product, for whole-token color matching. */
@@ -1769,6 +1743,89 @@ public class AIChat {
         return best;
     }
 
+    /**
+     * Màu user nêu thẳng trong query, chuẩn hóa về canonical ({@link com.example.FieldFinder.util.ColorVocab}).
+     * Ưu tiên field `color` Gemini parse; fallback dò trực tiếp trong userInput. null nếu không nêu màu.
+     */
+    private String detectQueryColor(Object parsedColor, String userInput) {
+        String fromGemini = com.example.FieldFinder.util.ColorVocab.canonical(
+                parsedColor != null ? parsedColor.toString() : null);
+        if (fromGemini != null) return fromGemini;
+        return com.example.FieldFinder.util.ColorVocab.detectInText(userInput);
+    }
+
+    /**
+     * Giới tính user nêu thẳng trong query → "MEN"/"WOMEN"/null.
+     * Ưu tiên tags Gemini parse; fallback dò nguyên-token trong userInput. Check nữ trước
+     * (tránh "nữ" chứa "nu" gây nhầm chiều ngược lại khi tags bỏ dấu).
+     */
+    static String detectQueryGender(List<String> tags, String userInput) {
+        List<String> tagsLower = tags == null ? Collections.emptyList()
+                : tags.stream().map(t -> t == null ? "" : t.toLowerCase()).toList();
+        if (tagsLower.contains("nữ") || tagsLower.contains("nu")
+                || tagsLower.contains("women") || tagsLower.contains("woman")) {
+            return "WOMEN";
+        }
+        if (tagsLower.contains("nam") || tagsLower.contains("men") || tagsLower.contains("man")) {
+            return "MEN";
+        }
+        if (containsQueryToken(userInput, "nữ") || containsQueryToken(userInput, "women")
+                || containsQueryToken(userInput, "woman")) {
+            return "WOMEN";
+        }
+        if (containsQueryToken(userInput, "nam") || containsQueryToken(userInput, "men")
+                || containsQueryToken(userInput, "man")) {
+            return "MEN";
+        }
+        return null;
+    }
+
+    /** "size 39" / "Size 39,5" / "cỡ 40" / "sz XL" — group 1 = giá trị size. */
+    private static final Pattern QUERY_SIZE_PATTERN = Pattern.compile(
+            "(?iu)(?:size|sz|cỡ|số)\\s*:?\\s*(\\d{1,3}(?:[.,]5)?|[2-5]xl|x{1,3}l|xs|[sml])(?![\\p{L}\\p{N}])");
+
+    /**
+     * Size user nêu thẳng trong query tìm kiếm. Ưu tiên field `size` Gemini parse;
+     * fallback regex trên userInput. null nếu không nêu.
+     */
+    static String detectQuerySize(Object parsedSize, String userInput) {
+        if (parsedSize != null) {
+            String s = parsedSize.toString().trim();
+            if (!s.isEmpty() && !"null".equalsIgnoreCase(s)) return s;
+        }
+        if (userInput == null) return null;
+        java.util.regex.Matcher m = QUERY_SIZE_PATTERN.matcher(userInput);
+        if (m.find()) return m.group(1).replace(',', '.').toUpperCase();
+        return null;
+    }
+
+    /** Giá hiệu lực để filter khoảng giá: salePrice khi đang sale, ngược lại price gốc. */
+    private static double effectivePrice(ProductResponseDTO p) {
+        if (p.getSalePercent() != null && p.getSalePercent() > 0 && p.getSalePrice() != null) {
+            return p.getSalePrice();
+        }
+        return p.getPrice() != null ? p.getPrice() : 0.0;
+    }
+
+    /** Mô tả tiêu chí user nêu cho message: "giày Nike nam màu đen". Size nói riêng ở vế "hết size X". */
+    private static String buildCriteriaDesc(String productType, String brand, String genderVN, String color) {
+        String typeLabel = switch (productType == null ? "" : productType) {
+            case "SHOES" -> "giày";
+            case "TOP" -> "áo";
+            case "BOTTOM" -> "quần";
+            case "DRESS" -> "váy";
+            case "BAG" -> "balo/túi";
+            case "HAT" -> "nón";
+            case "SANDAL" -> "dép";
+            default -> "sản phẩm";
+        };
+        StringBuilder sb = new StringBuilder(typeLabel);
+        if (brand != null) sb.append(' ').append(brand);
+        if (genderVN != null) sb.append(' ').append(genderVN);
+        if (color != null) sb.append(" màu ").append(color);
+        return sb.toString();
+    }
+
     static boolean containsQueryToken(String haystack, String needle) {
         if (haystack == null || needle == null || needle.isBlank()) return false;
         Pattern pattern = Pattern.compile("(?iu)(?<![\\p{L}\\p{N}])"
@@ -1890,6 +1947,20 @@ public class AIChat {
                 ? aiProductType
                 : categoryService.detectProductTypeFromQuery(userInput, tags, categoryKeyword);
         List<String> resolvedCategories = CategoryMapper.resolveCategories(activity, aiCategories, categoryKeyword);
+
+        // Thuộc tính user nêu thẳng trong query — dùng cho cả ranking lẫn tiered message cuối flow.
+        String queryBrand = detectQueryBrand(userId, (String) query.data.get("productName"), tags, userInput);
+        String queryColor = detectQueryColor(query.data.get("color"), userInput);
+        String queryGender = detectQueryGender(tags, userInput);
+        String querySize = detectQuerySize(query.data.get("size"), userInput);
+
+        // Khoảng giá (query trộn "giày nike đen dưới 2 triệu" được reroute về flow này kèm minPrice/maxPrice).
+        Object minPObj = query.data.get("minPrice");
+        Object maxPObj = query.data.get("maxPrice");
+        final double minPriceQ = minPObj instanceof Number n ? Math.max(n.doubleValue(), 0.0) : 0.0;
+        double maxRaw = maxPObj instanceof Number n ? n.doubleValue() : 0.0;
+        final double maxPriceQ = maxRaw > 0 ? maxRaw : Double.MAX_VALUE;
+        final boolean priceActive = minPriceQ > 0 || maxRaw > 0;
         System.out.println("   resolved: detectedType=" + detectedType
                 + " (source=" + (aiProductType != null ? "AI" : "JAVA") + ")"
                 + " resolvedCategories=" + resolvedCategories);
@@ -1932,35 +2003,44 @@ public class AIChat {
             }
         }
 
+        // Hard filter giá TRƯỚC ranking — để tier fill toàn sản phẩm trong tầm giá.
+        if (priceActive && results != null && !results.isEmpty()) {
+            List<ProductResponseDTO> inRange = new ArrayList<>();
+            List<Double> inRangeScores = new ArrayList<>();
+            for (int i = 0; i < results.size(); i++) {
+                double ep = effectivePrice(results.get(i));
+                if (ep >= minPriceQ && ep <= maxPriceQ) {
+                    inRange.add(results.get(i));
+                    inRangeScores.add(i < retrievalScores.size() ? retrievalScores.get(i) : 0.0);
+                }
+            }
+            System.out.println("💰 Price filter " + buildPriceRangeMessage(minPriceQ, maxPriceQ)
+                    + ": " + inRange.size() + "/" + results.size());
+            results = inRange;
+            retrievalScores = inRangeScores;
+        }
+
         // Composite rank + strict type filter (e.g. "giày đá bóng" → chỉ SHOES, không fill quần tier 3/4)
         if (results != null && !results.isEmpty()) {
-            // sexPref derive from tags
-            String sexPrefForCtx = null;
-            List<String> tagsLowerCtx = tags == null ? Collections.emptyList()
-                    : tags.stream().map(t -> t == null ? "" : t.toLowerCase()).toList();
-            if (tagsLowerCtx.contains("nữ") || tagsLowerCtx.contains("nu") || tagsLowerCtx.contains("women") || tagsLowerCtx.contains("woman")) {
-                sexPrefForCtx = "WOMEN";
-            } else if (tagsLowerCtx.contains("nam") || tagsLowerCtx.contains("men") || tagsLowerCtx.contains("man")) {
-                sexPrefForCtx = "MEN";
-            }
-
             // B.3: brand preference từ MongoDB user history (top 3)
             List<String> topBrands = userService.getUserTopBrands(userId, 3);
-
-            // Brand user nêu thẳng trong query (vd "balo adidas") — match brand có thật trong catalog.
-            // Khi có → ranker ưu tiên brand này và bỏ qua topBrands lịch sử (xem CompositeRanker).
-            String queryBrand = detectQueryBrand(userId, (String) query.data.get("productName"), tags, userInput);
 
             boolean strictType = detectedType != null && !detectedType.isBlank();
             com.example.FieldFinder.ai.ranking.RankingContext ctx =
                     com.example.FieldFinder.ai.ranking.RankingContext.builder()
                             .productType(detectedType)
                             .activity(activity)
-                            .genderPref(sexPrefForCtx)
+                            .genderPref(queryGender)
                             .topBrands(topBrands)
                             .queryBrand(queryBrand)
+                            .queryColor(queryColor)
+                            .queryGender(queryGender)
+                            .querySize(querySize)
                             .activityCats(new HashSet<>(resolvedCategories))
                             .strictProductType(strictType)
+                            // Query nêu size → lấy hết tier 1 để tiered grouping thấy đủ ứng viên
+                            // (mẫu brand khác còn size rank sau toàn bộ sp đúng brand). Trim hiển thị sau grouping.
+                            .targetSize(querySize != null ? Integer.MAX_VALUE : 10)
                             .build();
 
             List<Map.Entry<ProductResponseDTO, Double>> ranked =
@@ -1985,6 +2065,8 @@ public class AIChat {
                             resolvedCategories.contains(p.getCategoryName()))
                     .filter(p -> typeForFallback == null
                             || categoryService.productMatchesType(p, typeForFallback))
+                    .filter(p -> !priceActive
+                            || (effectivePrice(p) >= minPriceQ && effectivePrice(p) <= maxPriceQ))
                     .limit(12)
                     .toList();
             retrievalScores = Collections.nCopies(results.size(), 0.0); // No vector scores for category fallback
@@ -1996,13 +2078,18 @@ public class AIChat {
             final String typeForScan = detectedType;
             results = getProductsForAiAssistantCached(userId).stream()
                     .filter(p -> categoryService.productMatchesType(p, typeForScan))
+                    .filter(p -> !priceActive
+                            || (effectivePrice(p) >= minPriceQ && effectivePrice(p) <= maxPriceQ))
                     .limit(12)
                     .toList();
             retrievalScores = Collections.nCopies(results.size(), 0.0);
         }
 
         if (results == null || results.isEmpty()) {
-            query.message = "Hiện tại shop chưa có sản phẩm phù hợp hoạt động này 😢";
+            query.message = priceActive
+                    ? String.format("Không tìm thấy sản phẩm phù hợp trong khoảng giá %s.",
+                            buildPriceRangeMessage(minPriceQ, maxPriceQ))
+                    : "Hiện tại shop chưa có sản phẩm phù hợp hoạt động này 😢";
             query.data.put("products", List.of());
             query.data.put("groupedProducts", Map.of());
             query.data.put("action", "recommend_by_activity");
@@ -2010,10 +2097,86 @@ public class AIChat {
             return query;
         }
 
-        if (activity != null && !activity.isBlank() && !"null".equalsIgnoreCase(activity)) {
+        // ===== Tiered messaging theo mức khớp tiêu chí user nêu (brand/giới/màu/size) =====
+        // Pattern constraint-relaxation-with-transparency: nói rõ tiêu chí nào hụt, đưa thay thế gần nhất.
+        String genderVN = "WOMEN".equals(queryGender) ? "nữ" : ("MEN".equals(queryGender) ? "nam" : null);
+        boolean hasCriteria = queryBrand != null || genderVN != null || queryColor != null || querySize != null;
+        String tieredMessage = null;
+        if (hasCriteria) {
+            List<Integer> exactIdx = new ArrayList<>();
+            List<Integer> otherSizeIdx = new ArrayList<>(); // nhóm 1: đúng mọi tiêu chí khác, hết size
+            List<Integer> sizeAltIdx = new ArrayList<>();   // nhóm 2: còn đúng size nhưng lệch tiêu chí khác (vd brand khác)
+            for (int i = 0; i < results.size(); i++) {
+                ProductResponseDTO p = results.get(i);
+                boolean brandOk = queryBrand == null
+                        || (p.getBrand() != null && p.getBrand().equalsIgnoreCase(queryBrand));
+                // UNISEX (score 1) vẫn tính là thỏa giới — mang được, không phải xin lỗi.
+                boolean genderOk = queryGender == null
+                        || com.example.FieldFinder.ai.ranking.CompositeRanker.queryGenderScore(p, queryGender) >= 1;
+                boolean colorOk = queryColor == null
+                        || (p.getDominantColor() != null && p.getDominantColor().equalsIgnoreCase(queryColor));
+                boolean sizeOk = querySize == null
+                        || com.example.FieldFinder.ai.ranking.CompositeRanker.hasSizeInStock(p, querySize);
+                boolean nonSizeOk = brandOk && genderOk && colorOk;
+                if (nonSizeOk && sizeOk) {
+                    exactIdx.add(i);
+                } else if (querySize != null && nonSizeOk) {
+                    otherSizeIdx.add(i); // !sizeOk — đảm bảo nhóm 1 không sp nào còn size yêu cầu
+                } else if (querySize != null
+                        && com.example.FieldFinder.ai.ranking.CompositeRanker.hasSizeInStock(p, querySize)) {
+                    sizeAltIdx.add(i);
+                }
+            }
+            String criteriaDesc = buildCriteriaDesc(detectedType, queryBrand, genderVN, queryColor);
+            if (!exactIdx.isEmpty()) {
+                tieredMessage = String.format("Tìm thấy %d sản phẩm %s%s đúng yêu cầu của bạn 👇",
+                        exactIdx.size(), criteriaDesc, querySize != null ? " size " + querySize : "");
+            } else if (querySize != null && (!otherSizeIdx.isEmpty() || !sizeAltIdx.isEmpty())) {
+                // Tầng 2: hết size — show nhóm 1 (size khác) + nhóm 2 (mẫu khác còn size), mỗi nhóm giữ thứ tự ranked.
+                List<Integer> keep = new ArrayList<>();
+                keep.addAll(otherSizeIdx.subList(0, Math.min(5, otherSizeIdx.size())));
+                keep.addAll(sizeAltIdx.subList(0, Math.min(5, sizeAltIdx.size())));
+                List<ProductResponseDTO> tierResults = new ArrayList<>();
+                List<Double> tierScores = new ArrayList<>();
+                for (int i : keep) {
+                    tierResults.add(results.get(i));
+                    tierScores.add(i < retrievalScores.size() ? retrievalScores.get(i) : 0.0);
+                }
+                results = tierResults;
+                retrievalScores = tierScores;
+                StringBuilder mb = new StringBuilder("Xin lỗi bạn, ").append(criteriaDesc)
+                        .append(" hiện đã hết size ").append(querySize).append(".");
+                if (!otherSizeIdx.isEmpty() && !sizeAltIdx.isEmpty()) {
+                    mb.append(" Bạn tham khảo các size khác, hoặc các mẫu tương tự còn size ")
+                      .append(querySize).append(" bên dưới nhé 👇");
+                } else if (!otherSizeIdx.isEmpty()) {
+                    mb.append(" Bạn vui lòng tham khảo các size khác bên dưới nhé 👇");
+                } else {
+                    mb.append(" Bạn tham khảo các mẫu tương tự còn size ").append(querySize).append(" bên dưới nhé 👇");
+                }
+                tieredMessage = mb.toString();
+            } else {
+                // Tầng 3: không sp nào khớp đủ tiêu chí → best-effort relaxed list (đã ranked gần nhất lên đầu).
+                tieredMessage = "Xin lỗi bạn, hiện shop không còn sản phẩm nào phù hợp với yêu cầu của bạn, "
+                        + "bạn vui lòng tham khảo các sản phẩm tương tự 👇";
+            }
+            System.out.println("💬 Tiered message: exact=" + exactIdx.size()
+                    + " otherSize=" + otherSizeIdx.size() + " sizeAlt=" + sizeAltIdx.size());
+        }
+
+        if (tieredMessage != null) {
+            query.message = tieredMessage;
+        } else if (activity != null && !activity.isBlank() && !"null".equalsIgnoreCase(activity)) {
             query.message = String.format("Với hoạt động %s, bạn có thể tham khảo các sản phẩm sau 👇", activity);
         } else {
             query.message = "Bạn có thể tham khảo các sản phẩm sau 👇";
+        }
+
+        // Trim hiển thị về 10 SAU tiered grouping (ranker trả sâu hơn khi query nêu size;
+        // tầng 2 đã tự cap 5+5, các tầng khác cắt tại đây — exact match vẫn đứng đầu nhờ comparator).
+        if (results.size() > 10) {
+            results = results.subList(0, 10);
+            retrievalScores = retrievalScores.subList(0, Math.min(10, retrievalScores.size()));
         }
 
         Map<String, List<Map<String, Object>>> groupedProducts = new LinkedHashMap<>();
@@ -2116,13 +2279,18 @@ public class AIChat {
             Object activityObj = query.data.get("activity");
             Object tagsObj = query.data.get("tags");
 
-            // Override: nếu Gemini set activity nhưng action = price_range với min=max=0 → đó là intent recommend
+            // Override: query trộn (thuộc tính sản phẩm + giá) phải đi recommend flow để GIỮ ranking
+            // brand→giới→màu→size; giá thành hard filter trong đó. search_by_price_range chỉ còn
+            // cho query thuần giá ("sản phẩm dưới 500k" — không type/tags/category).
             boolean hasActivity = activityObj != null && !((String) activityObj).isBlank();
             boolean hasNonemptyTags = tagsObj instanceof List<?> && !((List<?>) tagsObj).isEmpty();
-            Number minP = (Number) query.data.getOrDefault("minPrice", 0);
-            Number maxP = (Number) query.data.getOrDefault("maxPrice", 0);
-            boolean priceRangeEmpty = minP.doubleValue() <= 0 && maxP.doubleValue() <= 0;
-            if (hasActivity && (action == null || ("search_by_price_range".equals(action) && priceRangeEmpty))) {
+            Object ptObj = query.data.get("productType");
+            Object ckObj = query.data.get("categoryKeyword");
+            boolean hasProductAttrs = hasActivity || hasNonemptyTags
+                    || (ptObj instanceof String pt && !pt.isBlank())
+                    || (ckObj instanceof String ck && !ck.isBlank());
+            if ((action == null && hasActivity)
+                    || ("search_by_price_range".equals(action) && hasProductAttrs)) {
                 action = "recommend_by_activity";
                 query.data.put("action", "recommend_by_activity");
             }
@@ -2936,29 +3104,51 @@ public class AIChat {
         Bạn là chuyên gia quản lý kho hàng thời trang (Inventory Manager).
         Nhiệm vụ: Phân tích hình ảnh sản phẩm và sinh ra danh sách từ khóa (Tags) chi tiết để phục vụ tìm kiếm.
         
-        HÃY QUAN SÁT KỸ VÀ TRẢ VỀ JSON CHỨA DANH SÁCH TAGS:
+        HÃY QUAN SÁT KỸ VÀ TRẢ VỀ JSON:
         1. Thương hiệu: Nhìn logo/chữ trên sản phẩm (Nike, Adidas, Puma...).
         2. Dòng sản phẩm: Tên cụ thể (Air Max, Jordan, Ultraboost, Stan Smith...).
-        3. Màu sắc: Liệt kê TẤT CẢ màu nhìn thấy (Tiếng Việt + Tiếng Anh). VD: ["trắng", "white", "cam", "orange"].
-        4. Đặc điểm hình dáng: 
+        3. MÀU CHỦ ĐẠO (`dominantColor`) — BẮT BUỘC, chọn ĐÚNG 1 màu chiếm DIỆN TÍCH LỚN NHẤT của
+           sản phẩm, viết tiếng Việt thường, CHỈ dùng đúng 1 trong các giá trị sau:
+           "đen", "trắng", "xám", "đỏ", "cam", "vàng", "hồng", "tím", "nâu", "xanh lá", "xanh dương".
+           VD giày đen đế trắng → "đen"; áo trắng viền cam → "trắng". KHÔNG ghép nhiều màu ở đây.
+        4. Màu phụ (cho `tags`): Liệt kê các màu phối/accent nhìn thấy (Việt + Anh) để bổ trợ tìm kiếm.
+        5. Đặc điểm hình dáng:
            - Giày: Cổ cao/thấp, đế air, đế bằng, dây buộc, không dây...
            - Áo/Quần: Tay dài/ngắn, cổ tròn/tim, có mũ...
-        5. Chất liệu: Da, vải lưới, nỉ, cotton...
-        
+        6. Chất liệu: Da, vải lưới, nỉ, cotton...
+
         YÊU CẦU OUTPUT JSON:
         {
-          "tags": ["danh sách khoảng 15-20 từ khóa, viết thường, bao gồm cả tiếng Anh và tiếng Việt"]
+          "dominantColor": "đen",
+          "tags": ["danh sách khoảng 15-20 từ khóa (gồm cả màu phụ), viết thường, Anh + Việt"]
         }
         """;
 
+    /** Kết quả enrich 1 ảnh sản phẩm: tags (gồm màu phụ) + màu chủ đạo canonical. */
+    public static class ProductEnrichment {
+        public List<String> tags = new ArrayList<>();
+        /** Màu chủ đạo đã chuẩn hóa canonical (vd "đen"); null nếu AI không xác định. */
+        public String dominantColor;
+    }
+
+    /** Backward-compat: chỉ lấy tags. */
     public List<String> generateTagsForProduct(String imageUrl) {
+        return enrichProductFromImage(imageUrl).tags;
+    }
+
+    /**
+     * Gọi Gemini Vision 1 lần → trả tags + màu chủ đạo. Dùng khi tạo sản phẩm / backfill.
+     * Màu chủ đạo được chuẩn hóa về bộ màu canonical ({@link com.example.FieldFinder.util.ColorVocab}).
+     */
+    public ProductEnrichment enrichProductFromImage(String imageUrl) {
+        ProductEnrichment out = new ProductEnrichment();
         try {
             // Yield to user chat requests — nếu user đang chat thì đợi
             while (enrichmentPaused) {
                 Thread.sleep(2000);
             }
             String[] img = downloadImageWithMime(imageUrl);
-            if (img == null) return new ArrayList<>();
+            if (img == null) return out;
             String base64Image = img[0];
             String mimeType = img[1];
 
@@ -2993,11 +3183,22 @@ public class AIChat {
                 String jsonRes = cleanJson(extractGeminiResponse(response.body().string()));
                 JsonNode root = mapper.readTree(jsonRes);
                 List<String> tags = mapper.convertValue(root.path("tags"), new TypeReference<List<String>>(){});
-                return sanitizeTags(tags);
+                out.tags = sanitizeTags(tags);
+                // Màu chủ đạo: ưu tiên field "dominantColor", fallback dò từ chính tags.
+                String rawColor = root.path("dominantColor").asText("");
+                String canon = com.example.FieldFinder.util.ColorVocab.canonical(rawColor);
+                if (canon == null) {
+                    for (String t : out.tags) {
+                        canon = com.example.FieldFinder.util.ColorVocab.canonical(t);
+                        if (canon != null) break;
+                    }
+                }
+                out.dominantColor = canon;
+                return out;
             }
         } catch (Exception e) {
             e.printStackTrace();
-            return new ArrayList<>();
+            return out;
         }
     }
 
@@ -3239,6 +3440,7 @@ public class AIChat {
             "quantity": 1,
             "categoryKeyword": "...",
             "productType": "SHOES" | "TOP" | "BOTTOM" | "SANDAL" | "DRESS" | "BAG" | "HAT" | "OTHER" | null,
+            "color": "đen" | "trắng" | "xám" | "đỏ" | "cam" | "vàng" | "hồng" | "tím" | "nâu" | "xanh lá" | "xanh dương" | null,
             "minPrice": 0,
             "maxPrice": 0,
             "activity": "...",
@@ -3303,7 +3505,10 @@ public class AIChat {
           + quần áo chạy bộ -> "Running Clothing"
           + giày (chung không rõ loại) -> "Shoes", productType: "SHOES"
           + quần áo (chung) -> "Clothing", productType: null
-        - Tìm kiếm theo giá: dùng action "search_by_price_range", cung cấp minPrice, maxPrice.
+        - Tìm kiếm theo giá: action "search_by_price_range" + minPrice/maxPrice CHỈ KHI query thuần về giá,
+          KHÔNG nêu loại sản phẩm/brand/màu/giới tính (vd "sản phẩm dưới 500k", "có gì tầm 1 triệu").
+          Nếu query TÌM KIẾM có kèm khoảng giá (vd "giày nike đen dưới 2 triệu") -> action "recommend_by_activity"
+          và VẪN điền minPrice/maxPrice (backend sẽ lọc giá + xếp hạng).
 
         ❗️ QUY TẮC productType (BẮT BUỘC khi recommend sản phẩm):
         - "áo", "jersey", "tee", "hoodie", "jacket", "polo", "sơ mi" → productType: "TOP"
@@ -3314,6 +3519,19 @@ public class AIChat {
         - "nón", "mũ", "cap" → productType: "HAT"
         - "dép", "sandal" → productType: "SANDAL"
         - KHÔNG gán BOTTOM khi user chỉ hỏi áo; KHÔNG gán TOP khi user chỉ hỏi quần.
+
+        ❗️ QUY TẮC MÀU SẮC (`color`):
+        - Nếu user nêu màu (vd "giày nike màu đen", "áo đỏ", "balo xanh") → điền `color` về ĐÚNG 1 giá trị
+          canonical: "đen","trắng","xám","đỏ","cam","vàng","hồng","tím","nâu","xanh lá","xanh dương".
+        - Quy đổi đồng nghĩa: black→"đen", white→"trắng", navy/xanh dương/xanh biển→"xanh dương",
+          xanh lá/green→"xanh lá", grey/ghi/xám→"xám". Nếu user KHÔNG nêu màu → `color`: null.
+        - VD: "tìm giày nike màu đen" → productType: "SHOES", color: "đen"; "áo thun trắng" → productType: "TOP", color: "trắng".
+
+        ❗️ QUY TẮC SIZE & GIỚI TÍNH KHI TÌM KIẾM:
+        - Query TÌM/GỢI Ý có nêu size (vd "tìm giày nike size 39") → VẪN action "recommend_by_activity",
+          điền size: "39". CHỈ dùng "check_size" khi user hỏi tồn kho một sản phẩm cụ thể,
+          "prepare_order" khi user muốn đặt/mua/lấy.
+        - User nêu giới tính ("nam", "nữ", "cho nam", "đồ nữ", "men", "women") → thêm "nam" hoặc "nữ" vào tags.
 
         ❗️ QUY TẮC TÌM/GỢI Ý/GIỚI THIỆU SẢN PHẨM (RAG retrieve):
         - Khi user nói "tìm", "cho xem", "giới thiệu", "gợi ý", "recommend", "show me", "có những...nào" + tên loại sản phẩm/môn thể thao:
@@ -3329,6 +3547,8 @@ public class AIChat {
           + "tìm áo bóng đá" → action: "recommend_by_activity", activity: "football", tags: ["football", "áo bóng đá", "jersey"], suggestedCategories: ["Football Clothing"], categoryKeyword: "Football Clothing", productType: "TOP"
           + "có quần short nào không" → action: "recommend_by_activity", activity: null, tags: ["shorts", "quần short"], suggestedCategories: ["Shorts"], categoryKeyword: "Shorts", productType: "BOTTOM"
           + "cho xem balo" → action: "recommend_by_activity", activity: null, tags: ["balo", "túi"], suggestedCategories: ["Bags And Backpacks"], categoryKeyword: "Bags And Backpacks", productType: "BAG"
+          + "tìm giày nike nam màu đen size 39" → action: "recommend_by_activity", productType: "SHOES", color: "đen", size: "39", tags: ["nike", "nam", "giày"], categoryKeyword: "Shoes"
+          + "giày nike đen dưới 2 triệu" → action: "recommend_by_activity", productType: "SHOES", color: "đen", maxPrice: 2000000, tags: ["nike", "giày"], categoryKeyword: "Shoes"
         
         ❗️ QUY TẮC ĐẶT HÀNG:
         - Nếu người dùng nói "đặt", "mua", "lấy", "cho mình X cái/đôi size Y" -> action: "prepare_order", điền "size" và "quantity" ngay trong cùng tin nhắn đó.

@@ -34,7 +34,7 @@ public class CompositeRanker {
 
     private final CategoryService categoryService;
 
-    /** Target result count returned to the AI chat. */
+    /** Default target result count returned to the AI chat (override per-query via RankingContext.targetSize). */
     private static final int TARGET_SIZE = 10;
 
     public List<Map.Entry<ProductResponseDTO, Double>> rank(
@@ -58,6 +58,11 @@ public class CompositeRanker {
         // dominant signal: history top-brands are ignored (so they can't reorder the requested
         // brand) and the requested brand sorts first — soft, non-matching items still fill.
         boolean queryBrandActive = ctx.getQueryBrand() != null && !ctx.getQueryBrand().isBlank();
+        // Màu user nêu thẳng (vd "giày nike màu đen") → khớp dominantColor (màu thật) là tín hiệu mạnh.
+        boolean queryColorActive = ctx.getQueryColor() != null && !ctx.getQueryColor().isBlank();
+        // Giới tính + size user nêu thẳng (vd "giày nike nam size 39") — cùng cơ chế soft với màu.
+        boolean queryGenderActive = ctx.getQueryGender() != null && !ctx.getQueryGender().isBlank();
+        boolean querySizeActive = ctx.getQuerySize() != null && !ctx.getQuerySize().isBlank();
 
         // Score each candidate
         List<ScoredProduct> scored = new ArrayList<>();
@@ -74,10 +79,19 @@ public class CompositeRanker {
             boolean queryBrandMatch = queryBrandActive
                     && p.getBrand() != null
                     && p.getBrand().equalsIgnoreCase(ctx.getQueryBrand());
+            // Khớp màu chủ đạo CHUẨN với màu user nêu. So trên dominantColor (sạch), KHÔNG dùng tags nhiễu.
+            boolean queryColorMatch = queryColorActive
+                    && p.getDominantColor() != null
+                    && p.getDominantColor().equalsIgnoreCase(ctx.getQueryColor());
+            // Giới user nêu: đúng giới = 2, UNISEX = 1 (vẫn mang được, xếp sau đồ đúng giới), khác = 0.
+            int queryGenderScore = queryGenderActive ? queryGenderScore(p, ctx.getQueryGender()) : 0;
+            // Size user nêu: còn variant đúng size VÀ còn hàng (quantity > 0).
+            boolean querySizeMatch = querySizeActive && hasSizeInStock(p, ctx.getQuerySize());
 
             double composite = computeComposite(typeMatch, activityMatch, brandScore,
-                    p, mlNorm, ctx);
-            scored.add(new ScoredProduct(p, composite, typeMatch, activityMatch, brandScore, genderMatch, queryBrandMatch));
+                    queryColorMatch, p, mlNorm, ctx);
+            scored.add(new ScoredProduct(p, composite, typeMatch, activityMatch, brandScore, genderMatch,
+                    queryBrandMatch, queryColorMatch, queryGenderScore, querySizeMatch));
         }
 
         boolean strictType = ctx.isStrictProductType()
@@ -90,8 +104,14 @@ public class CompositeRanker {
         //   2. then preferred brand BY RANK (Nike viewed most > Adidas > K-Swiss)
         //   3. then gender fit (profile gender; unisex when no profile)
         //   4. then composite (ML/text relevance) as tiebreak
+        //   1b. query-stated attributes ngay sau brand, thứ tự CỐ ĐỊNH brand → giới → màu → size
+        //       (vd "giày nike nam màu đen size 39"). Mỗi tín hiệu soft: sai không loại, chỉ rớt
+        //       xuống. No-op khi query không nêu thuộc tính tương ứng.
         Comparator<ScoredProduct> byPriority = Comparator
-                .comparing((ScoredProduct s) -> s.queryBrand, Comparator.reverseOrder())  // requested brand first
+                .comparing((ScoredProduct s) -> s.queryBrand, Comparator.reverseOrder())     // 1. requested brand
+                .thenComparing(s -> s.queryGenderScore, Comparator.reverseOrder())           // 2. requested gender (2/1/0)
+                .thenComparing(s -> s.queryColor, Comparator.reverseOrder())                 // 3. requested color
+                .thenComparing(s -> s.querySize, Comparator.reverseOrder())                  // 4. requested size in stock
                 .thenComparing(s -> s.activity, Comparator.reverseOrder())
                 .thenComparing(s -> s.brandScore, Comparator.reverseOrder())
                 .thenComparing(s -> genderScore(s.product, ctx.getGenderPref()), Comparator.reverseOrder())
@@ -100,9 +120,10 @@ public class CompositeRanker {
         List<ScoredProduct> combined = new ArrayList<>();
 
         // Primary: type-matched products (e.g. all SHOES), priority-ordered, capped at target.
+        int target = ctx.getTargetSize() > 0 ? ctx.getTargetSize() : TARGET_SIZE;
         List<ScoredProduct> typed = filter(scored, sp -> sp.type);
         typed.sort(byPriority);
-        combined.addAll(trim(typed, TARGET_SIZE));
+        combined.addAll(trim(typed, target));
 
         if (!strictType) {
             Set<Long> used = collectIds(combined);
@@ -128,6 +149,9 @@ public class CompositeRanker {
                 + " | activity=" + ctx.getActivity()
                 + " | topBrands=" + ctx.getTopBrands()
                 + " | queryBrand=" + ctx.getQueryBrand()
+                + " | queryGender=" + ctx.getQueryGender()
+                + " | queryColor=" + ctx.getQueryColor()
+                + " | querySize=" + ctx.getQuerySize()
                 + " | gender=" + ctx.getGenderPref());
 
         return combined.stream()
@@ -138,11 +162,12 @@ public class CompositeRanker {
     // ============== Composite scoring helpers ==============
 
     private double computeComposite(boolean typeMatch, boolean activityMatch, double brandScore,
-                                    ProductResponseDTO p, double mlNorm, RankingContext ctx) {
+                                    boolean colorMatch, ProductResponseDTO p, double mlNorm, RankingContext ctx) {
         double s = 0;
         s += ctx.getWType() * (typeMatch ? 1.0 : 0.0);
         s += ctx.getWActivity() * (activityMatch ? 1.0 : 0.0);
         s += ctx.getWBrand() * brandScore;
+        s += ctx.getWColor() * (colorMatch ? 1.0 : 0.0);
         s += ctx.getWGender() * genderScore(p, ctx.getGenderPref());
         s += ctx.getWMl() * mlNorm;
         s += ctx.getWText() * 0.5;  // placeholder for query token overlap
@@ -167,6 +192,32 @@ public class CompositeRanker {
             }
         }
         return 0.0;
+    }
+
+    /**
+     * Điểm khớp giới user nêu thẳng: đúng giới → 2, UNISEX → 1, sai giới/không rõ → 0.
+     * Int thay boolean để unisex không bị đánh đồng với sai giới (giày unisex vẫn mang được).
+     */
+    public static int queryGenderScore(ProductResponseDTO p, String queryGender) {
+        if (queryGender == null || p.getSex() == null) return 0;
+        String g = p.getSex().toUpperCase();
+        String pref = queryGender.toUpperCase();
+        String prefShort = pref.substring(0, Math.min(3, pref.length()));
+        if (g.startsWith(prefShort)) return 2;
+        if (g.equals("UNISEX")) return 1;
+        return 0;
+    }
+
+    /** True nếu sản phẩm có variant đúng size (so chuỗi, bỏ hoa thường) và còn hàng. */
+    public static boolean hasSizeInStock(ProductResponseDTO p, String size) {
+        if (size == null || size.isBlank() || p.getVariants() == null) return false;
+        for (ProductResponseDTO.VariantDTO v : p.getVariants()) {
+            if (v.getSize() != null && v.getSize().trim().equalsIgnoreCase(size.trim())
+                    && v.getQuantity() != null && v.getQuantity() > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean genderMatches(ProductResponseDTO p, String genderPref) {
@@ -219,5 +270,8 @@ public class CompositeRanker {
         final double brandScore;   // theo hạng trong topBrands (1.0 = hay xem nhất, 0 = ngoài list)
         final boolean gender;
         final boolean queryBrand;  // true nếu khớp brand user nêu thẳng trong query (balo "adidas")
+        final boolean queryColor;  // true nếu dominantColor khớp màu user nêu thẳng ("đen")
+        final int queryGenderScore; // 2 đúng giới user nêu, 1 unisex, 0 sai/không nêu
+        final boolean querySize;   // true nếu còn variant đúng size user nêu ("39") và còn hàng
     }
 }

@@ -33,6 +33,9 @@ public class ProductResponseDTO{
     private String brand;
     private String sex;
 
+    /** Màu chủ đạo canonical (vd "đen") — ranker/ML dùng làm "màu thật" để xếp hạng. */
+    private String dominantColor;
+
     private Set<String> tags;
 
     private List<VariantDTO> variants;
@@ -79,6 +82,7 @@ public class ProductResponseDTO{
                 .imageUrl(product.getImageUrl())
                 .brand(product.getBrand())
                 .sex(product.getSex())
+                .dominantColor(product.getDominantColor())
                 .tags(product.getTags())
                 .totalSold(product.getTotalSold())
                 .variants(product.getVariants() != null ? product.getVariants().stream()

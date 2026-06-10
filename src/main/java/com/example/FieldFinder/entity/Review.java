@@ -1,6 +1,8 @@
 package com.example.FieldFinder.entity;
 
 
+import com.example.FieldFinder.Enum.ModerationSource;
+import com.example.FieldFinder.Enum.ReviewStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -37,4 +39,22 @@ public class Review {
 
     @Column(name = "CreatedAt", nullable = false)
     private LocalDateTime createdAt;
+
+    // --- Kiểm duyệt ---
+    // Cột để nullable ở DB để ddl-auto=update thêm cột an toàn trên bảng đã có dữ liệu;
+    // ứng dụng luôn set khi tạo mới, dữ liệu cũ được backfill -> APPROVED khi khởi động.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "Status", length = 20)
+    @Builder.Default
+    private ReviewStatus status = ReviewStatus.PENDING;
+
+    @Column(name = "ModerationReason", columnDefinition = "TEXT")
+    private String moderationReason;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ModerationSource", length = 20)
+    private ModerationSource moderationSource;
+
+    @Column(name = "ModeratedAt")
+    private LocalDateTime moderatedAt;
 }

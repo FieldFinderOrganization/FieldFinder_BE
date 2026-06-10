@@ -36,6 +36,28 @@ def jaccard(a: set, b: set) -> float:
     return inter / union if union else 0.0
 
 
+# Màu được xử lý RIÊNG qua dominant_color (sạch, 1 màu chuẩn). Loại token màu khỏi tag-Jaccard để
+# màu phụ/accent (vd "black" trên giày trắng phối đen) KHÔNG tạo hit kéo hàng sai màu vào pool —
+# đây là nguồn rò chính của bug "gửi ảnh giày đen, hàng khác màu vẫn lọt".
+_COLOR_WORDS = frozenset({
+    "đen", "black", "than", "charcoal", "ebony",
+    "trắng", "white", "kem", "cream", "beige", "sữa", "ivory",
+    "xám", "gray", "grey", "ghi", "bạc", "silver",
+    "đỏ", "red", "crimson", "burgundy",
+    "cam", "orange", "coral",
+    "vàng", "yellow", "gold",
+    "hồng", "pink", "mận",
+    "tím", "purple", "violet",
+    "nâu", "brown", "tan", "cafe", "coffee",
+    "xanh", "green", "olive", "rêu", "lục", "lá",
+    "blue", "navy", "chàm", "sky", "biển", "dương",
+})
+
+
+def _strip_colors(tokens) -> list[str]:
+    return [t for t in tokens if t and t.lower() not in _COLOR_WORDS]
+
+
 def rrf_fuse(rankings: list[list[str]], k: int = 60) -> dict[str, float]:
     """Reciprocal Rank Fusion. Input: list of ranked id lists. Output: dict id -> score."""
     scores: dict[str, float] = {}
@@ -151,13 +173,17 @@ class HybridImageRetriever:
                   candidate_meta: list[dict]) -> list[dict]:
         if not gemini_tags:
             return []
-        gt = set(t.lower() for t in gemini_tags if t)
+        # Bỏ token màu khỏi Jaccard — màu do dominant_color lo riêng (xem _COLOR_WORDS).
+        gt = set(_strip_colors([t.lower() for t in gemini_tags if t]))
+        if not gt:
+            return []
         scored = []
         for m in candidate_meta:
             pid = m.get("item_id", "")
             # Use cached tags (fast) → fallback to meta tags
             tags = self._tag_cache.get(pid) or m.get("tags") or []
-            tags_set = set(t.lower() for t in tags if t) if not isinstance(tags, set) else tags
+            tags_list = list(tags) if isinstance(tags, set) else [t.lower() for t in tags if t]
+            tags_set = set(_strip_colors(tags_list))
             j = jaccard(gt, tags_set)
             if j > 0:
                 scored.append({"item_id": pid, "score": j})
@@ -168,10 +194,12 @@ class HybridImageRetriever:
                  gemini_tags: Optional[list[str]] = None,
                  category_ids: Optional[list[int]] = None,
                  top_k: int = 10, retrieve_k: int = 30,
-                 user_id: Optional[str] = None) -> list[dict]:
+                 user_id: Optional[str] = None,
+                 dominant_color: str = "") -> list[dict]:
         t0 = time.time()
         gemini_tags = gemini_tags or []
         category_ids = category_ids or []
+        img_color = (dominant_color or "").strip().lower()
         log.info("retrieve start: caption_len=%d tags=%d cat_ids=%d",
                  len(caption), len(gemini_tags), len(category_ids))
 
@@ -241,6 +269,23 @@ class HybridImageRetriever:
             m["rrf_score"] = rrf_scores.get(pid, 0.0)
             m["score"] = w_clip * clip_cos + w_rrf * rrf_norm
             candidates.append(m)
+
+        # Tín hiệu MÀU CHỦ ĐẠO (sạch): ảnh có màu rõ → đẩy sp đúng màu lên, sai màu xuống
+        # (boost/penalty, KHÔNG loại — an toàn recall). Bổ trợ cho rerank màu ở BE.
+        if img_color:
+            COLOR_BONUS, COLOR_PENALTY = 0.15, 0.10
+            adjusted = 0
+            for m in candidates:
+                cc = (m.get("dominant_color") or "").strip().lower()
+                if not cc:
+                    continue
+                if cc == img_color:
+                    m["score"] += COLOR_BONUS
+                else:
+                    m["score"] -= COLOR_PENALTY
+                adjusted += 1
+            log.info("color signal '%s' applied to %d/%d candidates", img_color, adjusted, len(candidates))
+
         candidates.sort(key=lambda x: -x["score"])
         log.info("blend weights: clip=%.1f rrf=%.1f (top_cosine_pool=%.3f)",
                  w_clip, w_rrf, top_cosine_pool)

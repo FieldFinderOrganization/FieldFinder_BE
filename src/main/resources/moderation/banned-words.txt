@@ -1,0 +1,63 @@
+# Danh sách từ cấm cho kiểm duyệt tự động (ModerationServiceImpl).
+# - Mỗi dòng một từ/cụm. Dòng trống và dòng bắt đầu bằng '#' bị bỏ qua.
+# - Hệ thống tự chuẩn hoá: bỏ dấu tiếng Việt, lowercase, gộp ký tự lặp.
+#   Vì vậy chỉ cần ghi dạng cơ bản không dấu (vd "dit me" khớp "địt mẹ", "đ.ị.t").
+#
+# QUY TẮC KHỚP (quan trọng để tránh chặn nhầm):
+#   - Từ ĐƠN (1 token)  -> khớp NGUYÊN token (vd "vcl" chỉ chặn khi đứng riêng).
+#   - Cụm NHIỀU TỪ      -> khớp chuỗi con (vd "dit me" chặn cả "ditme con").
+#   KHÔNG ghi từ đơn trùng từ phổ thông không dấu (ngu/ngủ, cac/các, deo/đeo,
+#   buoi/buổi, lon/lon...). Những từ đó chỉ để ở dạng cụm.
+
+# --- Viết tắt tục (token đơn, hiếm trùng từ thường) ---
+dm
+dme
+dcm
+dkm
+clm
+vcl
+vl
+djt
+loz
+cak
+cax
+dume
+concac
+cc
+cl
+
+# --- Cụm tục / xúc phạm (khớp chuỗi con) ---
+dit me
+dit con
+con cac
+con cak
+do ngu
+do cho
+do choa
+thang ngu
+con cho
+cho chet
+ngu nhu cho
+mat day
+do mat day
+khon nan
+ranh con
+suc vat
+do khon
+vai lon
+vai dai
+do dien
+dien khung
+lua dao
+hang gia
+hang nhai
+
+# --- Tiếng Anh (token đơn) ---
+fuck
+fck
+shit
+bitch
+asshole
+dick
+bastard
+scam

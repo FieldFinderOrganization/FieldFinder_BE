@@ -136,7 +136,8 @@ def build_pitch_features(pitches: pd.DataFrame) -> pd.DataFrame:
     p["brand"] = "NA"
     p["sex"] = "NA"
     p["tags"] = ""  # pitches have no product tags — keep column for concat
-    return p[["item_id", "item_type", "item_key", "price", "price_bucket", "category", "env", "brand", "sex", "tags", "name", "description"]]
+    p["dominant_color"] = ""  # pitches have no color — keep column for concat
+    return p[["item_id", "item_type", "item_key", "price", "price_bucket", "category", "env", "brand", "sex", "tags", "dominant_color", "name", "description"]]
 
 
 def build_product_features(products: pd.DataFrame) -> pd.DataFrame:
@@ -153,7 +154,9 @@ def build_product_features(products: pd.DataFrame) -> pd.DataFrame:
     p["sex"] = p.get("sex", pd.Series(dtype=str)).fillna("UNKNOWN")
     # tags: rich VN keywords (giày, sneaker, giày thể thao…) — key relevance signal
     p["tags"] = p.get("tags", pd.Series(dtype=str)).fillna("")
-    return p[["item_id", "item_type", "item_key", "price", "price_bucket", "category", "env", "brand", "sex", "tags", "name", "description"]]
+    # dominant_color: màu chủ đạo CHUẨN (sạch hơn tags) — tín hiệu màu cho retrieve text
+    p["dominant_color"] = p.get("dominant_color", pd.Series(dtype=str)).fillna("")
+    return p[["item_id", "item_type", "item_key", "price", "price_bucket", "category", "env", "brand", "sex", "tags", "dominant_color", "name", "description"]]
 
 
 def build_item_features(pitches: pd.DataFrame, products: pd.DataFrame) -> pd.DataFrame:

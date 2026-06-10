@@ -29,6 +29,10 @@ public class MLRetrieveByImageRequest {
     @Builder.Default
     private List<Long> categoryIds = new ArrayList<>();
 
+    /** Màu chủ đạo canonical của ảnh (vd "đen") — ML đẩy sp đúng màu lên, sai màu xuống. */
+    @JsonProperty("dominant_color")
+    private String dominantColor;
+
     @JsonProperty("top_k")
     @Builder.Default
     private int topK = 10;

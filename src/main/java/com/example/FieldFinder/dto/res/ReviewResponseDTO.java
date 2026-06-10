@@ -19,4 +19,6 @@ public class ReviewResponseDTO {
     private String userName;
     private String userImageUrl;
     private String pitchName;
+    private String status;            // PENDING | APPROVED | REJECTED
+    private String moderationReason;  // lý do nếu bị từ chối
 }

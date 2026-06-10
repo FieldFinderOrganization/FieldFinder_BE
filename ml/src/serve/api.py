@@ -39,7 +39,7 @@ _img_cache_lock = Lock()
 
 
 def _img_cache_key(img_bytes: bytes, caption: str, gemini_tags, category_ids,
-                   top_k: int, retrieve_k: int) -> str:
+                   top_k: int, retrieve_k: int, dominant_color: str = "") -> str:
     h = hashlib.sha256()
     h.update(img_bytes)
     h.update(b"|c=")
@@ -48,6 +48,8 @@ def _img_cache_key(img_bytes: bytes, caption: str, gemini_tags, category_ids,
     h.update(",".join(sorted(gemini_tags or [])).encode("utf-8"))
     h.update(b"|ci=")
     h.update(",".join(map(str, sorted(category_ids or []))).encode("utf-8"))
+    h.update(b"|col=")
+    h.update((dominant_color or "").encode("utf-8"))
     h.update(f"|k={top_k}|rk={retrieve_k}".encode("utf-8"))
     return h.hexdigest()
 
@@ -99,6 +101,7 @@ class ImageRetrieveRequest(BaseModel):
     caption: Optional[str] = None
     gemini_tags: list[str] = Field(default_factory=list)
     category_ids: list[int] = Field(default_factory=list)
+    dominant_color: Optional[str] = None  # màu chủ đạo canonical của ảnh (BE chuẩn hóa)
     user_id: Optional[str] = None
     top_k: int = Field(10, ge=1, le=20)
     retrieve_k: int = Field(30, ge=10, le=100)
@@ -277,7 +280,8 @@ async def retrieve_image(req: ImageRetrieveRequest):
 
     # LRU cache lookup — same image+params = skip full pipeline
     cache_key = _img_cache_key(img_bytes, req.caption or "", req.gemini_tags,
-                                req.category_ids, req.top_k, req.retrieve_k)
+                                req.category_ids, req.top_k, req.retrieve_k,
+                                req.dominant_color or "")
     cached = _img_cache_get(cache_key)
     if cached is not None:
         log.info("Image retrieve CACHE HIT key=%s", cache_key[:12])
@@ -300,6 +304,7 @@ async def retrieve_image(req: ImageRetrieveRequest):
         top_k=req.top_k,
         retrieve_k=req.retrieve_k,
         user_id=req.user_id,
+        dominant_color=req.dominant_color or "",
     )
     latency_ms = hits[0].get("latency_ms") if hits else None
     response = {

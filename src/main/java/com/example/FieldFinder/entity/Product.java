@@ -38,6 +38,14 @@ public class Product {
     private String brand;
     private String sex;
 
+    /**
+     * Màu chủ đạo CHUẨN (canonical VN, vd "đen", "trắng", "xanh dương) — nguồn màu đáng tin cho
+     * tìm kiếm/xếp hạng. AI seed lúc tạo sản phẩm, admin kiểm duyệt/sửa tay. Khác với {@link #tags}
+     * (gồm cả màu phụ/accent nhiễu). null = chưa gán.
+     */
+    @Column(name = "dominant_color", length = 32)
+    private String dominantColor;
+
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 

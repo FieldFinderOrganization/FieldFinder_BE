@@ -1,11 +1,15 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.Enum.ModerationSource;
+import com.example.FieldFinder.Enum.ReviewStatus;
 import com.example.FieldFinder.dto.req.ItemReviewRequestDTO;
 import com.example.FieldFinder.dto.req.ItemReviewUpdateRequestDTO;
 import com.example.FieldFinder.dto.res.ItemReviewResponseDTO;
 import com.example.FieldFinder.entity.Item_Review;
 import com.example.FieldFinder.entity.Product;
 import com.example.FieldFinder.entity.User;
+import com.example.FieldFinder.moderation.ModerationResult;
+import com.example.FieldFinder.moderation.ModerationService;
 import com.example.FieldFinder.repository.ItemReviewRepository;
 import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.UserRepository;
@@ -28,6 +32,7 @@ public class ItemReviewServiceImpl implements ItemReviewService {
     private final ItemReviewRepository reviewRepository;
     private final UserRepository userRepository;
     private final ProductRepository productRepository;
+    private final ModerationService moderationService;
 
     @Override
     @Transactional
@@ -38,7 +43,8 @@ public class ItemReviewServiceImpl implements ItemReviewService {
         Product product = productRepository.findById(request.getProductId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cannot find product!"));
 
-        if (reviewRepository.existsByUserAndProduct(user, product)) {
+        // Chỉ chặn nếu đã có đánh giá CHƯA bị từ chối; bị từ chối thì cho gửi lại.
+        if (reviewRepository.existsByUserAndProductAndStatusNot(user, product, ReviewStatus.REJECTED)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Bạn đã đánh giá sản phẩm này rồi");
         }
 
@@ -50,9 +56,26 @@ public class ItemReviewServiceImpl implements ItemReviewService {
                 .createdAt(LocalDateTime.now())
                 .build();
 
+        applyAutoModeration(review, request.getComment());
+
         Item_Review saved = reviewRepository.save(review);
 
         return mapToResponse(saved);
+    }
+
+    /**
+     * Bước 1 — kiểm duyệt tự động. Auto chặn -> REJECTED (AUTO); auto cho qua -> PENDING chờ duyệt thủ công.
+     */
+    private void applyAutoModeration(Item_Review review, String comment) {
+        ModerationResult result = moderationService.moderate(comment);
+        if (result.rejected()) {
+            review.setStatus(ReviewStatus.REJECTED);
+            review.setModerationSource(ModerationSource.AUTO);
+            review.setModerationReason(result.reason());
+            review.setModeratedAt(LocalDateTime.now());
+        } else {
+            review.setStatus(ReviewStatus.PENDING);
+        }
     }
 
     @Override
@@ -63,6 +86,11 @@ public class ItemReviewServiceImpl implements ItemReviewService {
 
         review.setRating(request.getRating());
         review.setComment(request.getComment());
+        // Sửa nội dung -> kiểm duyệt lại từ đầu.
+        review.setModerationReason(null);
+        review.setModerationSource(null);
+        review.setModeratedAt(null);
+        applyAutoModeration(review, request.getComment());
 
         Item_Review updated = reviewRepository.save(review);
         return mapToResponse(updated);
@@ -80,7 +108,8 @@ public class ItemReviewServiceImpl implements ItemReviewService {
     public List<ItemReviewResponseDTO> getReviewsByProduct(Long productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy sản phẩm"));
-        return reviewRepository.findByProduct(product).stream()
+        // Công khai: chỉ trả về đánh giá đã được duyệt.
+        return reviewRepository.findByProductAndStatus(product, ReviewStatus.APPROVED).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -114,6 +143,8 @@ public class ItemReviewServiceImpl implements ItemReviewService {
                 .rating(review.getRating())
                 .comment(review.getComment())
                 .createdAt(review.getCreatedAt())
+                .status(review.getStatus() != null ? review.getStatus().name() : null)
+                .moderationReason(review.getModerationReason())
                 .build();
     }
 }

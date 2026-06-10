@@ -145,6 +145,7 @@ def fetch_products(save: bool = True) -> pd.DataFrame:
             p.Brand AS brand,
             p.CategoryId AS category_id,
             p.Tags AS tags,
+            p.DominantColor AS dominant_color,
             p.ImageUrl AS image_url
         FROM Products p
     """

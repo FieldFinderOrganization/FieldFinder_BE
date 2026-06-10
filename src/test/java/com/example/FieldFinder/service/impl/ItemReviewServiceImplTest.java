@@ -1,11 +1,14 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.Enum.ReviewStatus;
 import com.example.FieldFinder.dto.req.ItemReviewRequestDTO;
 import com.example.FieldFinder.dto.req.ItemReviewUpdateRequestDTO;
 import com.example.FieldFinder.dto.res.ItemReviewResponseDTO;
 import com.example.FieldFinder.entity.Item_Review;
 import com.example.FieldFinder.entity.Product;
 import com.example.FieldFinder.entity.User;
+import com.example.FieldFinder.moderation.ModerationResult;
+import com.example.FieldFinder.moderation.ModerationService;
 import com.example.FieldFinder.repository.ItemReviewRepository;
 import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.UserRepository;
@@ -33,6 +36,7 @@ class ItemReviewServiceImplTest {
     @Mock ItemReviewRepository reviewRepository;
     @Mock UserRepository userRepository;
     @Mock ProductRepository productRepository;
+    @Mock ModerationService moderationService;
 
     @InjectMocks ItemReviewServiceImpl service;
 
@@ -76,6 +80,7 @@ class ItemReviewServiceImplTest {
 
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
             when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+            when(moderationService.moderate(any())).thenReturn(ModerationResult.pass());
             when(reviewRepository.save(any(Item_Review.class))).thenReturn(review);
 
             ItemReviewResponseDTO result = service.createReview(req);
@@ -96,7 +101,8 @@ class ItemReviewServiceImplTest {
 
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
             when(productRepository.findById(1L)).thenReturn(Optional.of(product));
-            when(reviewRepository.existsByUserAndProduct(user, product)).thenReturn(true);
+            when(reviewRepository.existsByUserAndProductAndStatusNot(user, product, ReviewStatus.REJECTED))
+                    .thenReturn(true);
 
             assertThrows(ResponseStatusException.class, () -> service.createReview(req));
             verify(reviewRepository, never()).save(any(Item_Review.class));
@@ -129,6 +135,7 @@ class ItemReviewServiceImplTest {
         @Test
         void existing_updatesAndReturnsDTO() {
             when(reviewRepository.findById(10L)).thenReturn(Optional.of(review));
+            when(moderationService.moderate(any())).thenReturn(ModerationResult.pass());
             when(reviewRepository.save(any(Item_Review.class))).thenAnswer(inv -> inv.getArgument(0));
 
             ItemReviewUpdateRequestDTO req = new ItemReviewUpdateRequestDTO();
@@ -175,7 +182,8 @@ class ItemReviewServiceImplTest {
         @Test
         void hasData_ReturnsList() {
             when(productRepository.findById(1L)).thenReturn(Optional.of(product));
-            when(reviewRepository.findByProduct(product)).thenReturn(List.of(review));
+            when(reviewRepository.findByProductAndStatus(product, ReviewStatus.APPROVED))
+                    .thenReturn(List.of(review));
 
             List<ItemReviewResponseDTO> result = service.getReviewsByProduct(1L);
 

@@ -15,6 +15,9 @@ public class ProductRequestDTO {
     private String brand;
     private String sex;
 
+    /** Màu chủ đạo canonical (vd "đen") — admin set khi duyệt; null = để AI seed. */
+    private String dominantColor;
+
     private Set<String> tags;
 
     private List<VariantDTO> variants;
