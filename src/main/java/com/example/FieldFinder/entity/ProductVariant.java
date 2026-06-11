@@ -14,6 +14,10 @@ public class ProductVariant {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Loại khỏi equals/hashCode/toString — product là proxy LAZY, hash/in log
+    // trên proxy detached sẽ nổ LazyInitializationException (xem OrderItem).
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;

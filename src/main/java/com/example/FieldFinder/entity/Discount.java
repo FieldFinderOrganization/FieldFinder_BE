@@ -49,6 +49,10 @@ public class Discount {
     @Column(name = "Scope", nullable = false)
     private DiscountScope scope;
 
+    // Loại khỏi equals/hashCode/toString — PersistentSet hash từng Product bên trong,
+    // lan sang category.parent proxy -> LazyInitializationException (xem OrderItem).
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     @ManyToMany(fetch = FetchType.LAZY)
     @org.hibernate.annotations.BatchSize(size = 50)
     @JoinTable(
@@ -59,6 +63,8 @@ public class Discount {
     @Builder.Default
     private Set<Product> applicableProducts = new HashSet<>();
 
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     @ManyToMany(fetch = FetchType.LAZY)
     @org.hibernate.annotations.BatchSize(size = 50)
     @JoinTable(

@@ -1268,34 +1268,18 @@ public class AIChat {
                         if (p.getVariants() == null || p.getVariants().isEmpty()) {
                             query.message = String.format("Sản phẩm '%s' hiện chưa cập nhật thông tin size.", p.getName());
                         } else {
-                            List<String> availableList = new ArrayList<>();
-                            for (ProductResponseDTO.VariantDTO v : p.getVariants()) {
-                                if (v.getQuantity() > 0) {
-                                    availableList.add(String.format("%s (còn %d)", v.getSize(), v.getQuantity()));
-                                }
-                            }
-
-                            if (availableList.isEmpty()) {
+                            String sizes = availableSizesString(p);
+                            if (sizes == null) {
                                 query.message = String.format("Tiếc quá, sản phẩm '%s' hiện đã hết sạch hàng các size rồi ạ.", p.getName());
                             } else {
-                                String sizeString = String.join(", ", availableList);
-                                query.message = String.format("Dạ mẫu '%s' hiện còn các size: %s. Bạn chốt size nào để mình lên đơn nhé?", p.getName(), sizeString);
+                                query.message = String.format("Dạ mẫu '%s' hiện còn các size: %s. Bạn chốt size nào để mình lên đơn nhé?", p.getName(), sizes);
                             }
                         }
                     }
                     else {
-                        boolean foundSize = false;
-                        int quantity = 0;
-                        if (p.getVariants() != null) {
-                            for (ProductResponseDTO.VariantDTO variant : p.getVariants()) {
-                                if (variant.getSize().equalsIgnoreCase(sizeToCheck)) {
-                                    foundSize = true;
-                                    quantity = variant.getQuantity();
-                                    break;
-                                }
-                            }
-                        }
-                        if (foundSize && quantity > 0) {
+                        ProductResponseDTO.VariantDTO variant = findVariantBySize(p, sizeToCheck);
+                        int quantity = (variant != null && variant.getQuantity() != null) ? variant.getQuantity() : 0;
+                        if (quantity > 0) {
                             if (sessionId != null) sessionContextStore.setLastSize(sessionId, sizeToCheck);
                             boolean hasOrderIntent = userInput != null && (
                                     userInput.toLowerCase().contains("đặt") ||
@@ -1306,15 +1290,24 @@ public class AIChat {
                             if (hasOrderIntent) {
                                 // Chuyển thẳng sang prepare_order flow
                                 int orderQty = extractQuantityFromInput(userInput, query.data.get("quantity"));
-                                query.message = String.format("Xác nhận: Bạn muốn đặt %d đôi %s - Size %s. Nhấn nút bên dưới để thanh toán nhé! 👇", orderQty, p.getName(), sizeToCheck);
-                                query.data.put("selectedSize", sizeToCheck);
-                                query.data.put("selectedQuantity", orderQty);
-                                query.data.put("action", "ready_to_order");
+                                if (orderQty > quantity) {
+                                    query.message = String.format("Sản phẩm '%s' size %s chỉ còn %d đôi (bạn muốn đặt %d). Bạn giảm số lượng hoặc đổi size nhé.",
+                                            p.getName(), sizeToCheck, quantity, orderQty);
+                                } else {
+                                    query.message = String.format("Xác nhận: Bạn muốn đặt %d đôi %s - Size %s. Nhấn nút bên dưới để thanh toán nhé! 👇", orderQty, p.getName(), sizeToCheck);
+                                    query.data.put("selectedSize", sizeToCheck);
+                                    query.data.put("selectedQuantity", orderQty);
+                                    query.data.put("action", "ready_to_order");
+                                }
                             } else {
                                 query.message = String.format("Sản phẩm '%s' size %s hiện đang còn hàng (SL: %d).", p.getName(), sizeToCheck, quantity);
                             }
                         } else {
-                            query.message = String.format("Tiếc quá, sản phẩm '%s' size %s hiện đang hết hàng.", p.getName(), sizeToCheck);
+                            String sizes = availableSizesString(p);
+                            query.message = sizes != null
+                                    ? String.format("Tiếc quá, sản phẩm '%s' size %s hiện đang hết hàng. Shop còn các size: %s.",
+                                            p.getName(), sizeToCheck, sizes)
+                                    : String.format("Tiếc quá, sản phẩm '%s' hiện đã hết hàng tất cả các size.", p.getName());
                         }
                     }
                 }
@@ -1329,10 +1322,25 @@ public class AIChat {
                     if (sizeToOrder == null) {
                         query.message = String.format("Bạn muốn đặt size nào cho sản phẩm '%s'? (VD: 'Lấy size 40').", p.getName());
                     } else {
-                        query.message = String.format("Xác nhận: Bạn muốn đặt %d đôi %s - Size %s. Nhấn nút bên dưới để thanh toán nhé! 👇", quantity, p.getName(), sizeToOrder);
-                        query.data.put("selectedSize", sizeToOrder);
-                        query.data.put("selectedQuantity", quantity);
-                        query.data.put("action", "ready_to_order");
+                        // Check size + tồn kho TRƯỚC khi hiện card thanh toán — không để tới
+                        // checkout mới nổ ở StockLockService (quantity DTO = availableQuantity, khớp lock check).
+                        ProductResponseDTO.VariantDTO variant = findVariantBySize(p, sizeToOrder);
+                        int avail = (variant != null && variant.getQuantity() != null) ? variant.getQuantity() : 0;
+                        if (avail <= 0) {
+                            String sizes = availableSizesString(p);
+                            query.message = sizes != null
+                                    ? String.format("Tiếc quá, sản phẩm '%s' hiện không còn size %s. Shop còn các size: %s. Bạn đổi size để mình lên đơn nhé?",
+                                            p.getName(), sizeToOrder, sizes)
+                                    : String.format("Tiếc quá, sản phẩm '%s' hiện đã hết hàng tất cả các size.", p.getName());
+                        } else if (avail < quantity) {
+                            query.message = String.format("Sản phẩm '%s' size %s chỉ còn %d đôi (bạn muốn đặt %d). Bạn giảm số lượng hoặc đổi size nhé.",
+                                    p.getName(), sizeToOrder, avail, quantity);
+                        } else {
+                            query.message = String.format("Xác nhận: Bạn muốn đặt %d đôi %s - Size %s. Nhấn nút bên dưới để thanh toán nhé! 👇", quantity, p.getName(), sizeToOrder);
+                            query.data.put("selectedSize", sizeToOrder);
+                            query.data.put("selectedQuantity", quantity);
+                            query.data.put("action", "ready_to_order");
+                        }
                     }
                 }
 
@@ -2136,8 +2144,28 @@ public class AIChat {
             }
             String criteriaDesc = buildCriteriaDesc(detectedType, queryBrand, genderVN, queryColor);
             if (!exactIdx.isEmpty()) {
-                tieredMessage = String.format("Tìm thấy %d sản phẩm %s%s đúng yêu cầu của bạn 👇",
-                        exactIdx.size(), criteriaDesc, querySize != null ? " size " + querySize : "");
+                StringBuilder mb = new StringBuilder(String.format("Tìm thấy %d sản phẩm %s%s đúng yêu cầu của bạn",
+                        exactIdx.size(), criteriaDesc, querySize != null ? " size " + querySize : ""));
+                if (querySize != null) {
+                    // Tầng 1 có size: chỉ giữ sp CÒN size yêu cầu — exact trước, bù mẫu khác còn size
+                    // (sizeAlt) cho đỡ thưa. Không để lọt sp hết size vào list dù ranker xếp cao.
+                    List<Integer> keep = new ArrayList<>(exactIdx.subList(0, Math.min(10, exactIdx.size())));
+                    int altCap = Math.min(Math.min(5, 10 - keep.size()), sizeAltIdx.size());
+                    if (altCap > 0) {
+                        keep.addAll(sizeAltIdx.subList(0, altCap));
+                        mb.append(", kèm vài mẫu tương tự cũng còn size ").append(querySize);
+                    }
+                    List<ProductResponseDTO> tierResults = new ArrayList<>();
+                    List<Double> tierScores = new ArrayList<>();
+                    for (int i : keep) {
+                        tierResults.add(results.get(i));
+                        tierScores.add(i < retrievalScores.size() ? retrievalScores.get(i) : 0.0);
+                    }
+                    results = tierResults;
+                    retrievalScores = tierScores;
+                }
+                mb.append(" 👇");
+                tieredMessage = mb.toString();
             } else if (querySize != null && (!otherSizeIdx.isEmpty() || !sizeAltIdx.isEmpty())) {
                 // Tầng 2: hết size — show nhóm 1 (size khác) + nhóm 2 (mẫu khác còn size), mỗi nhóm giữ thứ tự ranked.
                 List<Integer> keep = new ArrayList<>();
@@ -3441,6 +3469,26 @@ public class AIChat {
             if (m.find()) return Math.max(1, Integer.parseInt(m.group(1)));
         }
         return 1;
+    }
+
+    private static ProductResponseDTO.VariantDTO findVariantBySize(ProductResponseDTO p, String size) {
+        if (p.getVariants() == null || size == null) return null;
+        for (ProductResponseDTO.VariantDTO v : p.getVariants()) {
+            if (size.equalsIgnoreCase(v.getSize())) return v;
+        }
+        return null;
+    }
+
+    /** "39 (còn 5), 40 (còn 2)" — chỉ size còn hàng (quantity DTO = availableQuantity, đã trừ locked); null nếu hết sạch/chưa có variant. */
+    private static String availableSizesString(ProductResponseDTO p) {
+        if (p.getVariants() == null || p.getVariants().isEmpty()) return null;
+        List<String> list = new ArrayList<>();
+        for (ProductResponseDTO.VariantDTO v : p.getVariants()) {
+            if (v.getQuantity() != null && v.getQuantity() > 0) {
+                list.add(String.format("%s (còn %d)", v.getSize(), v.getQuantity()));
+            }
+        }
+        return list.isEmpty() ? null : String.join(", ", list);
     }
 
     private static final String SYSTEM_INSTRUCTION = """

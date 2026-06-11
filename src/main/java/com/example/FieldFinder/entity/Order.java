@@ -21,10 +21,16 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long orderId;
 
+    // Quan hệ JPA loại khỏi equals/hashCode/toString — tránh Hibernate dirty-check
+    // hash xuyên đồ thị entity (xem chú thích ở OrderItem).
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     @ManyToOne
     @JoinColumn(name = "shipper_id")
     private User shipper;
@@ -52,6 +58,8 @@ public class Order {
 
     private LocalDateTime paymentTime;
 
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL)
     private List<OrderItem> items;
 

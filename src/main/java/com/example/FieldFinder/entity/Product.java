@@ -27,6 +27,10 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long productId;
 
+    // Quan hệ JPA loại khỏi equals/hashCode/toString — tránh hash lan sang
+    // category.parent (proxy LAZY) khi Hibernate dirty-check (xem OrderItem).
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     @ManyToOne
     @JoinColumn(name = "category_id")
     private Category category;
@@ -64,6 +68,8 @@ public class Product {
     @Builder.Default
     private Set<String> tags = new HashSet<>();
 
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @org.hibernate.annotations.BatchSize(size = 50)
     private List<ProductVariant> variants;
@@ -74,6 +80,8 @@ public class Product {
     @Column(name = "image_phash")
     private Long imagePhash;
 
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @org.hibernate.annotations.BatchSize(size = 50)
     @Builder.Default
