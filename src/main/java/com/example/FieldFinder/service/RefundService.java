@@ -7,6 +7,7 @@ import com.example.FieldFinder.entity.User;
 
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface RefundService {
 
@@ -15,6 +16,17 @@ public interface RefundService {
                                     String sourceId,
                                     BigDecimal amount,
                                     String reason);
+
+    /**
+     * Như bản 5 tham số, nhưng mã phát hành bị giới hạn: chỉ dùng đặt sân
+     * của provider {@code restrictProviderId} (null = không giới hạn).
+     */
+    RefundRequest issueRefundCredit(User user,
+                                    RefundSourceType sourceType,
+                                    String sourceId,
+                                    BigDecimal amount,
+                                    String reason,
+                                    UUID restrictProviderId);
 
     int DEFAULT_EXPIRY_DAYS = 90;
 

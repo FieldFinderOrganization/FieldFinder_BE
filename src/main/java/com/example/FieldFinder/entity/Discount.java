@@ -98,6 +98,21 @@ public class Discount {
     @Column(name = "MinTier", length = 20)
     private UserTier minTier;
 
+    /**
+     * Giá đổi bằng điểm thưởng; null = không bán bằng điểm.
+     * Mã có pointCost KHÔNG được phát free (bulk assign / welcome / tier-up / save ví).
+     */
+    @Column(name = "PointCost")
+    private Integer pointCost;
+
+    /**
+     * Khác null = mã chỉ dùng để đặt sân của provider này (mã hoàn tiền do
+     * provider hủy đơn phát hành) — không áp dụng cho sản phẩm hay sân khác.
+     * UUID trần thay vì @ManyToOne Provider để @Data không walk entity graph.
+     */
+    @Column(name = "restrict_provider_id")
+    private UUID restrictProviderId;
+
     public enum DiscountStatus { ACTIVE, INACTIVE, EXPIRED }
     public enum DiscountType { PERCENTAGE, FIXED_AMOUNT }
     public enum DiscountScope { GLOBAL, SPECIFIC_PRODUCT, CATEGORY }

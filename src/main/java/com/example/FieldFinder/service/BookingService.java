@@ -20,6 +20,7 @@ public interface BookingService {
     List<ProviderBookingResponseDTO> getBookingsByUser(UUID userId);
     Booking getBookingDetails(UUID bookingId);
     void cancelBookingByUser(UUID bookingId, UUID userId, String reason);
+    void cancelBookingByProvider(UUID bookingId, UUID providerUserId, String reason);
     BigDecimal calculateTotalPrice(UUID bookingId);
     List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate);
     List<BookingResponseDTO> getAllBookings();

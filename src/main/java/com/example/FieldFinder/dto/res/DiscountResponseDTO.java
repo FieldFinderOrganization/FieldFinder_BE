@@ -36,6 +36,7 @@ public class DiscountResponseDTO {
     private String status;
     private String kind; // PROMOTION | REFUND_CREDIT — FE phân biệt mã quảng cáo vs mã hoàn tiền
     private String minTier; // null = mọi hạng; "VIP"/"GOLD"/"DIAMOND" = hạng đó trở lên
+    private Integer pointCost; // null = không đổi bằng điểm
 
     public static DiscountResponseDTO fromEntity(Discount discount) {
         return DiscountResponseDTO.builder()
@@ -59,6 +60,7 @@ public class DiscountResponseDTO {
                 .status(discount.getStatus().name())
                 .kind(discount.getKind() != null ? discount.getKind().name() : "PROMOTION")
                 .minTier(discount.getMinTier() != null ? discount.getMinTier().name() : null)
+                .pointCost(discount.getPointCost())
                 .build();
     }
 }

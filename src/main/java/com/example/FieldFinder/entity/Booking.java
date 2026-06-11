@@ -1,6 +1,7 @@
 package com.example.FieldFinder.entity;
 
 import com.example.FieldFinder.Enum.BookingStatus;
+import com.example.FieldFinder.Enum.CancelActor;
 import com.example.FieldFinder.Enum.PaymentStatus;
 import jakarta.persistence.*;
 import lombok.*;
@@ -54,4 +55,12 @@ public class Booking {
     @Builder.Default
     @Column(name = "is_reminder_sent")
     private Boolean isReminderSent = false;
+
+    /** Ai hủy booking (USER/PROVIDER/SYSTEM); null nếu chưa hủy. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cancelled_by", length = 20)
+    private CancelActor cancelledBy;
+
+    @Column(name = "cancel_reason", columnDefinition = "TEXT")
+    private String cancelReason;
 }

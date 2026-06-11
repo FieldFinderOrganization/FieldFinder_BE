@@ -106,8 +106,16 @@ public class User {
     @Column(name = "TierUpdatedAt")
     private LocalDateTime tierUpdatedAt;
 
+    /** Điểm thưởng tích lũy (10.000đ = 1 điểm khi đơn DELIVERED). Row cũ NULL = 0. */
+    @Column(name = "Points")
+    private Integer points;
+
     /** Row cũ trước khi có cột Tier sẽ NULL — coi như MEMBER. */
     public UserTier getEffectiveTier() {
         return tier != null ? tier : UserTier.MEMBER;
+    }
+
+    public int getEffectivePoints() {
+        return points != null ? points : 0;
     }
 }

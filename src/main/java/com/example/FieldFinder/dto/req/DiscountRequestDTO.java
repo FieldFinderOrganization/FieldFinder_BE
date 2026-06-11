@@ -31,6 +31,8 @@ public class DiscountRequestDTO {
 
     private String minTier; // null/blank/"ALL" = mọi user | "MEMBER" | "VIP" | "GOLD" | "DIAMOND"
 
+    private Integer pointCost; // null = không bán bằng điểm; có giá = chỉ đổi qua điểm thưởng
+
     public com.example.FieldFinder.Enum.UserTier parseMinTier() {
         if (this.minTier == null || this.minTier.isBlank() || "ALL".equalsIgnoreCase(this.minTier)) {
             return null;
@@ -84,6 +86,7 @@ public class DiscountRequestDTO {
                 .endDate(this.endDate)
                 .status(statusEnum)
                 .minTier(parseMinTier())
+                .pointCost(this.pointCost)
                 .build();
     }
 }

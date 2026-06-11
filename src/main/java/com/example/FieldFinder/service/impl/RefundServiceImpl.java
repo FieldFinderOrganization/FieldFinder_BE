@@ -45,6 +45,17 @@ public class RefundServiceImpl implements RefundService {
                                            String sourceId,
                                            BigDecimal amount,
                                            String reason) {
+        return issueRefundCredit(user, sourceType, sourceId, amount, reason, null);
+    }
+
+    @Override
+    @Transactional
+    public RefundRequest issueRefundCredit(User user,
+                                           RefundSourceType sourceType,
+                                           String sourceId,
+                                           BigDecimal amount,
+                                           String reason,
+                                           java.util.UUID restrictProviderId) {
         if (user == null) throw new IllegalArgumentException("User required");
         if (amount == null || amount.signum() <= 0) {
             throw new IllegalArgumentException("Refund amount must be positive");
@@ -68,6 +79,10 @@ public class RefundServiceImpl implements RefundService {
         req = refundRequestRepository.save(req);
 
         Discount discount = generateRefundDiscount(amount);
+        if (restrictProviderId != null) {
+            discount.setRestrictProviderId(restrictProviderId);
+            discount.setDescription("Mã hoàn tiền — chỉ áp dụng cho sân của chủ sân đã phát hành");
+        }
         discount = discountRepository.save(discount);
 
         UserDiscount userDiscount = UserDiscount.builder()

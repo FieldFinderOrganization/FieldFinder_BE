@@ -297,4 +297,25 @@ public class BookingController {
 
         return ResponseEntity.ok(response);
     }
+
+    @PutMapping("/{bookingId}/provider-cancel")
+    @PreAuthorize("hasRole('PROVIDER')")
+    public ResponseEntity<Map<String, Object>> cancelBookingByProvider(
+            @PathVariable UUID bookingId,
+            @RequestParam("reason") String reason,
+            Authentication authentication) {
+        UUID userId = getUserIdFromAuth(authentication);
+
+        if (userId == null) {
+            return ResponseEntity.status(401).body(Map.of("message", "Không xác định được người dùng!"));
+        }
+
+        bookingService.cancelBookingByProvider(bookingId, userId, reason);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Đã hủy đơn đặt sân của khách.");
+        response.put("bookingId", bookingId);
+
+        return ResponseEntity.ok(response);
+    }
 }

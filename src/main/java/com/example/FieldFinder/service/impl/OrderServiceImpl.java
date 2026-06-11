@@ -56,6 +56,7 @@ public class OrderServiceImpl implements OrderService {
     private final RefundService refundService;
     private final UserTierService userTierService;
     private final com.example.FieldFinder.service.DiscountUsageService discountUsageService;
+    private final com.example.FieldFinder.service.PointService pointService;
 
     private static final long ORDER_REFUND_WINDOW_HOURS = 24;
 
@@ -231,6 +232,13 @@ public class OrderServiceImpl implements OrderService {
             UserDiscount userDiscount = userDiscountRepository.findByUserAndDiscount(user, discount)
                     .orElse(null);
 
+            // Mã hoàn do provider hủy đặt sân phát hành: chỉ dùng đặt sân, không dùng cho sản phẩm
+            if (discount.getKind() == com.example.FieldFinder.Enum.DiscountKind.REFUND_CREDIT
+                    && discount.getRestrictProviderId() != null) {
+                throw new RuntimeException(
+                        "Mã hoàn tiền này chỉ dùng cho đặt sân, không áp dụng cho sản phẩm: " + code);
+            }
+
             if (userDiscount == null) {
                 if (discount.getKind() == com.example.FieldFinder.Enum.DiscountKind.REFUND_CREDIT) {
                     throw new RuntimeException("Mã hoàn tiền không thuộc về người dùng này: " + code);
@@ -395,6 +403,13 @@ public class OrderServiceImpl implements OrderService {
         // Admin hủy tay cũng phải hoàn voucher như các đường hủy khác
         if (newStatus == OrderStatus.CANCELED) {
             discountUsageService.revertForOrder(order.getOrderId());
+        }
+
+        // Điểm thưởng: cộng khi giao xong, trừ lại nếu đơn đã giao bị hủy (idempotent)
+        if (newStatus == OrderStatus.DELIVERED) {
+            pointService.awardForOrder(order);
+        } else if (newStatus == OrderStatus.CANCELED) {
+            pointService.revertForOrder(order.getOrderId());
         }
 
         if ((newStatus == OrderStatus.DELIVERED || newStatus == OrderStatus.CANCELED

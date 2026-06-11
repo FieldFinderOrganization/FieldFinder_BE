@@ -69,12 +69,15 @@ public class DiscountServiceImpl implements DiscountService {
 
         Discount saved = discountRepository.save(discount);
 
-        if (saved.getMinTier() == null) {
-            userDiscountRepository.bulkAssignToAllUsers(saved.getDiscountId());
-        } else {
-            // Mã gắn hạng: chỉ đẩy vào ví user có hạng >= minTier
-            userDiscountRepository.bulkAssignToUsersByTiers(
-                    saved.getDiscountId(), tierNamesFrom(saved.getMinTier()));
+        // Mã đổi điểm KHÔNG phát free vào ví — user phải đổi qua /api/points/redeem
+        if (saved.getPointCost() == null) {
+            if (saved.getMinTier() == null) {
+                userDiscountRepository.bulkAssignToAllUsers(saved.getDiscountId());
+            } else {
+                // Mã gắn hạng: chỉ đẩy vào ví user có hạng >= minTier
+                userDiscountRepository.bulkAssignToUsersByTiers(
+                        saved.getDiscountId(), tierNamesFrom(saved.getMinTier()));
+            }
         }
 
         clearProductCacheByDiscount(saved);
@@ -115,6 +118,7 @@ public class DiscountServiceImpl implements DiscountService {
         }
 
         discount.setMinTier(dto.parseMinTier());
+        discount.setPointCost(dto.getPointCost());
 
         handleScopeMapping(discount, dto);
 
@@ -241,6 +245,9 @@ public class DiscountServiceImpl implements DiscountService {
                 && !user.getEffectiveTier().isAtLeast(discount.getMinTier())) {
             throw new RuntimeException(
                     "Voucher chỉ dành cho hạng " + discount.getMinTier().name() + " trở lên");
+        }
+        if (discount.getPointCost() != null) {
+            throw new RuntimeException("Mã này chỉ đổi được bằng điểm thưởng");
         }
 
         if (userDiscountRepository.existsByUserAndDiscount(user, discount)) {

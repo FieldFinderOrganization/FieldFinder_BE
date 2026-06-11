@@ -298,7 +298,7 @@ public class EmailServiceImpl implements EmailService {
         } else if (method == PaymentMethod.BANK) {
             headerTitle = "Đã nhận đơn đặt sân!";
             headerColor = "#f39c12"; // Orange
-            instruction = "Bạn đã đặt sân thành công. Vui lòng hoàn tất thanh toán qua ứng dụng tối thiểu 5 phút trước thời điểm bắt đầu trận đấu để chính thức xác nhận lịch đặt.";
+            instruction = "Bạn đã đặt sân thành công. Vui lòng hoàn tất thanh toán qua ứng dụng tối thiểu 60 phút trước thời điểm bắt đầu trận đấu để chính thức xác nhận lịch đặt.";
         } else if (method == PaymentMethod.CASH) {
             headerTitle = "Đặt sân thành công!";
             headerColor = "#188862"; // Green
@@ -452,8 +452,24 @@ public class EmailServiceImpl implements EmailService {
         html.append("<p>Chào <strong>").append(booking.getUser().getName()).append("</strong>,</p>");
         html.append("<p>Chúng tôi rất tiếc phải thông báo rằng đơn đặt sân của bạn vào ngày <strong>")
                 .append(booking.getBookingDate().format(dateFormatter))
-                .append("</strong> đã bị hủy do chưa hoàn tất thanh toán hoặc theo yêu cầu.</p>");
-        html.append("<p>Nếu bạn đã thanh toán, vui lòng liên hệ bộ phận hỗ trợ để được xử lý.</p>");
+                .append("</strong> đã bị hủy.</p>");
+        if (booking.getCancelledBy() != null) {
+            String actorLabel = switch (booking.getCancelledBy()) {
+                case USER -> "Bạn";
+                case PROVIDER -> "Chủ sân";
+                case SYSTEM -> "Hệ thống";
+            };
+            html.append("<p><strong>Người hủy:</strong> ").append(actorLabel).append("</p>");
+        }
+        if (booking.getCancelReason() != null && !booking.getCancelReason().isBlank()) {
+            html.append("<p><strong>Lý do:</strong> ").append(booking.getCancelReason()).append("</p>");
+        }
+        if (booking.getPaymentStatus() == PaymentStatus.REFUNDED) {
+            html.append("<p>Tiền của bạn được hoàn qua <strong>mã hoàn tiền</strong> — kiểm tra email "
+                    + "kèm theo hoặc ví voucher trong ứng dụng.</p>");
+        } else {
+            html.append("<p>Nếu bạn đã thanh toán, vui lòng liên hệ bộ phận hỗ trợ để được xử lý.</p>");
+        }
         html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
         html.append("</div></body></html>");
         return html.toString();
@@ -502,7 +518,7 @@ public class EmailServiceImpl implements EmailService {
         html.append("<p>Chào <strong>").append(booking.getUser().getName()).append("</strong>,</p>");
         html.append("<p>Bạn có đơn đặt sân vào lúc <strong>").append(startTimeStr).append("</strong> ngày <strong>")
                 .append(booking.getBookingDate().format(dateFormatter)).append("</strong>.</p>");
-        html.append("<p style='color: #d32f2f; font-weight: bold;'>Lưu ý: Chỉ còn 10 phút để hoàn tất thanh toán nếu không muốn lịch đặt bị tự động hủy.</p>");
+        html.append("<p style='color: #d32f2f; font-weight: bold;'>Lưu ý: Chỉ còn 120 phút để hoàn tất thanh toán nếu không muốn lịch đặt bị tự động hủy.</p>");
 
         html.append("<h3 style='margin-top: 20px;'>Thông tin đơn đặt:</h3>");
         html.append("<table style='width: 100%; border-collapse: collapse;'>");

@@ -81,6 +81,7 @@ public interface UserDiscountRepository extends JpaRepository<UserDiscount, UUID
             "SELECT UUID_TO_BIN(UUID()), :userId, d.discount_id, false, NOW() " +
             "FROM discounts d " +
             "WHERE d.status = 'ACTIVE' AND d.end_date >= CURDATE() AND d.kind = 'PROMOTION' " +
+            "AND d.point_cost IS NULL " +  // mã đổi điểm không phát free
             "AND (d.min_tier IS NULL OR d.min_tier IN (:tiers)) " +
             "AND NOT EXISTS (" +
             "  SELECT 1 FROM user_discounts ud " +

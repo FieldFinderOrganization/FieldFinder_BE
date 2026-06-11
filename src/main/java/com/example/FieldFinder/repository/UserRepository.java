@@ -44,6 +44,23 @@ public interface UserRepository extends JpaRepository<User, UUID> {
                                @Param("role") User.Role role,
                                Pageable pageable);
 
+    /** Cộng/trừ điểm thưởng atomic (delta âm = trừ, cho phép âm khi revert). */
+    @Transactional
+    @Modifying
+    @Query("UPDATE User u SET u.points = COALESCE(u.points, 0) + :delta WHERE u.userId = :id")
+    int addPoints(@Param("id") UUID id, @Param("delta") int delta);
+
+    /**
+     * Trừ điểm khi đổi voucher — guard số dư trong cùng câu UPDATE (race-safe).
+     * 0 row = không đủ điểm.
+     */
+    @Transactional
+    @Modifying
+    @Query(value = "UPDATE users SET points = points - :cost " +
+            "WHERE user_id = :id AND COALESCE(points, 0) >= :cost",
+            nativeQuery = true)
+    int deductPointsIfEnough(@Param("id") UUID id, @Param("cost") int cost);
+
     /**
      * Job đêm: tính lại tier + total_spent12m cho TOÀN BỘ user bằng 1 câu UPDATE...JOIN
      * (set-based, không N+1). Chi tiêu = tổng đơn PAID/CONFIRMED/DELIVERED trong cửa sổ :since.
