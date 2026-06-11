@@ -67,6 +67,8 @@ public class AdminDetailController {
             item.put("phone", u.getPhone() != null ? u.getPhone() : "");
             item.put("role", u.getRole().name());
             item.put("status", u.getStatus().name());
+            item.put("tier", u.getEffectiveTier().name());
+            item.put("totalSpent12m", u.getTotalSpent12m() != null ? u.getTotalSpent12m() : 0.0);
             item.put("lastLoginAt", u.getLastLoginAt() != null
                     ? u.getLastLoginAt().toInstant().toString() : null);
             item.put("createdAt", u.getCreatedAt() != null

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.FieldFinder.Enum.CategoryType;
+import com.example.FieldFinder.Enum.UserTier;
 
 import java.time.LocalDate;
 import java.util.*;
@@ -68,11 +69,26 @@ public class DiscountServiceImpl implements DiscountService {
 
         Discount saved = discountRepository.save(discount);
 
-        userDiscountRepository.bulkAssignToAllUsers(saved.getDiscountId());
+        if (saved.getMinTier() == null) {
+            userDiscountRepository.bulkAssignToAllUsers(saved.getDiscountId());
+        } else {
+            // Mã gắn hạng: chỉ đẩy vào ví user có hạng >= minTier
+            userDiscountRepository.bulkAssignToUsersByTiers(
+                    saved.getDiscountId(), tierNamesFrom(saved.getMinTier()));
+        }
 
         clearProductCacheByDiscount(saved);
 
         return DiscountResponseDTO.fromEntity(saved);
+    }
+
+    /** Tên các tier từ minTier trở lên (semantics "hạng đó trở lên"). */
+    private static List<String> tierNamesFrom(UserTier minTier) {
+        List<String> names = new ArrayList<>();
+        for (UserTier t : UserTier.values()) {
+            if (t.ordinal() >= minTier.ordinal()) names.add(t.name());
+        }
+        return names;
     }
 
     @Override
@@ -97,6 +113,8 @@ public class DiscountServiceImpl implements DiscountService {
         } catch (Exception e) {
             discount.setStatus(Discount.DiscountStatus.INACTIVE);
         }
+
+        discount.setMinTier(dto.parseMinTier());
 
         handleScopeMapping(discount, dto);
 
@@ -219,6 +237,11 @@ public class DiscountServiceImpl implements DiscountService {
         if (discount.getQuantity() <= 0) {
             throw new RuntimeException("Discount is out of stock");
         }
+        if (discount.getMinTier() != null
+                && !user.getEffectiveTier().isAtLeast(discount.getMinTier())) {
+            throw new RuntimeException(
+                    "Voucher chỉ dành cho hạng " + discount.getMinTier().name() + " trở lên");
+        }
 
         if (userDiscountRepository.existsByUserAndDiscount(user, discount)) {
             throw new RuntimeException("You have already saved this voucher");
@@ -233,8 +256,8 @@ public class DiscountServiceImpl implements DiscountService {
 
         userDiscountRepository.save(userDiscount);
 
-        discount.setQuantity(discount.getQuantity() - 1);
-        discountRepository.save(discount);
+        // Không trừ quantity khi lưu — quantity = tổng lượt SỬ DỤNG, trừ atomic lúc checkout
+        // (nhất quán với bulk assign cũng không trừ).
 
         clearProductCacheByDiscount(discount);
     }
@@ -281,5 +304,30 @@ public class DiscountServiceImpl implements DiscountService {
             userDiscountRepository.save(ud);
         }
         clearProductCacheByDiscount(discount);
+    }
+
+    @Override
+    @Transactional
+    public int assignToTier(String id, UserTier tier) {
+        Discount discount = discountRepository.findById(UUID.fromString(id))
+                .orElseThrow(() -> new RuntimeException("Discount not found!"));
+
+        int assigned = userDiscountRepository.bulkAssignToUsersByTiers(
+                discount.getDiscountId(), tierNamesFrom(tier));
+        clearProductCacheByDiscount(discount);
+        return assigned;
+    }
+
+    @Override
+    @Transactional
+    public void grantWelcomeVouchers(UUID userId) {
+        if (userId == null) return;
+        try {
+            userDiscountRepository.bulkAssignEligibleDiscountsToUser(
+                    userId, List.of(UserTier.MEMBER.name()));
+        } catch (Exception e) {
+            // Không chặn flow đăng ký nếu gán voucher lỗi
+            System.err.println("Lỗi gán welcome voucher cho user " + userId + ": " + e.getMessage());
+        }
     }
 }

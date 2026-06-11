@@ -1007,7 +1007,7 @@ public class AIChat {
         double[] base = new double[n];
         double[] boosted = new double[n];
         boolean[] isQueryBrand = new boolean[n];   // candidate matches the requested/anchor brand
-        boolean[] isQueryColor = new boolean[n];   // candidate's dominantColor matches the image color
+        int[] colorRank = new int[n];              // 2 = dominant khớp, 1 = trong colors (đa màu), 0 = không
         for (int i = 0; i < n; i++) {
             ProductResponseDTO p = products.get(i);
             base[i] = (i < scores.size() && scores.get(i) != null) ? scores.get(i) : 0.0;
@@ -1016,9 +1016,12 @@ public class AIChat {
                 if (!catSet.isEmpty() && p.getCategoryId() != null && catSet.contains(p.getCategoryId())) {
                     add += W_CAT;
                 }
-                if (qColor != null && colorMatches(p, qColor)) {
-                    add += W_COLOR;
-                    isQueryColor[i] = true;
+                if (qColor != null) {
+                    int cr = colorRankOf(p, qColor);
+                    colorRank[i] = cr;
+                    // Màu thuần (dominant) full boost; sp đa màu (trong colors) boost 0.6 → vẫn hiện, xếp sau.
+                    if (cr == 2) add += W_COLOR;
+                    else if (cr == 1) add += W_COLOR * 0.6;
                 }
                 if (qBrand != null && p.getBrand() != null && p.getBrand().toLowerCase().equals(qBrand)) {
                     add += W_BRAND;
@@ -1030,12 +1033,12 @@ public class AIChat {
 
         List<Integer> order = new ArrayList<>(n);
         for (int i = 0; i < n; i++) order.add(i);
-        // Sort keys (mirror text-path CompositeRanker): brand nêu thẳng > màu khớp > điểm boosted.
-        // Màu là khóa mạnh — sp đúng màu lên trước, sai màu rớt xuống (KHÔNG loại, an toàn recall).
-        // No-op khi không có brand/màu (mọi cờ false → về boosted desc như cũ).
+        // Sort keys (mirror text-path CompositeRanker): brand nêu thẳng > mức khớp màu (2>1>0) > boosted.
+        // Màu là khóa mạnh — màu thuần lên trước, sp đa màu kế, sai màu rớt cuối (KHÔNG loại, an toàn recall).
+        // No-op khi không có brand/màu (cờ false / colorRank 0 → về boosted desc như cũ).
         order.sort((a, b) -> {
             if (isQueryBrand[a] != isQueryBrand[b]) return isQueryBrand[a] ? -1 : 1;
-            if (isQueryColor[a] != isQueryColor[b]) return isQueryColor[a] ? -1 : 1;
+            if (colorRank[a] != colorRank[b]) return Integer.compare(colorRank[b], colorRank[a]);
             return Double.compare(boosted[b], boosted[a]);
         });
 
@@ -1063,16 +1066,20 @@ public class AIChat {
     }
 
     /**
-     * Sản phẩm có khớp màu canonical {@code qColor}? Ưu tiên dominantColor (màu thật, sạch);
-     * nếu chưa seed (null) → fallback dò màu trong name+tags qua ColorVocab (nguyên-token, không nới chéo).
+     * Mức khớp màu canonical {@code qColor} của sản phẩm cho rerank ảnh:
+     * 2 = trùng dominantColor (màu thuần) · 1 = nằm trong colors (sp đa màu) hoặc fallback tag khi chưa
+     * seed · 0 = không khớp. Ưu tiên màu CHUẨN (dominantColor/colors); chỉ dò name+tags khi cả hai trống.
      */
-    private boolean colorMatches(ProductResponseDTO p, String qColor) {
-        if (p == null || qColor == null) return false;
-        String dom = p.getDominantColor();
-        if (dom != null && !dom.isBlank()) {
-            return qColor.equalsIgnoreCase(dom);
+    private int colorRankOf(ProductResponseDTO p, String qColor) {
+        if (p == null || qColor == null) return 0;
+        int r = p.colorRank(qColor);
+        if (r > 0) return r;
+        boolean unseeded = (p.getDominantColor() == null || p.getDominantColor().isBlank())
+                && (p.getColors() == null || p.getColors().isEmpty());
+        if (unseeded && com.example.FieldFinder.util.ColorVocab.textMatchesColor(buildAttrHaystack(p), qColor)) {
+            return 1;
         }
-        return com.example.FieldFinder.util.ColorVocab.textMatchesColor(buildAttrHaystack(p), qColor);
+        return 0;
     }
 
     /** Lowercased name + tags of a product, for whole-token color matching. */
@@ -3111,16 +3118,21 @@ public class AIChat {
            sản phẩm, viết tiếng Việt thường, CHỈ dùng đúng 1 trong các giá trị sau:
            "đen", "trắng", "xám", "đỏ", "cam", "vàng", "hồng", "tím", "nâu", "xanh lá", "xanh dương".
            VD giày đen đế trắng → "đen"; áo trắng viền cam → "trắng". KHÔNG ghép nhiều màu ở đây.
-        4. Màu phụ (cho `tags`): Liệt kê các màu phối/accent nhìn thấy (Việt + Anh) để bổ trợ tìm kiếm.
-        5. Đặc điểm hình dáng:
+        4. TẬP MÀU CHÍNH (`colors`) — danh sách các màu phủ DIỆN TÍCH ĐÁNG KỂ (mỗi màu ≥ ~25% sản
+           phẩm), TỐI ĐA 3 màu, sắp theo diện tích giảm dần, phần tử ĐẦU = dominantColor. Dùng đúng
+           bộ giá trị như mục 3. CHỈ thêm màu thật sự lớn — KHÔNG cho viền/logo/chi tiết nhỏ vào đây.
+           VD giày nửa đen nửa trắng → ["đen","trắng"]; giày đen viền cam nhỏ → ["đen"] (cam là accent).
+        5. Màu phụ/accent (cho `tags`): các màu phối nhỏ (viền, logo) nhìn thấy (Việt + Anh) — bổ trợ tìm kiếm.
+        6. Đặc điểm hình dáng:
            - Giày: Cổ cao/thấp, đế air, đế bằng, dây buộc, không dây...
            - Áo/Quần: Tay dài/ngắn, cổ tròn/tim, có mũ...
-        6. Chất liệu: Da, vải lưới, nỉ, cotton...
+        7. Chất liệu: Da, vải lưới, nỉ, cotton...
 
         YÊU CẦU OUTPUT JSON:
         {
           "dominantColor": "đen",
-          "tags": ["danh sách khoảng 15-20 từ khóa (gồm cả màu phụ), viết thường, Anh + Việt"]
+          "colors": ["đen", "trắng"],
+          "tags": ["danh sách khoảng 15-20 từ khóa (gồm cả màu phụ/accent), viết thường, Anh + Việt"]
         }
         """;
 
@@ -3129,6 +3141,8 @@ public class AIChat {
         public List<String> tags = new ArrayList<>();
         /** Màu chủ đạo đã chuẩn hóa canonical (vd "đen"); null nếu AI không xác định. */
         public String dominantColor;
+        /** Tập màu chính canonical (≤3, dominant đầu) cho sp đa màu; rỗng nếu không xác định. */
+        public List<String> colors = new ArrayList<>();
     }
 
     /** Backward-compat: chỉ lấy tags. */
@@ -3194,6 +3208,16 @@ public class AIChat {
                     }
                 }
                 out.dominantColor = canon;
+                // Tập màu chính: canonical hóa "colors", đưa dominant lên đầu, cap 3.
+                List<String> rawColors = new ArrayList<>();
+                try {
+                    JsonNode colorsNode = root.path("colors");
+                    if (colorsNode.isArray()) {
+                        for (JsonNode cN : colorsNode) rawColors.add(cN.asText(""));
+                    }
+                } catch (Exception ignored) {}
+                out.colors = new ArrayList<>(
+                        com.example.FieldFinder.util.ColorVocab.canonicalSet(rawColors, canon, 3));
                 return out;
             }
         } catch (Exception e) {

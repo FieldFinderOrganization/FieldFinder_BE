@@ -33,6 +33,7 @@ public class UserDiscountResponseDTO {
     private List<Long> applicableCategoryIds;
     private String kind;
     private BigDecimal remainingValue;
+    private String minTier; // null = mọi hạng; "VIP"/"GOLD"/"DIAMOND" = hạng đó trở lên
 
     public static UserDiscountResponseDTO fromEntity(UserDiscount userDiscount) {
         String calculatedStatus = "AVAILABLE";
@@ -75,6 +76,9 @@ public class UserDiscountResponseDTO {
                         ? userDiscount.getDiscount().getKind().name()
                         : "PROMOTION")
                 .remainingValue(userDiscount.getRemainingValue())
+                .minTier(userDiscount.getDiscount().getMinTier() != null
+                        ? userDiscount.getDiscount().getMinTier().name()
+                        : null)
                 .build();
     }
 }

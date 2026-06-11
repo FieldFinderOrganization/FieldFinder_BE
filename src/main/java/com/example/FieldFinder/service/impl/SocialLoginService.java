@@ -25,6 +25,7 @@ public class SocialLoginService {
 
     private final UserRepository userRepository;
     private final UserProviderRepository userProviderRepository;
+    private final com.example.FieldFinder.service.DiscountService discountService;
 
     /**
      * Tìm hoặc tạo User từ thông tin Social Provider.
@@ -102,6 +103,9 @@ public class SocialLoginService {
 
         user = userRepository.save(user);
         linkProvider(user, providerName, providerUid);
+
+        // User mới nhận mọi mã public đang ACTIVE còn hạn vào ví
+        discountService.grantWelcomeVouchers(user.getUserId());
 
         return user;
     }

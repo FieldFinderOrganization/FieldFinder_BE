@@ -51,6 +51,7 @@ public class BookingServiceImpl implements BookingService {
     private final EmailService emailService;
     private final RefundService refundService;
     private final DiscountRepository discountRepository;
+    private final com.example.FieldFinder.service.DiscountUsageService discountUsageService;
     private final UserDiscountRepository userDiscountRepository;
 
     /** Khoảng thời gian tối thiểu trước slot đầu mới được hủy + hoàn tiền. */
@@ -136,6 +137,7 @@ public class BookingServiceImpl implements BookingService {
 
             BigDecimal finalPrice = subtotal;
             List<UserDiscount> consumedDiscounts = new ArrayList<>();
+            List<BigDecimal> consumedAmounts = new ArrayList<>(); // song song consumedDiscounts
             List<String> codes = bookingRequest.getDiscountCodes();
             if (codes != null && !codes.isEmpty()) {
                 for (String code : codes) {
@@ -159,6 +161,11 @@ public class BookingServiceImpl implements BookingService {
                             .orElseThrow(() -> new RuntimeException("Bạn chưa sở hữu mã: " + code));
                     if (ud.isUsed()) {
                         throw new RuntimeException("Mã đã sử dụng: " + code);
+                    }
+                    if (d.getMinTier() != null
+                            && !user.getEffectiveTier().isAtLeast(d.getMinTier())) {
+                        throw new RuntimeException("Mã chỉ dành cho hạng "
+                                + d.getMinTier().name() + " trở lên: " + code);
                     }
 
                     BigDecimal discountAmount;
@@ -190,12 +197,17 @@ public class BookingServiceImpl implements BookingService {
                             throw new RuntimeException("Đơn chưa đạt giá trị tối thiểu: " + code);
                         }
                         discountAmount = discountAmount.min(finalPrice);
+                        // quantity = tổng lượt dùng; trừ atomic tại thời điểm dùng
+                        if (discountRepository.decrementQuantity(d.getDiscountId()) == 0) {
+                            throw new RuntimeException("Mã đã hết lượt sử dụng: " + code);
+                        }
                         ud.setUsed(true);
                         ud.setUsedAt(LocalDateTime.now());
                     }
                     finalPrice = finalPrice.subtract(discountAmount);
                     if (finalPrice.signum() < 0) finalPrice = BigDecimal.ZERO;
                     consumedDiscounts.add(ud);
+                    consumedAmounts.add(discountAmount);
                 }
                 userDiscountRepository.saveAll(consumedDiscounts);
             }
@@ -231,6 +243,14 @@ public class BookingServiceImpl implements BookingService {
             booking.setBookingDetails(details);
 
             Booking savedBooking = bookingRepository.save(booking);
+
+            // Ghi lượt dùng voucher để hoàn lại nếu booking bị hủy
+            for (int i = 0; i < consumedDiscounts.size(); i++) {
+                discountUsageService.recordForBooking(
+                        consumedDiscounts.get(i),
+                        savedBooking.getBookingId(),
+                        consumedAmounts.get(i));
+            }
 
             if (bookingRequest.getPaymentMethod() != null &&
                     bookingRequest.getPaymentMethod().equalsIgnoreCase("CASH")) {
@@ -341,6 +361,11 @@ public class BookingServiceImpl implements BookingService {
 
         booking.setStatus(newStatus);
         bookingRepository.save(booking);
+
+        // Admin hủy tay cũng phải hoàn voucher như các đường hủy khác
+        if (newStatus == BookingStatus.CANCELED) {
+            discountUsageService.revertForBooking(booking.getBookingId());
+        }
 
         return ResponseEntity.ok("Booking status updated successfully!");
     }
@@ -620,6 +645,9 @@ public class BookingServiceImpl implements BookingService {
         System.out.println("🚫 " + reason + " for Booking #" + booking.getBookingId());
         booking.setStatus(BookingStatus.CANCELED);
         bookingRepository.save(booking);
+
+        // Hoàn voucher đã dùng cho booking này (mọi đường hủy đều qua đây)
+        discountUsageService.revertForBooking(booking.getBookingId());
 
         List<Payment> payments = paymentRepository
                 .findAllByBookingIds(Collections.singletonList(booking.getBookingId()));

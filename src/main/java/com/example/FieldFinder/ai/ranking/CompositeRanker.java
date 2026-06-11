@@ -79,19 +79,18 @@ public class CompositeRanker {
             boolean queryBrandMatch = queryBrandActive
                     && p.getBrand() != null
                     && p.getBrand().equalsIgnoreCase(ctx.getQueryBrand());
-            // Khớp màu chủ đạo CHUẨN với màu user nêu. So trên dominantColor (sạch), KHÔNG dùng tags nhiễu.
-            boolean queryColorMatch = queryColorActive
-                    && p.getDominantColor() != null
-                    && p.getDominantColor().equalsIgnoreCase(ctx.getQueryColor());
+            // Mức khớp màu user nêu trên màu CHUẨN (dominantColor/colors, KHÔNG dùng tags nhiễu):
+            // 2 = trùng dominantColor (màu thuần) · 1 = nằm trong colors (sp đa màu 50/50) · 0 = không.
+            int queryColorScore = queryColorActive ? p.colorRank(ctx.getQueryColor()) : 0;
             // Giới user nêu: đúng giới = 2, UNISEX = 1 (vẫn mang được, xếp sau đồ đúng giới), khác = 0.
             int queryGenderScore = queryGenderActive ? queryGenderScore(p, ctx.getQueryGender()) : 0;
             // Size user nêu: còn variant đúng size VÀ còn hàng (quantity > 0).
             boolean querySizeMatch = querySizeActive && hasSizeInStock(p, ctx.getQuerySize());
 
             double composite = computeComposite(typeMatch, activityMatch, brandScore,
-                    queryColorMatch, p, mlNorm, ctx);
+                    queryColorScore, p, mlNorm, ctx);
             scored.add(new ScoredProduct(p, composite, typeMatch, activityMatch, brandScore, genderMatch,
-                    queryBrandMatch, queryColorMatch, queryGenderScore, querySizeMatch));
+                    queryBrandMatch, queryColorScore, queryGenderScore, querySizeMatch));
         }
 
         boolean strictType = ctx.isStrictProductType()
@@ -110,7 +109,7 @@ public class CompositeRanker {
         Comparator<ScoredProduct> byPriority = Comparator
                 .comparing((ScoredProduct s) -> s.queryBrand, Comparator.reverseOrder())     // 1. requested brand
                 .thenComparing(s -> s.queryGenderScore, Comparator.reverseOrder())           // 2. requested gender (2/1/0)
-                .thenComparing(s -> s.queryColor, Comparator.reverseOrder())                 // 3. requested color
+                .thenComparing(s -> s.queryColor, Comparator.reverseOrder())                 // 3. requested color (2 thuần > 1 đa màu > 0)
                 .thenComparing(s -> s.querySize, Comparator.reverseOrder())                  // 4. requested size in stock
                 .thenComparing(s -> s.activity, Comparator.reverseOrder())
                 .thenComparing(s -> s.brandScore, Comparator.reverseOrder())
@@ -162,12 +161,13 @@ public class CompositeRanker {
     // ============== Composite scoring helpers ==============
 
     private double computeComposite(boolean typeMatch, boolean activityMatch, double brandScore,
-                                    boolean colorMatch, ProductResponseDTO p, double mlNorm, RankingContext ctx) {
+                                    int colorScore, ProductResponseDTO p, double mlNorm, RankingContext ctx) {
         double s = 0;
         s += ctx.getWType() * (typeMatch ? 1.0 : 0.0);
         s += ctx.getWActivity() * (activityMatch ? 1.0 : 0.0);
         s += ctx.getWBrand() * brandScore;
-        s += ctx.getWColor() * (colorMatch ? 1.0 : 0.0);
+        // Màu thuần (2) full; sp đa màu (1) 0.6 → vẫn được điểm, xếp sau màu thuần.
+        s += ctx.getWColor() * (colorScore == 2 ? 1.0 : colorScore == 1 ? 0.6 : 0.0);
         s += ctx.getWGender() * genderScore(p, ctx.getGenderPref());
         s += ctx.getWMl() * mlNorm;
         s += ctx.getWText() * 0.5;  // placeholder for query token overlap
@@ -270,7 +270,7 @@ public class CompositeRanker {
         final double brandScore;   // theo hạng trong topBrands (1.0 = hay xem nhất, 0 = ngoài list)
         final boolean gender;
         final boolean queryBrand;  // true nếu khớp brand user nêu thẳng trong query (balo "adidas")
-        final boolean queryColor;  // true nếu dominantColor khớp màu user nêu thẳng ("đen")
+        final int queryColor;      // mức khớp màu user nêu: 2 dominant (thuần), 1 trong colors (đa màu), 0 không
         final int queryGenderScore; // 2 đúng giới user nêu, 1 unisex, 0 sai/không nêu
         final boolean querySize;   // true nếu còn variant đúng size user nêu ("39") và còn hàng
     }

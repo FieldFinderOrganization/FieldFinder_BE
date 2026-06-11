@@ -2,6 +2,7 @@ package com.example.FieldFinder.repository;
 
 import com.example.FieldFinder.entity.Discount;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -51,4 +52,18 @@ public interface DiscountRepository extends JpaRepository<Discount, UUID> {
             @Param("productIds") List<Long> productIds,
             @Param("categoryIds") List<Long> categoryIds
     );
+
+    /**
+     * Trừ lượt sử dụng atomic — quantity = tổng lượt DÙNG toàn hệ thống (trừ lúc checkout,
+     * không trừ lúc lưu ví). Trả 0 row = mã đã hết lượt (guard race khi 2 user dùng đồng thời).
+     */
+    @Modifying
+    @Query("UPDATE Discount d SET d.quantity = d.quantity - 1 " +
+            "WHERE d.discountId = :id AND d.quantity > 0")
+    int decrementQuantity(@Param("id") UUID id);
+
+    /** Hoàn lượt sử dụng khi hủy đơn/booking đã dùng mã. */
+    @Modifying
+    @Query("UPDATE Discount d SET d.quantity = d.quantity + 1 WHERE d.discountId = :id")
+    int incrementQuantity(@Param("id") UUID id);
 }

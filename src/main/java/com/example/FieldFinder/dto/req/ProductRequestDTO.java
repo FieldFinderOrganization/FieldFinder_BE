@@ -18,6 +18,9 @@ public class ProductRequestDTO {
     /** Màu chủ đạo canonical (vd "đen") — admin set khi duyệt; null = để AI seed. */
     private String dominantColor;
 
+    /** Tập màu chính (sp đa màu, vd ["đen","trắng"]) — admin set khi duyệt; null = để AI seed. */
+    private Set<String> colors;
+
     private Set<String> tags;
 
     private List<VariantDTO> variants;

@@ -229,6 +229,44 @@ public class EmailServiceImpl implements EmailService {
         }
     }
 
+    @Override
+    @Async
+    public void sendTierUpgrade(com.example.FieldFinder.entity.User user,
+                                com.example.FieldFinder.Enum.UserTier newTier) {
+        if (user == null || user.getEmail() == null) {
+            System.err.println("Cannot send tier upgrade email: missing user/email");
+            return;
+        }
+        String tierLabel = switch (newTier) {
+            case VIP -> "VIP";
+            case GOLD -> "Vàng";
+            case DIAMOND -> "Kim cương";
+            default -> "Thành viên";
+        };
+        String tierColor = switch (newTier) {
+            case VIP -> "#7c3aed";
+            case GOLD -> "#d4a017";
+            case DIAMOND -> "#0e7490";
+            default -> "#6b7280";
+        };
+        String to = user.getEmail();
+        String subject = "FieldFinder - Chúc mừng bạn lên hạng " + tierLabel + "!";
+        String content = "<div style='font-family:Arial,sans-serif;max-width:560px;margin:auto;'>"
+                + "<h2 style='color:" + tierColor + ";'>Chúc mừng " + user.getName() + "!</h2>"
+                + "<p>Bạn vừa đạt hạng thành viên <b style='color:" + tierColor + ";font-size:18px;'>"
+                + tierLabel + "</b> nhờ tổng chi tiêu trong 12 tháng gần nhất.</p>"
+                + "<p>Các voucher ưu đãi dành riêng cho hạng " + tierLabel
+                + " đã được tự động thêm vào ví của bạn. Mở mục <b>Ví voucher</b> trong ứng dụng để xem.</p>"
+                + "<p>Cảm ơn bạn đã đồng hành cùng FieldFinder!</p>"
+                + "</div>";
+        try {
+            sendHtmlEmail(to, subject, content);
+            System.out.println("📧 Tier upgrade email sent to " + to);
+        } catch (MessagingException e) {
+            System.err.println("❌ Failed to send tier upgrade email: " + e.getMessage());
+        }
+    }
+
     private void sendHtmlEmail(String to, String subject, String htmlBody) throws MessagingException {
         MimeMessage message = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");

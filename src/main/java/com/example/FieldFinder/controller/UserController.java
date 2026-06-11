@@ -33,12 +33,24 @@ public class UserController {
     private final JwtService jwtService;
     private final UserRepository userRepository;
     private final AuthService authService;
+    private final com.example.FieldFinder.service.UserTierService userTierService;
 
-    public UserController(UserService userService, JwtService jwtService, UserRepository userRepository, AuthService authService) {
+    public UserController(UserService userService, JwtService jwtService, UserRepository userRepository,
+                          AuthService authService,
+                          com.example.FieldFinder.service.UserTierService userTierService) {
         this.userService = userService;
         this.jwtService = jwtService;
         this.userRepository = userRepository;
         this.authService = authService;
+        this.userTierService = userTierService;
+    }
+
+    /** Hạng thành viên + tiến độ lên hạng kế tiếp (tính theo chi tiêu 12 tháng gần nhất). */
+    @GetMapping("/{userId}/tier")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<com.example.FieldFinder.dto.res.TierInfoResponseDTO> getTierInfo(
+            @PathVariable UUID userId) {
+        return ResponseEntity.ok(userTierService.getTierInfo(userId));
     }
 
     @PostMapping("/register")

@@ -10,6 +10,7 @@ import com.example.FieldFinder.entity.Payment;
 import com.example.FieldFinder.repository.BookingRepository;
 import com.example.FieldFinder.repository.OrderRepository;
 import com.example.FieldFinder.repository.PaymentRepository;
+import com.example.FieldFinder.service.UserTierService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +25,7 @@ public class PaymentWebhookController {
     private final PaymentRepository paymentRepository;
     private final BookingRepository bookingRepository;
     private final OrderRepository orderRepository;
+    private final UserTierService userTierService;
 
     @PostMapping("/webhook")
     public ResponseEntity<String> handleWebhook(@RequestBody WebhookRequestDTO request) {
@@ -55,6 +57,10 @@ public class PaymentWebhookController {
         if (order != null && newStatus == PaymentStatus.PAID) {
             order.setStatus(OrderStatus.CONFIRMED);
             orderRepository.save(order);
+
+            if (order.getUser() != null) {
+                userTierService.recalcTier(order.getUser().getUserId());
+            }
         }
 
         return ResponseEntity.ok("✅ Payment and Booking payment status updated successfully");

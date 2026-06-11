@@ -6,6 +6,7 @@ import com.example.FieldFinder.dto.req.DiscountStatusRequestDTO;
 import com.example.FieldFinder.dto.req.UserDiscountRequestDTO;
 import com.example.FieldFinder.dto.res.DiscountResponseDTO;
 import com.example.FieldFinder.dto.res.UserDiscountResponseDTO;
+import com.example.FieldFinder.Enum.UserTier;
 import com.example.FieldFinder.entity.Discount;
 import com.example.FieldFinder.service.DiscountService;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -91,5 +93,21 @@ public class DiscountController {
             @RequestBody AssignDiscountRequestDTO dto) {
         discountService.assignToUsers(id, dto.getUserIds());
         return ResponseEntity.ok().build();
+    }
+
+    /** Gán mã cho mọi user thuộc hạng chỉ định trở lên. Body: {"tier": "VIP"} */
+    @PostMapping("/{id}/assign-tier")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
+    public ResponseEntity<Map<String, Object>> assignToTier(
+            @PathVariable String id,
+            @RequestBody Map<String, String> body) {
+        UserTier tier;
+        try {
+            tier = UserTier.valueOf(body.getOrDefault("tier", "").toUpperCase());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
+        }
+        int assigned = discountService.assignToTier(id, tier);
+        return ResponseEntity.ok(Map.of("assigned", assigned, "tier", tier.name()));
     }
 }

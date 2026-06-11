@@ -39,6 +39,7 @@ public class AuthController {
     private final AuthProviderFactory authProviderFactory;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.example.FieldFinder.service.DiscountService discountService;
 
     @PostMapping("/send-otp")
     public ResponseEntity<String> sendOtp(@RequestParam String email) {
@@ -87,6 +88,10 @@ public class AuthController {
                 .build();
 
         userRepository.save(user);
+
+        // User mới nhận mọi mã public đang ACTIVE còn hạn vào ví
+        discountService.grantWelcomeVouchers(user.getUserId());
+
         AuthTokenResponseDTO tokenResponse = jwtService.generateTokenPair(user);
         return ResponseEntity.ok(tokenResponse);
     }

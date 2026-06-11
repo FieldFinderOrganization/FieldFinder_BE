@@ -36,8 +36,11 @@ public class UserResponseDTO {
     private Pitch.PitchType preferredPitchType;
     private PreferredPlayTime preferredPlayTime;
 
+    private String tier;
+    private Double totalSpent12m;
+
     public static UserResponseDTO toDto(User user) {
-        return new UserResponseDTO(
+        UserResponseDTO dto = new UserResponseDTO(
                 user.getUserId(),
                 user.getName(),
                 user.getEmail(),
@@ -56,7 +59,12 @@ public class UserResponseDTO {
                 user.getDistrict(),
                 user.getOccupation(),
                 user.getPreferredPitchType(),
-                user.getPreferredPlayTime()
+                user.getPreferredPlayTime(),
+                null,
+                null
         );
+        dto.setTier(user.getEffectiveTier().name());
+        dto.setTotalSpent12m(user.getTotalSpent12m());
+        return dto;
     }
 }

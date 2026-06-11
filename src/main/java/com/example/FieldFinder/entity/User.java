@@ -2,9 +2,11 @@ package com.example.FieldFinder.entity;
 
 import com.example.FieldFinder.Enum.Gender;
 import com.example.FieldFinder.Enum.PreferredPlayTime;
+import com.example.FieldFinder.Enum.UserTier;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.UUID;
 
@@ -92,4 +94,20 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(name = "PreferredPlayTime")
     private PreferredPlayTime preferredPlayTime;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "Tier", length = 20)
+    @Builder.Default
+    private UserTier tier = UserTier.MEMBER;
+
+    @Column(name = "TotalSpent12m")
+    private Double totalSpent12m;
+
+    @Column(name = "TierUpdatedAt")
+    private LocalDateTime tierUpdatedAt;
+
+    /** Row cũ trước khi có cột Tier sẽ NULL — coi như MEMBER. */
+    public UserTier getEffectiveTier() {
+        return tier != null ? tier : UserTier.MEMBER;
+    }
 }

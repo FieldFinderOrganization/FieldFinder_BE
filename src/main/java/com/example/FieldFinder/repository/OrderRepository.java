@@ -14,6 +14,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Long> {
@@ -27,6 +28,14 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     @Query("SELECT COALESCE(SUM(o.totalAmount), 0) FROM Order o WHERE o.status IN :statuses")
     Double sumTotalAmountByStatuses(@Param("statuses") List<OrderStatus> statuses);
+
+    /** Tổng chi tiêu của 1 user trong cửa sổ thời gian (tính hạng thành viên). */
+    @Query("SELECT COALESCE(SUM(o.totalAmount), 0) FROM Order o WHERE o.user.userId = :userId " +
+            "AND o.status IN :statuses " +
+            "AND COALESCE(o.paymentTime, o.createdAt) >= :since")
+    Double sumSpentByUserSince(@Param("userId") UUID userId,
+                               @Param("statuses") List<OrderStatus> statuses,
+                               @Param("since") LocalDateTime since);
 
     Page<Order> findAllByOrderByCreatedAtDesc(Pageable pageable);
 

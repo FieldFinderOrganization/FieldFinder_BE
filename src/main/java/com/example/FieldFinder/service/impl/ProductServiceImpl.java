@@ -406,6 +406,8 @@ public class ProductServiceImpl implements ProductService {
                 .brand(request.getBrand())
                 .sex(request.getSex())
                 .dominantColor(com.example.FieldFinder.util.ColorVocab.canonical(request.getDominantColor()))
+                .colors(com.example.FieldFinder.util.ColorVocab.canonicalSet(
+                        request.getColors(), request.getDominantColor(), 3))
                 .tags(request.getTags() != null ? request.getTags() : new HashSet<>())
                 .build();
 
@@ -653,6 +655,13 @@ public class ProductServiceImpl implements ProductService {
         if (request.getDominantColor() != null && !request.getDominantColor().isBlank()) {
             product.setDominantColor(com.example.FieldFinder.util.ColorVocab.canonical(request.getDominantColor()));
         }
+        // Tập màu chính (sp đa màu): set khi request gửi (null = giữ nguyên). dominantColor đưa lên đầu.
+        if (request.getColors() != null) {
+            product.setColors(com.example.FieldFinder.util.ColorVocab.canonicalSet(
+                    request.getColors(),
+                    request.getDominantColor() != null ? request.getDominantColor() : product.getDominantColor(),
+                    3));
+        }
 
         if (request.getTags() != null) {
             if (product.getTags() == null)
@@ -876,6 +885,8 @@ public class ProductServiceImpl implements ProductService {
             // Chỉ seed màu khi cột đang trống — KHÔNG đè giá trị admin đã duyệt.
             if (enrich.dominantColor != null && !enrich.dominantColor.isBlank())
                 updateProductDominantColorInBackGround(productId, enrich.dominantColor);
+            if (enrich.colors != null && !enrich.colors.isEmpty())
+                updateProductColorsInBackGround(productId, enrich.colors);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -909,6 +920,16 @@ public class ProductServiceImpl implements ProductService {
         }
     }
 
+    /** Seed tập màu AI — chỉ ghi khi colors đang trống (giữ nguyên giá trị admin đã duyệt). */
+    @Transactional
+    protected void updateProductColorsInBackGround(Long productId, java.util.Collection<String> colors) {
+        Product p = productRepository.findById(productId).orElse(null);
+        if (p != null && (p.getColors() == null || p.getColors().isEmpty())) {
+            p.setColors(com.example.FieldFinder.util.ColorVocab.canonicalSet(colors, p.getDominantColor(), 3));
+            productRepository.save(p);
+        }
+    }
+
     @Transactional
     protected void updateProductTagsInBackGround(Long productId, List<String> newTags) {
         Product p = productRepository.findById(productId).orElse(null);
@@ -931,18 +952,21 @@ public class ProductServiceImpl implements ProductService {
         for (Product product : allProducts) {
             if (product.getImageUrl() != null && !product.getImageUrl().isEmpty()) {
                 boolean noTags = product.getTags() == null || product.getTags().isEmpty();
-                boolean noColor = product.getDominantColor() == null || product.getDominantColor().isBlank();
+                boolean noColor = (product.getDominantColor() == null || product.getDominantColor().isBlank())
+                        || (product.getColors() == null || product.getColors().isEmpty());
                 if (noTags) {
-                    // enrichSingleProduct seed cả tags lẫn dominantColor trong 1 vision call.
+                    // enrichSingleProduct seed cả tags lẫn màu (dominantColor + colors) trong 1 vision call.
                     enrichmentExecutor.submit(() -> enrichSingleProduct(product.getProductId(), product.getImageUrl()));
                 } else if (noColor) {
-                    // Backfill: đã có tags nhưng thiếu màu chủ đạo → seed riêng màu.
+                    // Backfill: đã có tags nhưng thiếu màu → seed riêng màu chủ đạo + tập màu.
                     Long pid = product.getProductId();
                     String url = product.getImageUrl();
                     enrichmentExecutor.submit(() -> {
                         var enrich = aiChat.enrichProductFromImage(url);
                         if (enrich.dominantColor != null && !enrich.dominantColor.isBlank())
                             updateProductDominantColorInBackGround(pid, enrich.dominantColor);
+                        if (enrich.colors != null && !enrich.colors.isEmpty())
+                            updateProductColorsInBackGround(pid, enrich.colors);
                     });
                 }
                 if (product.getImagePhash() == null) {

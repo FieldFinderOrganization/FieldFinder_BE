@@ -19,4 +19,13 @@ public interface DiscountService {
     List<UserDiscountResponseDTO> getMyWallet(UUID userId);
     DiscountResponseDTO updateStatus(String id, Discount.DiscountStatus status);
     void assignToUsers(String id, List<UUID> userIds);
+
+    /** Gán 1 mã cho mọi user thuộc hạng :tier trở lên (set-based). */
+    int assignToTier(String id, com.example.FieldFinder.Enum.UserTier tier);
+
+    /**
+     * Gán cho user mới đăng ký mọi mã PROMOTION đang ACTIVE còn hạn mà hạng MEMBER dùng được —
+     * fix lỗ hổng acc tạo sau ngày phát hành mã không thấy mã trong ví.
+     */
+    void grantWelcomeVouchers(UUID userId);
 }

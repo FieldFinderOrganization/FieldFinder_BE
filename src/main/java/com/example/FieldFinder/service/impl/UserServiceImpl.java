@@ -64,6 +64,9 @@ public class UserServiceImpl implements UserService {
     @Autowired
     private GeocodingService geocodingService;
 
+    @Autowired
+    private com.example.FieldFinder.service.DiscountService discountService;
+
     public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder, EmailService emailService,
                            PasswordResetTokenRepository passwordResetTokenRepository, RedisTemplate<String, Object> redisTemplate,
                            SocialLoginService socialLoginService, UserProviderRepository userProviderRepository) {
@@ -111,6 +114,9 @@ public class UserServiceImpl implements UserService {
                     .providerUid(firebaseUser.getUid())
                     .linkedAt(java.time.LocalDateTime.now())
                     .build());
+
+            // User mới nhận mọi mã public đang ACTIVE còn hạn vào ví
+            discountService.grantWelcomeVouchers(savedUser.getUserId());
 
             return UserResponseDTO.toDto(savedUser);
 

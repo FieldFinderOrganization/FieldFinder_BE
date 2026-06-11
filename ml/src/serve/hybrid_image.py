@@ -270,19 +270,23 @@ class HybridImageRetriever:
             m["score"] = w_clip * clip_cos + w_rrf * rrf_norm
             candidates.append(m)
 
-        # Tín hiệu MÀU CHỦ ĐẠO (sạch): ảnh có màu rõ → đẩy sp đúng màu lên, sai màu xuống
-        # (boost/penalty, KHÔNG loại — an toàn recall). Bổ trợ cho rerank màu ở BE.
+        # Tín hiệu MÀU (sạch, phân tầng): màu thuần (dominant) full boost; sp đa màu (img_color nằm
+        # trong colors, vd đen/trắng 50/50) boost nửa; sai hẳn → penalty. KHÔNG loại — an toàn recall.
+        # Bổ trợ cho rerank màu ở BE.
         if img_color:
-            COLOR_BONUS, COLOR_PENALTY = 0.15, 0.10
+            BONUS_DOM, BONUS_SET, PENALTY = 0.15, 0.08, 0.10
             adjusted = 0
             for m in candidates:
-                cc = (m.get("dominant_color") or "").strip().lower()
-                if not cc:
-                    continue
-                if cc == img_color:
-                    m["score"] += COLOR_BONUS
+                dom = (m.get("dominant_color") or "").strip().lower()
+                cset = {(c or "").strip().lower() for c in (m.get("colors") or [])}
+                if dom == img_color:
+                    m["score"] += BONUS_DOM
+                elif img_color in cset:
+                    m["score"] += BONUS_SET
+                elif dom or cset:          # có thông tin màu nhưng không khớp → sai màu
+                    m["score"] -= PENALTY
                 else:
-                    m["score"] -= COLOR_PENALTY
+                    continue               # chưa seed màu → bỏ qua, không phạt oan
                 adjusted += 1
             log.info("color signal '%s' applied to %d/%d candidates", img_color, adjusted, len(candidates))
 

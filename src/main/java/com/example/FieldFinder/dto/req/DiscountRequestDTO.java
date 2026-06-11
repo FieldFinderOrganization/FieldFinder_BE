@@ -29,6 +29,19 @@ public class DiscountRequestDTO {
 
     private String status; // "ACTIVE" | "INACTIVE" | "EXPIRED"
 
+    private String minTier; // null/blank/"ALL" = mọi user | "MEMBER" | "VIP" | "GOLD" | "DIAMOND"
+
+    public com.example.FieldFinder.Enum.UserTier parseMinTier() {
+        if (this.minTier == null || this.minTier.isBlank() || "ALL".equalsIgnoreCase(this.minTier)) {
+            return null;
+        }
+        try {
+            return com.example.FieldFinder.Enum.UserTier.valueOf(this.minTier.toUpperCase());
+        } catch (Exception e) {
+            throw new IllegalArgumentException("minTier không hợp lệ: " + this.minTier);
+        }
+    }
+
     public Discount toEntity() {
 
         Discount.DiscountStatus statusEnum;
@@ -70,6 +83,7 @@ public class DiscountRequestDTO {
                 .startDate(this.startDate)
                 .endDate(this.endDate)
                 .status(statusEnum)
+                .minTier(parseMinTier())
                 .build();
     }
 }

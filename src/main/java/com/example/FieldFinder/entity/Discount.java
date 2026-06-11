@@ -1,6 +1,7 @@
 package com.example.FieldFinder.entity;
 
 import com.example.FieldFinder.Enum.DiscountKind;
+import com.example.FieldFinder.Enum.UserTier;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -85,6 +86,11 @@ public class Discount {
     @Enumerated(EnumType.STRING)
     @Column(name = "Kind", nullable = false, length = 20)
     private DiscountKind kind = DiscountKind.PROMOTION;
+
+    /** Hạng tối thiểu để dùng mã (semantics "hạng đó trở lên"); null = mọi user. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "MinTier", length = 20)
+    private UserTier minTier;
 
     public enum DiscountStatus { ACTIVE, INACTIVE, EXPIRED }
     public enum DiscountType { PERCENTAGE, FIXED_AMOUNT }

@@ -46,6 +46,16 @@ public class Product {
     @Column(name = "dominant_color", length = 32)
     private String dominantColor;
 
+    /**
+     * Tập màu CHÍNH canonical (đã sạch, primary trước) cho sp đa màu (vd giày đen/trắng 50/50 →
+     * ["đen","trắng"]). Chỉ màu phủ diện tích đáng kể, cap ~3 — KHÁC {@link #tags} (gồm accent/logo).
+     * {@link #dominantColor} = phần tử đầu. Match phân tầng: dominant=2 > trong colors=1 > 0.
+     */
+    @Convert(converter = StringSetConverter.class)
+    @Column(name = "colors", columnDefinition = "TEXT")
+    @Builder.Default
+    private Set<String> colors = new HashSet<>();
+
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 

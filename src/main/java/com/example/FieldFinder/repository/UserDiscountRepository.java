@@ -52,4 +52,41 @@ public interface UserDiscountRepository extends JpaRepository<UserDiscount, UUID
             nativeQuery = true)
     void bulkAssignToAllUsers(@Param("discountId") UUID discountId);
 
+    /**
+     * Gán 1 mã cho mọi user thuộc các hạng trong :tiers (set-based, 1 câu).
+     * NULL tier coi như MEMBER.
+     */
+    @Transactional
+    @Modifying
+    @Query(value = "INSERT INTO user_discounts (id, user_id, discount_id, is_used, saved_at) " +
+            "SELECT UUID_TO_BIN(UUID()), u.user_id, :discountId, false, NOW() " +
+            "FROM users u " +
+            "WHERE COALESCE(u.tier, 'MEMBER') IN (:tiers) " +
+            "AND NOT EXISTS (" +
+            "  SELECT 1 FROM user_discounts ud " +
+            "  WHERE ud.user_id = u.user_id AND ud.discount_id = :discountId" +
+            ")",
+            nativeQuery = true)
+    int bulkAssignToUsersByTiers(@Param("discountId") UUID discountId,
+                                 @Param("tiers") List<String> tiers);
+
+    /**
+     * Gán cho 1 user mọi mã PROMOTION đang ACTIVE, còn hạn mà hạng của user đủ điều kiện
+     * (min_tier NULL = public, hoặc min_tier nằm trong :tiers = các hạng <= hạng user).
+     * Dùng cho cả welcome voucher khi đăng ký lẫn grant khi lên hạng — idempotent nhờ NOT EXISTS.
+     */
+    @Transactional
+    @Modifying
+    @Query(value = "INSERT INTO user_discounts (id, user_id, discount_id, is_used, saved_at) " +
+            "SELECT UUID_TO_BIN(UUID()), :userId, d.discount_id, false, NOW() " +
+            "FROM discounts d " +
+            "WHERE d.status = 'ACTIVE' AND d.end_date >= CURDATE() AND d.kind = 'PROMOTION' " +
+            "AND (d.min_tier IS NULL OR d.min_tier IN (:tiers)) " +
+            "AND NOT EXISTS (" +
+            "  SELECT 1 FROM user_discounts ud " +
+            "  WHERE ud.user_id = :userId AND ud.discount_id = d.discount_id" +
+            ")",
+            nativeQuery = true)
+    int bulkAssignEligibleDiscountsToUser(@Param("userId") UUID userId,
+                                          @Param("tiers") List<String> tiers);
 }

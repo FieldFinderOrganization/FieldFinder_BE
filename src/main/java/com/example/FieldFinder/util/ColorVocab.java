@@ -122,4 +122,32 @@ public final class ColorVocab {
         String c = canonical(rawColor);
         return c != null && c.equals(canonicalColor);
     }
+
+    /**
+     * Chuẩn hóa một tập màu raw → LinkedHashSet canonical (giữ thứ tự xuất hiện, bỏ trùng/không nhận ra).
+     * Dùng cho cột `colors` (sp đa màu). {@code firstPriority} (vd dominantColor) nếu có sẽ được
+     * đưa lên đầu. {@code cap} = số màu tối đa giữ lại (≤0 = không giới hạn).
+     */
+    public static java.util.LinkedHashSet<String> canonicalSet(
+            Iterable<String> raws, String firstPriority, int cap) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        String first = canonical(firstPriority);
+        if (first != null) out.add(first);
+        if (raws != null) {
+            for (String r : raws) {
+                String c = canonical(r);
+                if (c != null) out.add(c);
+            }
+        }
+        if (cap > 0 && out.size() > cap) {
+            java.util.LinkedHashSet<String> capped = new java.util.LinkedHashSet<>();
+            int i = 0;
+            for (String c : out) {
+                if (i++ >= cap) break;
+                capped.add(c);
+            }
+            return capped;
+        }
+        return out;
+    }
 }

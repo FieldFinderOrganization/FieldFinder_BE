@@ -14,6 +14,7 @@ import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.OrderService;
 import com.example.FieldFinder.service.ProductService;
 import com.example.FieldFinder.service.RefundService;
+import com.example.FieldFinder.service.UserTierService;
 import com.example.FieldFinder.util.DiscountEligibilityUtil;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
@@ -53,6 +54,8 @@ public class OrderServiceImpl implements OrderService {
     private final StockLockService stockLockService;
     private final PaymentRepository paymentRepository;
     private final RefundService refundService;
+    private final UserTierService userTierService;
+    private final com.example.FieldFinder.service.DiscountUsageService discountUsageService;
 
     private static final long ORDER_REFUND_WINDOW_HOURS = 24;
 
@@ -139,7 +142,7 @@ public class OrderServiceImpl implements OrderService {
         double finalAmount;
         try {
             finalAmount = applyDiscountsTwoPhase(
-                    request.getDiscountCodes(), user, orderItemsToSave, subTotal);
+                    request.getDiscountCodes(), user, orderItemsToSave, subTotal, order);
         } catch (RuntimeException e) {
             compensateLockedItems(lockedItems);
             throw e;
@@ -169,6 +172,10 @@ public class OrderServiceImpl implements OrderService {
             }
             orderRepository.save(order);
             System.out.println("[createOrder] CASH branch finished for orderId=" + order.getOrderId());
+
+            if (user != null) {
+                userTierService.recalcTier(user.getUserId());
+            }
         }
 
         final Order finalOrder = order;
@@ -207,7 +214,8 @@ public class OrderServiceImpl implements OrderService {
             List<String> codes,
             User user,
             List<OrderItem> orderItemsToSave,
-            double subTotal) {
+            double subTotal,
+            Order order) {
 
         if (codes == null || codes.isEmpty() || user == null) {
             return Math.max(0, subTotal);
@@ -238,6 +246,12 @@ public class OrderServiceImpl implements OrderService {
             }
             if (!DiscountEligibilityUtil.isUsable(discount, LocalDate.now())) {
                 throw new RuntimeException("Voucher is not active or expired: " + code);
+            }
+            // Chặn cả voucher đã nằm sẵn trong ví từ trước khi user bị xuống hạng
+            if (discount.getMinTier() != null
+                    && !user.getEffectiveTier().isAtLeast(discount.getMinTier())) {
+                throw new RuntimeException("Voucher chỉ dành cho hạng "
+                        + discount.getMinTier().name() + " trở lên: " + code);
             }
             discounts.add(discount);
             userDiscounts.add(userDiscount);
@@ -296,16 +310,24 @@ public class OrderServiceImpl implements OrderService {
                 ud.setUsedAt(LocalDateTime.now());
             }
             userDiscountRepository.save(ud);
+            // Ghi lượt dùng để hoàn đúng số dư nếu đơn bị hủy
+            discountUsageService.recordForOrder(ud, order.getOrderId(), BigDecimal.valueOf(deduct));
             if (afterPromo <= 0) break;
         }
 
         for (int i = 0; i < discounts.size(); i++) {
             Discount d = discounts.get(i);
             if (d.getKind() == com.example.FieldFinder.Enum.DiscountKind.REFUND_CREDIT) continue;
+            // quantity = tổng lượt dùng; trừ atomic tại thời điểm dùng, 0 row = hết lượt
+            if (discountRepository.decrementQuantity(d.getDiscountId()) == 0) {
+                throw new RuntimeException("Voucher đã hết lượt sử dụng: " + d.getCode());
+            }
             UserDiscount ud = userDiscounts.get(i);
             ud.setUsed(true);
             ud.setUsedAt(LocalDateTime.now());
             userDiscountRepository.save(ud);
+            // Ghi lượt dùng để hoàn lại (un-use + quantity+1) nếu đơn bị hủy
+            discountUsageService.recordForOrder(ud, order.getOrderId(), null);
         }
 
         return Math.max(0, afterPromo);
@@ -369,6 +391,18 @@ public class OrderServiceImpl implements OrderService {
         }
 
         orderRepository.save(order);
+
+        // Admin hủy tay cũng phải hoàn voucher như các đường hủy khác
+        if (newStatus == OrderStatus.CANCELED) {
+            discountUsageService.revertForOrder(order.getOrderId());
+        }
+
+        if ((newStatus == OrderStatus.DELIVERED || newStatus == OrderStatus.CANCELED
+                || newStatus == OrderStatus.PAID || newStatus == OrderStatus.CONFIRMED)
+                && order.getUser() != null) {
+            userTierService.recalcTier(order.getUser().getUserId());
+        }
+
         return mapToResponse(order);
     }
 
@@ -445,6 +479,9 @@ public class OrderServiceImpl implements OrderService {
         order.setStatus(OrderStatus.CANCELED);
         order.setUpdatedAt(LocalDateTime.now());
 
+        // Hoàn voucher đã dùng cho đơn này (un-use + hoàn lượt / hoàn số dư mã hoàn tiền)
+        discountUsageService.revertForOrder(orderId);
+
         if (order.getItems() != null) {
             for (OrderItem item : order.getItems()) {
                 if (wasCommitted) {
@@ -497,6 +534,8 @@ public class OrderServiceImpl implements OrderService {
         }
 
         productService.evictAllListProductCaches();
+
+        userTierService.recalcTier(userId);
 
         return mapToResponse(order);
     }
@@ -558,6 +597,9 @@ public class OrderServiceImpl implements OrderService {
         for (Order order : staleOrders) {
             System.out.println(" Cancelling stale Order #" + order.getOrderId());
             order.setStatus(OrderStatus.CANCELED);
+
+            // Đơn chưa thanh toán bị auto-hủy: trả voucher về ví user
+            discountUsageService.revertForOrder(order.getOrderId());
 
             if (order.getItems() != null) {
                 for (OrderItem item : order.getItems()) {

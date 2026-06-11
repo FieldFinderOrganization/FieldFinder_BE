@@ -13,6 +13,7 @@ import com.example.FieldFinder.mapper.BankBinMapper;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.PaymentService;
 import com.example.FieldFinder.service.ProductService;
+import com.example.FieldFinder.service.UserTierService;
 import com.example.FieldFinder.service.strategy.payment.PaymentContext;
 import com.example.FieldFinder.service.strategy.payment.PaymentExecutionResult;
 import com.example.FieldFinder.service.strategy.payment.PaymentStrategyFactory;
@@ -42,6 +43,8 @@ public class PaymentServiceImpl implements PaymentService {
     private final ProductService productService;
     private final RabbitTemplate rabbitTemplate;
     private final PaymentStrategyFactory paymentStrategyFactory;
+    private final UserTierService userTierService;
+    private final com.example.FieldFinder.service.DiscountUsageService discountUsageService;
 
     @Value("${front_end_url}")
     private String frontEndUrl;
@@ -276,6 +279,10 @@ public class PaymentServiceImpl implements PaymentService {
                             System.out.println("📧 Sending confirmation email for Order #" + order.getOrderId());
                             rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
                                     RabbitMQConfig.ORDER_EMAIL_ROUTING_KEY, order.getOrderId().toString());
+
+                            if (order.getUser() != null) {
+                                userTierService.recalcTier(order.getUser().getUserId());
+                            }
                         }
                     }
                 }
@@ -291,6 +298,10 @@ public class PaymentServiceImpl implements PaymentService {
 
                     if (order != null && order.getStatus() == OrderStatus.PENDING) {
                         order.setStatus(OrderStatus.CANCELED);
+
+                        // Thanh toán fail → trả voucher về ví user
+                        discountUsageService.revertForOrder(order.getOrderId());
+
                         if (order.getItems() != null) {
                             for (OrderItem item : order.getItems()) {
                                 System.out.println("   - Releasing stock for Product: " + item.getProduct().getName()
