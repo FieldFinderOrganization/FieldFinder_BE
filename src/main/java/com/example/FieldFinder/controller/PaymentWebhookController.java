@@ -10,6 +10,7 @@ import com.example.FieldFinder.entity.Payment;
 import com.example.FieldFinder.repository.BookingRepository;
 import com.example.FieldFinder.repository.OrderRepository;
 import com.example.FieldFinder.repository.PaymentRepository;
+import com.example.FieldFinder.service.NotificationService;
 import com.example.FieldFinder.service.UserTierService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +27,7 @@ public class PaymentWebhookController {
     private final BookingRepository bookingRepository;
     private final OrderRepository orderRepository;
     private final UserTierService userTierService;
+    private final NotificationService notificationService;
 
     @PostMapping("/webhook")
     public ResponseEntity<String> handleWebhook(@RequestBody WebhookRequestDTO request) {
@@ -48,18 +50,30 @@ public class PaymentWebhookController {
         if (booking != null) {
             booking.setPaymentStatus(newStatus);
             if (newStatus == PaymentStatus.PAID) {
+                boolean wasConfirmed = booking.getStatus() == BookingStatus.CONFIRMED;
                 booking.setStatus(BookingStatus.CONFIRMED);
+                if (!wasConfirmed) {
+                    notificationService.notifyBookingConfirmed(booking);
+                }
             }
             bookingRepository.save(booking);
         }
 
         Order order = payment.getOrder();
         if (order != null && newStatus == PaymentStatus.PAID) {
+            boolean wasConfirmed = order.getStatus() == OrderStatus.CONFIRMED;
             order.setStatus(OrderStatus.CONFIRMED);
             orderRepository.save(order);
 
             if (order.getUser() != null) {
                 userTierService.recalcTier(order.getUser().getUserId());
+                if (!wasConfirmed) {
+                    notificationService.notify(order.getUser().getUserId(),
+                            "ORDER_CONFIRMED",
+                            "Đơn hàng #" + order.getOrderId() + " đã xác nhận",
+                            "Thanh toán thành công, đơn hàng đang được chuẩn bị.",
+                            "ORDER", String.valueOf(order.getOrderId()));
+                }
             }
         }
 

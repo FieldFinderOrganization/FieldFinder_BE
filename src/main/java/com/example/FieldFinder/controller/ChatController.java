@@ -6,6 +6,7 @@ import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.repository.ChatMessageRepository;
 import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.CloudinaryService;
+import com.example.FieldFinder.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -30,6 +31,7 @@ public class ChatController {
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
     private final CloudinaryService cloudinaryService;
+    private final NotificationService notificationService;
 
     @MessageMapping("/chat")
     public void processMessage(@Payload ChatMessage chatMessage) {
@@ -46,6 +48,28 @@ public class ChatController {
             ChatMessage savedMsg = chatMessageRepository.save(chatMessage);
             String destination = "/topic/messages." + chatMessage.getReceiverId().toString();
             messagingTemplate.convertAndSend(destination, savedMsg);
+            // Echo về sender để client thay optimistic message bằng bản có UUID thật
+            // (cần cho reaction match theo messageId)
+            if (!chatMessage.getSenderId().equals(chatMessage.getReceiverId())) {
+                messagingTemplate.convertAndSend(
+                        "/topic/messages." + chatMessage.getSenderId().toString(), savedMsg);
+
+                // Event tạm cho banner thông báo toàn cục — không lưu DB
+                // (unread chat đã có /api/chat/unread-count riêng)
+                String senderName = userRepository.findById(savedMsg.getSenderId())
+                        .map(User::getName)
+                        .orElse("Người dùng");
+                String preview = "IMAGE".equals(savedMsg.getType())
+                        ? "Đã gửi một hình ảnh"
+                        : savedMsg.getContent();
+                notificationService.pushTransient(savedMsg.getReceiverId(), Map.of(
+                        "type", "CHAT_MESSAGE",
+                        "title", senderName,
+                        "body", preview != null ? preview : "",
+                        "refType", "CHAT",
+                        "refId", savedMsg.getSenderId().toString()
+                ));
+            }
         } catch (Exception e) {
             System.err.println("❌ LỖI RỒI: Không thể xử lý tin nhắn!");
             e.printStackTrace();
@@ -86,6 +110,48 @@ public class ChatController {
         }
     }
 
+    @PostMapping("/upload-video")
+    public ResponseEntity<Map<String, String>> uploadChatVideo(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("senderId") String senderId) {
+        try {
+            Map<String, Object> result = cloudinaryService.uploadChatVideo(file, senderId);
+            return ResponseEntity.ok(Map.of("videoUrl", result.get("url").toString()));
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", "Upload video thất bại"));
+        }
+    }
+
+    @PostMapping("/{messageId}/reaction")
+    public ResponseEntity<Map<String, String>> reactToMessage(
+            @PathVariable UUID messageId,
+            @RequestParam UUID reactorId,
+            @RequestParam(required = false) String emoji) {
+        Optional<ChatMessage> msgOpt = chatMessageRepository.findById(messageId);
+        if (msgOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        ChatMessage msg = msgOpt.get();
+        // Chỉ người nhận tin nhắn mới được thả reaction
+        if (!msg.getReceiverId().equals(reactorId)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Chỉ người nhận mới được thả cảm xúc"));
+        }
+        String normalized = (emoji == null || emoji.isBlank()) ? null : emoji;
+        msg.setReaction(normalized);
+        chatMessageRepository.save(msg);
+
+        // Báo realtime cho chủ tin nhắn (người thả tự update optimistic)
+        Map<String, Object> event = new HashMap<>();
+        event.put("type", "REACTION");
+        event.put("messageId", messageId.toString());
+        event.put("reaction", normalized);
+        event.put("senderId", reactorId.toString());
+        event.put("receiverId", msg.getSenderId().toString());
+        messagingTemplate.convertAndSend("/topic/messages." + msg.getSenderId(), event);
+
+        return ResponseEntity.ok(Map.of("message", "OK"));
+    }
+
     @GetMapping("/conversations")
     public ResponseEntity<List<ConversationDTO>> getConversations(@RequestParam UUID userId) {
         Set<UUID> partnerSet = new HashSet<>();
@@ -106,7 +172,7 @@ public class ChatController {
                             partnerId.toString(),
                             partner.getName(),
                             partner.getImageUrl(),
-                            last != null ? last.getContent() : "",
+                            last != null ? previewOf(last) : "",
                             last != null ? last.getTimestamp() : null,
                             last != null && last.getSenderId().equals(userId),
                             unread
@@ -117,5 +183,11 @@ public class ChatController {
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .collect(Collectors.toList());
         return ResponseEntity.ok(result);
+    }
+
+    private static String previewOf(ChatMessage msg) {
+        if ("IMAGE".equals(msg.getType())) return "[Hình ảnh]";
+        if ("VIDEO".equals(msg.getType())) return "[Video]";
+        return msg.getContent();
     }
 }

@@ -15,7 +15,9 @@ import com.example.FieldFinder.dto.res.ProviderBookingResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.BookingService;
+import com.example.FieldFinder.service.DiscountUsageService;
 import com.example.FieldFinder.service.EmailService;
+import com.example.FieldFinder.service.NotificationService;
 import com.example.FieldFinder.service.PitchRedisLockService;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -52,8 +54,9 @@ public class BookingServiceImpl implements BookingService {
     private final EmailService emailService;
     private final RefundService refundService;
     private final DiscountRepository discountRepository;
-    private final com.example.FieldFinder.service.DiscountUsageService discountUsageService;
+    private final DiscountUsageService discountUsageService;
     private final UserDiscountRepository userDiscountRepository;
+    private final NotificationService notificationService;
 
     /** Khoảng thời gian tối thiểu trước slot đầu mới được hủy + hoàn tiền. */
     private static final long BOOKING_REFUND_MIN_MINUTES_BEFORE = 60;
@@ -285,6 +288,8 @@ public class BookingServiceImpl implements BookingService {
                         .paidAt(LocalDateTime.now())
                         .build();
                 paymentRepository.save(payment);
+                // CASH: booking CONFIRMED ngay lúc tạo (dòng set status phía trên)
+                notificationService.notifyBookingConfirmed(savedBooking);
             }
 
             rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE, RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY,
@@ -751,6 +756,42 @@ public class BookingServiceImpl implements BookingService {
                     unlockRedisSlots(booking);
                     cancelBooking(booking, "Auto-Cancel: Unpaid 5m before start or time passed");
                 }
+            }
+        }
+    }
+
+    /** Nhắc trước giờ đá: booking CONFIRMED hôm nay, slot đầu bắt đầu trong vòng 60 phút. */
+    @Scheduled(fixedRate = 300000)
+    @Transactional
+    public void sendPlayTimeReminders() {
+        LocalDate today = LocalDate.now();
+        LocalDateTime now = LocalDateTime.now();
+
+        List<Booking> confirmedToday =
+                bookingRepository.findAllByStatusAndDateWithDetails(BookingStatus.CONFIRMED, today);
+
+        for (Booking booking : confirmedToday) {
+            if (Boolean.TRUE.equals(booking.getIsPlayReminderSent())) continue;
+            if (booking.getUser() == null) continue;
+
+            LocalDateTime start = earliestSlotStart(booking);
+            if (start == null) continue;
+
+            long minutesUntilStart = ChronoUnit.MINUTES.between(now, start);
+            if (minutesUntilStart > 0 && minutesUntilStart <= 60) {
+                String pitchName = booking.getBookingDetails().stream()
+                        .map(bd -> bd.getPitch() != null ? bd.getPitch().getName() : null)
+                        .filter(Objects::nonNull)
+                        .findFirst()
+                        .orElse("sân");
+                notificationService.notify(booking.getUser().getUserId(),
+                        "BOOKING_PLAY_REMINDER",
+                        "Sắp đến giờ đá!",
+                        "Lịch đặt " + pitchName + " bắt đầu lúc "
+                                + start.toLocalTime() + " (còn " + minutesUntilStart + " phút).",
+                        "BOOKING", booking.getBookingId().toString());
+                booking.setIsPlayReminderSent(true);
+                bookingRepository.save(booking);
             }
         }
     }

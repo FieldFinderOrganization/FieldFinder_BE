@@ -44,6 +44,15 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             "WHERE b.status = com.example.FieldFinder.Enum.BookingStatus.PENDING")
     List<Booking> findAllPendingWithDetails();
 
+    @Query("SELECT DISTINCT b FROM Booking b " +
+            "LEFT JOIN FETCH b.bookingDetails bd " +
+            "LEFT JOIN FETCH bd.timeSlot ts " +
+            "LEFT JOIN FETCH bd.pitch p " +
+            "LEFT JOIN FETCH b.user " +
+            "WHERE b.status = :status AND b.bookingDate = :date")
+    List<Booking> findAllByStatusAndDateWithDetails(@Param("status") BookingStatus status,
+                                                    @Param("date") LocalDate date);
+
     long countByBookingDate(LocalDate date);
 
     long countByStatus(BookingStatus status);

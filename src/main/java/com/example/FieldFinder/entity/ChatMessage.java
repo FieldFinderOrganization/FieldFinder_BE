@@ -42,4 +42,8 @@ public class ChatMessage {
     @Builder.Default
     private String type = "TEXT";
 
+    // Emoji reaction từ người nhận tin nhắn (null = chưa thả)
+    @Column(name = "reaction")
+    private String reaction;
+
 }

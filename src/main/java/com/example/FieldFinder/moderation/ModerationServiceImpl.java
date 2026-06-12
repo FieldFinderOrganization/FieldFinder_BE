@@ -11,8 +11,10 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -45,8 +47,10 @@ public class ModerationServiceImpl implements ModerationService {
     // 1 ký tự lặp >= 6 lần -> spam (vd "aaaaaaa", "!!!!!!!").
     private static final Pattern REPEAT_PATTERN = Pattern.compile("(.)\\1{5,}");
 
-    /** Từ cấm đã chuẩn hoá (lowercase, bỏ dấu). */
-    private final Set<String> bannedWords = new HashSet<>();
+    /** Từ cấm dạng token đơn — khớp NGUYÊN token. */
+    private final Set<String> bannedSingle = new HashSet<>();
+    /** Từ cấm dạng cụm nhiều từ — khớp NGUYÊN DÃY token liền kề (n-gram). */
+    private final List<String[]> bannedPhrases = new ArrayList<>();
 
     @PostConstruct
     void loadBannedWords() {
@@ -62,11 +66,19 @@ public class ModerationServiceImpl implements ModerationService {
                 while ((line = reader.readLine()) != null) {
                     String word = line.trim();
                     if (word.isEmpty() || word.startsWith("#")) continue;
-                    String normalized = normalize(word).replaceAll("\\s+", "");
-                    if (!normalized.isEmpty()) bannedWords.add(normalized);
+                    // Giữ khoảng trắng giữa các từ để phân biệt token đơn vs cụm nhiều từ.
+                    String normalized = normalize(word).trim();
+                    if (normalized.isEmpty()) continue;
+                    String[] parts = normalized.split("\\s+");
+                    if (parts.length == 1) {
+                        bannedSingle.add(parts[0]);
+                    } else {
+                        bannedPhrases.add(parts);
+                    }
                 }
             }
-            log.info("Đã nạp {} từ cấm cho kiểm duyệt tự động.", bannedWords.size());
+            log.info("Đã nạp {} từ cấm ({} đơn, {} cụm) cho kiểm duyệt tự động.",
+                    bannedSingle.size() + bannedPhrases.size(), bannedSingle.size(), bannedPhrases.size());
         } catch (Exception e) {
             log.error("Lỗi nạp danh sách từ cấm: {}", e.getMessage());
         }
@@ -90,20 +102,41 @@ public class ModerationServiceImpl implements ModerationService {
         }
 
         // Từ cấm. Tránh false-positive với từ tiếng Việt phổ biến (sau khi bỏ dấu
-        // "ngủ" -> "ngu", "các" -> "cac"...): từ ĐƠN khớp NGUYÊN token, cụm NHIỀU TỪ
-        // khớp theo chuỗi con. Không dùng so khớp chuỗi con cho từ đơn.
-        String normalized = normalize(comment);
-        Set<String> tokens = new HashSet<>(Arrays.asList(normalized.split("[^a-z0-9]+")));
-        for (String banned : bannedWords) {
-            boolean hit = banned.contains(" ")
-                    ? normalized.contains(banned)
-                    : tokens.contains(banned);
-            if (hit) {
+        // "ngủ" -> "ngu", "các" -> "cac"...): từ ĐƠN khớp NGUYÊN token; cụm NHIỀU TỪ
+        // khớp NGUYÊN DÃY token liền kề (n-gram) — KHÔNG dùng chuỗi con để tránh chặn
+        // nhầm qua ranh giới từ (vd "Đỗ Nguyên" -> "do nguyen" không chứa cụm "do ngu").
+        List<String> tokens = Arrays.stream(normalize(comment).split("[^a-z0-9]+"))
+                .filter(s -> !s.isEmpty())
+                .toList();
+        Set<String> tokenSet = new HashSet<>(tokens);
+        for (String banned : bannedSingle) {
+            if (tokenSet.contains(banned)) {
+                return ModerationResult.reject("Bình luận chứa từ ngữ không phù hợp.");
+            }
+        }
+        for (String[] phrase : bannedPhrases) {
+            if (containsSubsequence(tokens, phrase)) {
                 return ModerationResult.reject("Bình luận chứa từ ngữ không phù hợp.");
             }
         }
 
         return ModerationResult.pass();
+    }
+
+    /** Cụm từ cấm khớp khi {@code phrase} xuất hiện như một dãy token liền kề trong {@code tokens}. */
+    private static boolean containsSubsequence(List<String> tokens, String[] phrase) {
+        if (phrase.length == 0 || phrase.length > tokens.size()) return false;
+        for (int i = 0; i + phrase.length <= tokens.size(); i++) {
+            boolean match = true;
+            for (int j = 0; j < phrase.length; j++) {
+                if (!tokens.get(i + j).equals(phrase[j])) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return true;
+        }
+        return false;
     }
 
     /**

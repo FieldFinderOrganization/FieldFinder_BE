@@ -57,6 +57,7 @@ public class OrderServiceImpl implements OrderService {
     private final UserTierService userTierService;
     private final com.example.FieldFinder.service.DiscountUsageService discountUsageService;
     private final com.example.FieldFinder.service.PointService pointService;
+    private final com.example.FieldFinder.service.NotificationService notificationService;
 
     private static final long ORDER_REFUND_WINDOW_HOURS = 24;
 
@@ -191,6 +192,13 @@ public class OrderServiceImpl implements OrderService {
 
                 if (finalOrder.getPaymentMethod() == PaymentMethod.CASH) {
                     emailService.sendOrderConfirmation(finalOrder);
+                    if (finalOrder.getUser() != null) {
+                        notificationService.notify(finalOrder.getUser().getUserId(),
+                                "ORDER_CONFIRMED",
+                                "Đơn hàng #" + finalOrder.getOrderId() + " đã xác nhận",
+                                "Đơn hàng của bạn đã được xác nhận và đang được chuẩn bị.",
+                                "ORDER", String.valueOf(finalOrder.getOrderId()));
+                    }
                 } else if (finalOrder.getPaymentMethod() == PaymentMethod.BANK) {
                     emailService.sendOrderPaymentReminder(finalOrder);
                 }
@@ -382,6 +390,7 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new RuntimeException("Order not found!"));
 
         OrderStatus newStatus = OrderStatus.valueOf(status);
+        OrderStatus oldStatus = order.getStatus();
         order.setStatus(newStatus);
         order.setUpdatedAt(LocalDateTime.now());
 
@@ -418,6 +427,24 @@ public class OrderServiceImpl implements OrderService {
             userTierService.recalcTier(order.getUser().getUserId());
         }
 
+        // Báo cho người mua khi trạng thái thực sự đổi (tránh double-notify)
+        if (order.getUser() != null && newStatus != oldStatus) {
+            UUID buyerId = order.getUser().getUserId();
+            String ref = String.valueOf(order.getOrderId());
+            switch (newStatus) {
+                case CONFIRMED -> notificationService.notify(buyerId, "ORDER_CONFIRMED",
+                        "Đơn hàng #" + ref + " đã xác nhận",
+                        "Shop đã xác nhận đơn hàng của bạn.", "ORDER", ref);
+                case SHIPPING -> notificationService.notify(buyerId, "ORDER_SHIPPING",
+                        "Đơn hàng #" + ref + " đang giao",
+                        "Shipper đang trên đường giao hàng cho bạn.", "ORDER", ref);
+                case DELIVERED -> notificationService.notify(buyerId, "ORDER_DELIVERED",
+                        "Đơn hàng #" + ref + " giao thành công",
+                        "Đơn hàng đã được giao thành công. Cảm ơn bạn đã mua sắm!", "ORDER", ref);
+                default -> { }
+            }
+        }
+
         return mapToResponse(order);
     }
 
@@ -449,6 +476,13 @@ public class OrderServiceImpl implements OrderService {
         order.setShipper(shipper);
         order.setUpdatedAt(LocalDateTime.now());
         orderRepository.save(order);
+
+        if (order.getUser() != null) {
+            notificationService.notify(order.getUser().getUserId(), "ORDER_CLAIMED",
+                    "Đơn hàng #" + orderId + " đã có shipper",
+                    "Shipper " + shipper.getName() + " đã nhận giao đơn hàng của bạn.",
+                    "ORDER", String.valueOf(orderId));
+        }
         return mapToResponse(order);
     }
 

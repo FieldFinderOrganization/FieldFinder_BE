@@ -56,6 +56,11 @@ public class Booking {
     @Column(name = "is_reminder_sent")
     private Boolean isReminderSent = false;
 
+    /** Đã gửi thông báo nhắc trước giờ đá (T-60p) chưa — chống bắn lặp. */
+    @Builder.Default
+    @Column(name = "is_play_reminder_sent")
+    private Boolean isPlayReminderSent = false;
+
     /** Ai hủy booking (USER/PROVIDER/SYSTEM); null nếu chưa hủy. */
     @Enumerated(EnumType.STRING)
     @Column(name = "cancelled_by", length = 20)

@@ -42,6 +42,17 @@ public class CloudinaryService {
         return buildResponseMap(uploadResult);
     }
 
+    public Map<String, Object> uploadChatVideo(MultipartFile file, String senderId) throws IOException {
+        Map params = ObjectUtils.asMap(
+                "folder", "field_finder_chat/" + senderId,
+                "resource_type", "video"
+        );
+
+        Map uploadResult = cloudinary.uploader().upload(file.getBytes(), params);
+
+        return buildResponseMap(uploadResult);
+    }
+
     private Map<String, Object> buildResponseMap(Map uploadResult) {
         Map<String, Object> result = new HashMap<>();
         // secure_url = https (Android blocks cleartext http on API 28+); url = http.

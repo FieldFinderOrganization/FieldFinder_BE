@@ -45,6 +45,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentStrategyFactory paymentStrategyFactory;
     private final UserTierService userTierService;
     private final com.example.FieldFinder.service.DiscountUsageService discountUsageService;
+    private final com.example.FieldFinder.service.NotificationService notificationService;
 
     @Value("${front_end_url}")
     private String frontEndUrl;
@@ -259,6 +260,7 @@ public class PaymentServiceImpl implements PaymentService {
 
                         rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
                                 RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY, booking.getBookingId().toString());
+                        notificationService.notifyBookingConfirmed(booking);
                     }
 
 
@@ -282,6 +284,11 @@ public class PaymentServiceImpl implements PaymentService {
 
                             if (order.getUser() != null) {
                                 userTierService.recalcTier(order.getUser().getUserId());
+                                notificationService.notify(order.getUser().getUserId(),
+                                        "ORDER_CONFIRMED",
+                                        "Đơn hàng #" + order.getOrderId() + " đã xác nhận",
+                                        "Thanh toán thành công, đơn hàng đang được chuẩn bị.",
+                                        "ORDER", String.valueOf(order.getOrderId()));
                             }
                         }
                     }
