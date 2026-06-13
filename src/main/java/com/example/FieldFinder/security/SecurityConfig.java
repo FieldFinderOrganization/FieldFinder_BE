@@ -41,7 +41,7 @@ public class SecurityConfig {
                                 "/"
                         ).permitAll()
 
-                        .requestMatchers("/ws/**", "/api/chat/**").permitAll()
+                        .requestMatchers("/ws/**", "/api/chat/**", "/api/call/**").permitAll()
 
                         .requestMatchers("/api/payment/**").permitAll()
                         .requestMatchers("/api/payments/**").permitAll()

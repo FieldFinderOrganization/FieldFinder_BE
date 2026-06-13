@@ -21,8 +21,6 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long orderId;
 
-    // Quan hệ JPA loại khỏi equals/hashCode/toString — tránh Hibernate dirty-check
-    // hash xuyên đồ thị entity (xem chú thích ở OrderItem).
     @EqualsAndHashCode.Exclude
     @ToString.Exclude
     @ManyToOne
@@ -38,6 +36,8 @@ public class Order {
     private String deliveryAddress;
     private Double destLat;
     private Double destLng;
+
+    private Double shippingFee;
 
     private Double totalAmount;
 
