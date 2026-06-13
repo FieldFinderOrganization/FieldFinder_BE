@@ -95,7 +95,7 @@ public class DiscountController {
         return ResponseEntity.ok().build();
     }
 
-    /** Gán mã cho mọi user thuộc hạng chỉ định trở lên. Body: {"tier": "VIP"} */
+    /** Gán mã cho mọi user thuộc hạng chỉ định trở lên. Body: {"tier": "SILVER"} */
     @PostMapping("/{id}/assign-tier")
     @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ResponseEntity<Map<String, Object>> assignToTier(

@@ -76,7 +76,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             "SET u.total_spent12m = COALESCE(s.spent, 0), " +
             "    u.tier = CASE WHEN COALESCE(s.spent, 0) >= :diamond THEN 'DIAMOND' " +
             "                  WHEN COALESCE(s.spent, 0) >= :gold THEN 'GOLD' " +
-            "                  WHEN COALESCE(s.spent, 0) >= :vip THEN 'VIP' " +
+            "                  WHEN COALESCE(s.spent, 0) >= :vip THEN 'SILVER' " +
             "                  ELSE 'MEMBER' END, " +
             "    u.tier_updated_at = NOW()",
             nativeQuery = true)
@@ -99,7 +99,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             "            WHEN COALESCE(s.spent, 0) >= :gold THEN 2 " +
             "            WHEN COALESCE(s.spent, 0) >= :vip THEN 1 ELSE 0 END) > " +
             "      (CASE COALESCE(u.tier, 'MEMBER') WHEN 'DIAMOND' THEN 3 " +
-            "            WHEN 'GOLD' THEN 2 WHEN 'VIP' THEN 1 ELSE 0 END)",
+            "            WHEN 'GOLD' THEN 2 WHEN 'SILVER' THEN 1 ELSE 0 END)",
             nativeQuery = true)
     List<String> findUserIdsNeedingTierUpgrade(@Param("since") LocalDateTime since,
                                                @Param("vip") long vip,

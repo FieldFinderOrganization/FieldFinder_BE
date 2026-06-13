@@ -6,7 +6,7 @@ package com.example.FieldFinder.Enum;
  */
 public enum UserTier {
     MEMBER(0L),
-    VIP(2_000_000L),
+    SILVER(2_000_000L),
     GOLD(5_000_000L),
     DIAMOND(10_000_000L);
 

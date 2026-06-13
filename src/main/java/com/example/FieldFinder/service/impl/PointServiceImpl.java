@@ -49,15 +49,20 @@ public class PointServiceImpl implements PointService {
         int pts = (int) Math.floor(order.getTotalAmount() / POINT_UNIT_VND);
         if (pts <= 0) return;
 
-        UUID userId = order.getUser().getUserId();
+        // Cộng điểm qua entity managed (KHÔNG native UPDATE) — vì cùng transaction
+        // updateOrderStatus còn gọi recalcTier save lại user; native UPDATE sẽ bị flush
+        // của entity (points cũ) ghi đè. Set trên entity để cả 2 chỗ thấy giá trị mới.
+        User user = order.getUser();
+        user.setPoints(user.getEffectivePoints() + pts);
+        userRepository.save(user);
+
         pointTransactionRepository.save(PointTransaction.builder()
-                .user(order.getUser())
+                .user(user)
                 .amount(pts)
                 .type(PointTxType.EARN_ORDER)
                 .refOrderId(order.getOrderId())
                 .description("Tích điểm đơn hàng #" + order.getOrderId())
                 .build());
-        userRepository.addPoints(userId, pts);
     }
 
     @Override
@@ -71,15 +76,19 @@ public class PointServiceImpl implements PointService {
         earn.setReverted(true);
         pointTransactionRepository.save(earn);
 
+        // Trừ điểm qua entity managed (cùng lý do với awardForOrder — tránh recalcTier ghi đè).
+        // Cho phép số dư âm — chỉ khi admin hủy đơn DELIVERED sau khi user đã tiêu điểm.
+        User user = earn.getUser();
+        user.setPoints(user.getEffectivePoints() - earn.getAmount());
+        userRepository.save(user);
+
         pointTransactionRepository.save(PointTransaction.builder()
-                .user(earn.getUser())
+                .user(user)
                 .amount(-earn.getAmount())
                 .type(PointTxType.REVERT_ORDER)
                 .refOrderId(orderId)
                 .description("Hoàn lại điểm do hủy đơn hàng #" + orderId)
                 .build());
-        // Cho phép số dư âm — chỉ xảy ra khi admin hủy đơn DELIVERED sau khi user đã tiêu điểm
-        userRepository.addPoints(earn.getUser().getUserId(), -earn.getAmount());
     }
 
     @Override

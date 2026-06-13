@@ -135,7 +135,7 @@ public class UserTierServiceImpl implements UserTierService {
     @Transactional
     public void recalcAllUsers() {
         LocalDateTime since = windowStart();
-        long vip = UserTier.VIP.getThreshold();
+        long vip = UserTier.SILVER.getThreshold();
         long gold = UserTier.GOLD.getThreshold();
         long diamond = UserTier.DIAMOND.getThreshold();
 

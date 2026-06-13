@@ -29,7 +29,7 @@ public class DiscountRequestDTO {
 
     private String status; // "ACTIVE" | "INACTIVE" | "EXPIRED"
 
-    private String minTier; // null/blank/"ALL" = mọi user | "MEMBER" | "VIP" | "GOLD" | "DIAMOND"
+    private String minTier; // null/blank/"ALL" = mọi user | "MEMBER" | "SILVER" | "GOLD" | "DIAMOND"
 
     private Integer pointCost; // null = không bán bằng điểm; có giá = chỉ đổi qua điểm thưởng
 

@@ -35,7 +35,7 @@ public class DiscountResponseDTO {
     private LocalDate endDate;
     private String status;
     private String kind; // PROMOTION | REFUND_CREDIT — FE phân biệt mã quảng cáo vs mã hoàn tiền
-    private String minTier; // null = mọi hạng; "VIP"/"GOLD"/"DIAMOND" = hạng đó trở lên
+    private String minTier; // null = mọi hạng; "SILVER"/"GOLD"/"DIAMOND" = hạng đó trở lên
     private Integer pointCost; // null = không đổi bằng điểm
 
     public static DiscountResponseDTO fromEntity(Discount discount) {

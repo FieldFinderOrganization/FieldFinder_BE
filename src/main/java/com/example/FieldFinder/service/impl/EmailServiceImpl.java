@@ -238,13 +238,13 @@ public class EmailServiceImpl implements EmailService {
             return;
         }
         String tierLabel = switch (newTier) {
-            case VIP -> "VIP";
+            case SILVER -> "Bạc";
             case GOLD -> "Vàng";
             case DIAMOND -> "Kim cương";
             default -> "Thành viên";
         };
         String tierColor = switch (newTier) {
-            case VIP -> "#7c3aed";
+            case SILVER -> "#94a3b8";
             case GOLD -> "#d4a017";
             case DIAMOND -> "#0e7490";
             default -> "#6b7280";
