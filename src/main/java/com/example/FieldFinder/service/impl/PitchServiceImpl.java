@@ -1,15 +1,23 @@
 package com.example.FieldFinder.service.impl;
 
 
+import com.example.FieldFinder.Enum.BookingStatus;
+import com.example.FieldFinder.Enum.CancelActor;
 import com.example.FieldFinder.dto.req.PitchRequestDTO;
 import com.example.FieldFinder.dto.res.CachedPage;
 import com.example.FieldFinder.dto.res.PitchResponseDTO;
+import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.entity.Pitch;
 import com.example.FieldFinder.entity.ProviderAddress;
+import com.example.FieldFinder.exception.PitchDeactivateBlockedException;
 import com.example.FieldFinder.repository.BookingDetailRepository;
+import com.example.FieldFinder.repository.BookingRepository;
 import com.example.FieldFinder.repository.PitchRepository;
 import com.example.FieldFinder.repository.ProviderAddressRepository;
+import com.example.FieldFinder.repository.ProviderRepository;
+import com.example.FieldFinder.service.DiscountUsageService;
 import com.example.FieldFinder.service.GeocodingService;
+import com.example.FieldFinder.service.NotificationService;
 import com.example.FieldFinder.service.PitchService;
 import com.example.FieldFinder.specification.PitchSpecification;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +32,9 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -38,6 +48,10 @@ public class PitchServiceImpl implements PitchService {
     private final PitchRepository pitchRepository;
     private final ProviderAddressRepository providerAddressRepository;
     private final BookingDetailRepository bookingDetailRepository;
+    private final BookingRepository bookingRepository;
+    private final ProviderRepository providerRepository;
+    private final DiscountUsageService discountUsageService;
+    private final NotificationService notificationService;
     private final CacheManager cacheManager;
     private final GeocodingService geocodingService;
     private final PitchServiceImpl self;
@@ -46,12 +60,20 @@ public class PitchServiceImpl implements PitchService {
             PitchRepository pitchRepository,
             ProviderAddressRepository providerAddressRepository,
             BookingDetailRepository bookingDetailRepository,
+            BookingRepository bookingRepository,
+            ProviderRepository providerRepository,
+            DiscountUsageService discountUsageService,
+            NotificationService notificationService,
             CacheManager cacheManager,
             GeocodingService geocodingService,
             @Lazy PitchServiceImpl self) {
         this.pitchRepository = pitchRepository;
         this.providerAddressRepository = providerAddressRepository;
         this.bookingDetailRepository = bookingDetailRepository;
+        this.bookingRepository = bookingRepository;
+        this.providerRepository = providerRepository;
+        this.discountUsageService = discountUsageService;
+        this.notificationService = notificationService;
         this.cacheManager = cacheManager;
         this.geocodingService = geocodingService;
         this.self = self;
@@ -132,7 +154,8 @@ public class PitchServiceImpl implements PitchService {
         Specification<Pitch> spec = Specification.<Pitch>unrestricted()
                 .and(PitchSpecification.hasDistrict(district))
                 .and(PitchSpecification.hasType(type))
-                .and(PitchSpecification.hasName(name));
+                .and(PitchSpecification.hasName(name))
+                .and((root, query, cb) -> cb.equal(root.get("status"), Pitch.PitchStatus.ACTIVE)); // chỉ hiển sân đang hoạt động
 
         Page<Pitch> pitches = pitchRepository.findAll(spec, pageable);
 
@@ -206,5 +229,90 @@ public class PitchServiceImpl implements PitchService {
                 c.clear();
             }
         }
+    }
+
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "pitches_list", allEntries = true),
+            @CacheEvict(value = "pitch_detail", key = "#pitchId")
+    })
+    public void deactivatePitch(UUID pitchId, LocalDate targetDate, UUID requesterId, boolean isAdmin) {
+        Pitch pitch = pitchRepository.findById(pitchId)
+                .orElseThrow(() -> new RuntimeException("Pitch not found!"));
+
+        // Ownership check cho Provider
+        if (!isAdmin) {
+            var provider = providerRepository.findByUser_UserId(requesterId)
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy thông tin chủ sân!"));
+            boolean owns = pitch.getProviderAddress() != null
+                    && pitch.getProviderAddress().getProvider() != null
+                    && provider.getProviderId().equals(
+                            pitch.getProviderAddress().getProvider().getProviderId());
+            if (!owns) {
+                throw new RuntimeException("Bạn không có quyền ngưng sân này!");
+            }
+        }
+
+        // Kiểm tra block: có CONFIRMED nào >= targetDate không?
+        if (bookingDetailRepository.existsConfirmedOnOrAfter(pitchId, targetDate)) {
+            long count = bookingDetailRepository.countConfirmedOnOrAfter(pitchId, targetDate);
+            LocalDate maxDate = bookingDetailRepository.findMaxConfirmedBookingDateOnOrAfter(pitchId, targetDate);
+            LocalDate earliest = maxDate != null ? maxDate.plusDays(1) : targetDate;
+            throw new PitchDeactivateBlockedException((int) count, earliest);
+        }
+
+        // Auto-cancel tất cả PENDING >= targetDate
+        List<Booking> pendingToCancel = bookingDetailRepository.findPendingBookingsOnOrAfter(pitchId, targetDate);
+        for (Booking booking : pendingToCancel) {
+            booking.setStatus(BookingStatus.CANCELED);
+            booking.setCancelledBy(CancelActor.SYSTEM);
+            booking.setCancelReason("Sân tạm ngưng hoạt động từ " + targetDate);
+            bookingRepository.save(booking);
+            // Hoàn voucher nếu có
+            discountUsageService.revertForBooking(booking.getBookingId());
+            // Thông báo cho khách
+            if (booking.getUser() != null) {
+                notificationService.notify(
+                        booking.getUser().getUserId(),
+                        "PITCH_DEACTIVATED",
+                        "Lịch đặt sân bị hủy",
+                        "Sân \"" + pitch.getName() + "\" tạm ngưng hoạt động từ ngày "
+                                + targetDate + ". Lịch đặt ngày "
+                                + booking.getBookingDate() + " đã được hủy tự động.",
+                        "BOOKING", booking.getBookingId().toString());
+            }
+        }
+
+        pitch.setStatus(Pitch.PitchStatus.INACTIVE);
+        pitchRepository.save(pitch);
+        log.info("[PITCH] Đã ngưng sân {} từ {} (hủy {} PENDING)", pitch.getName(), targetDate, pendingToCancel.size());
+    }
+
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "pitches_list", allEntries = true),
+            @CacheEvict(value = "pitch_detail", key = "#pitchId")
+    })
+    public void reactivatePitch(UUID pitchId, UUID requesterId, boolean isAdmin) {
+        Pitch pitch = pitchRepository.findById(pitchId)
+                .orElseThrow(() -> new RuntimeException("Pitch not found!"));
+
+        if (!isAdmin) {
+            var provider = providerRepository.findByUser_UserId(requesterId)
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy thông tin chủ sân!"));
+            boolean owns = pitch.getProviderAddress() != null
+                    && pitch.getProviderAddress().getProvider() != null
+                    && provider.getProviderId().equals(
+                            pitch.getProviderAddress().getProvider().getProviderId());
+            if (!owns) {
+                throw new RuntimeException("Bạn không có quyền kích hoạt lại sân này!");
+            }
+        }
+
+        pitch.setStatus(Pitch.PitchStatus.ACTIVE);
+        pitchRepository.save(pitch);
+        log.info("[PITCH] Đã kích hoạt lại sân {}", pitch.getName());
     }
 }

@@ -1,6 +1,7 @@
 package com.example.FieldFinder.repository;
 
 import com.example.FieldFinder.Enum.BookingStatus;
+import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.entity.BookingDetail;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -34,5 +35,37 @@ public interface BookingDetailRepository extends JpaRepository<BookingDetail, Lo
             @Param("excludedStatuses") List<BookingStatus> excludedStatuses);
 
     boolean existsByPitch_PitchId(UUID pitchId);
+
+    /** Dùng khi ngưng sân: kiểm tra có CONFIRMED nào trong tương lai không. */
+    @Query("SELECT COUNT(bd) > 0 FROM BookingDetail bd " +
+            "WHERE bd.pitch.pitchId = :pitchId " +
+            "AND bd.booking.bookingDate >= :targetDate " +
+            "AND bd.booking.status = com.example.FieldFinder.Enum.BookingStatus.CONFIRMED")
+    boolean existsConfirmedOnOrAfter(@Param("pitchId") UUID pitchId,
+                                     @Param("targetDate") LocalDate targetDate);
+
+    /** Đếm số booking CONFIRMED >= targetDate (để trả lỗi cho user biết còn bao nhiêu). */
+    @Query("SELECT COUNT(DISTINCT bd.booking) FROM BookingDetail bd " +
+            "WHERE bd.pitch.pitchId = :pitchId " +
+            "AND bd.booking.bookingDate >= :targetDate " +
+            "AND bd.booking.status = com.example.FieldFinder.Enum.BookingStatus.CONFIRMED")
+    long countConfirmedOnOrAfter(@Param("pitchId") UUID pitchId,
+                                 @Param("targetDate") LocalDate targetDate);
+
+    /** Ngày muộn nhất của CONFIRMED booking >= targetDate (để tính earliestDeactivationDate). */
+    @Query("SELECT MAX(bd.booking.bookingDate) FROM BookingDetail bd " +
+            "WHERE bd.pitch.pitchId = :pitchId " +
+            "AND bd.booking.bookingDate >= :targetDate " +
+            "AND bd.booking.status = com.example.FieldFinder.Enum.BookingStatus.CONFIRMED")
+    LocalDate findMaxConfirmedBookingDateOnOrAfter(@Param("pitchId") UUID pitchId,
+                                                   @Param("targetDate") LocalDate targetDate);
+
+    /** Lấy tất cả Booking PENDING >= targetDate của sân để auto-cancel khi ngưng. */
+    @Query("SELECT DISTINCT bd.booking FROM BookingDetail bd " +
+            "WHERE bd.pitch.pitchId = :pitchId " +
+            "AND bd.booking.bookingDate >= :targetDate " +
+            "AND bd.booking.status = com.example.FieldFinder.Enum.BookingStatus.PENDING")
+    List<Booking> findPendingBookingsOnOrAfter(@Param("pitchId") UUID pitchId,
+                                               @Param("targetDate") LocalDate targetDate);
 
 }

@@ -24,6 +24,7 @@ public class PitchResponseDTO {
     private Double longitude;
     private String providerUserId;
     private String providerName;
+    private String status; // ACTIVE | INACTIVE
 
     public static PitchResponseDTO fromEntity(Pitch pitch) {
         PitchResponseDTO dto = new PitchResponseDTO();
@@ -43,6 +44,7 @@ public class PitchResponseDTO {
         var providerUser = pa.getProvider().getUser();
         dto.setProviderUserId(providerUser.getUserId().toString());
         dto.setProviderName(providerUser.getName());
+        dto.setStatus(pitch.getStatus() != null ? pitch.getStatus().name() : "ACTIVE");
         return dto;
     }
 }

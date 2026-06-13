@@ -7,6 +7,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -67,7 +68,16 @@ public class Pitch {
     @Builder.Default
     private List<String> imageUrls = new ArrayList<>();
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 10)
+    @Builder.Default
+    private PitchStatus status = PitchStatus.ACTIVE;
+
     public enum PitchType {
         FIVE_A_SIDE, SEVEN_A_SIDE, ELEVEN_A_SIDE
+    }
+
+    public enum PitchStatus {
+        ACTIVE, INACTIVE
     }
 }

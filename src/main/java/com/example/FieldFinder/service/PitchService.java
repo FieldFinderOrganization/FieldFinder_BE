@@ -5,6 +5,7 @@ import com.example.FieldFinder.dto.res.PitchResponseDTO;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,4 +22,15 @@ public interface PitchService {
     int backfillPitchCoordinates();
 
     void evictAllListPitchCaches();
+
+    /**
+     * Ngưng hoạt động sân từ targetDate.
+     * - Block nếu có booking CONFIRMED với bookingDate >= targetDate.
+     * - Tự động hủy PENDING với bookingDate >= targetDate và gửi notification.
+     * @param isAdmin true = admin (quản lý tất cả sân), false = provider (chỉ sân của mình)
+     */
+    void deactivatePitch(UUID pitchId, LocalDate targetDate, UUID requesterId, boolean isAdmin);
+
+    /** Bật lại sân INACTIVE thành ACTIVE. Không có điều kiện block. */
+    void reactivatePitch(UUID pitchId, UUID requesterId, boolean isAdmin);
 }
