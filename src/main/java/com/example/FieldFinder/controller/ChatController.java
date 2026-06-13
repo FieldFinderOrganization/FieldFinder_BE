@@ -189,7 +189,11 @@ public class ChatController {
         if ("IMAGE".equals(msg.getType())) return "[Hình ảnh]";
         if ("VIDEO".equals(msg.getType())) return "[Video]";
         if ("CALL".equals(msg.getType())) {
-            return "MISSED".equals(msg.getCallStatus()) ? "Cuộc gọi nhỡ" : "[Cuộc gọi thoại]";
+            boolean video = "VIDEO".equals(msg.getCallMedia());
+            String kind = video ? "video" : "thoại";
+            return "MISSED".equals(msg.getCallStatus())
+                    ? "Cuộc gọi " + kind + " nhỡ"
+                    : "[Cuộc gọi " + kind + "]";
         }
         return msg.getContent();
     }

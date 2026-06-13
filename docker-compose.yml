@@ -115,11 +115,14 @@ services:
     ports:
       - "3478:3478/udp"
       - "3478:3478/tcp"
-      - "49160-49200:49160-49200/udp"
+      # ~100 relay port (≈50 cuộc relay đồng thời). KHÔNG nới quá lớn ở chế độ
+      # bridge: mỗi port = 1 docker-proxy → start chậm/nặng. Production dùng
+      # network_mode: host + dải đầy đủ (49152-65535), bỏ phần ports: này.
+      - "49152-49251:49152-49251/udp"
     command: >
       -n
       --listening-port=3478
-      --min-port=49160 --max-port=49200
+      --min-port=49152 --max-port=49251
       --use-auth-secret
       --static-auth-secret=${TURN_SECRET:-fieldfinder-turn-secret}
       --realm=${TURN_REALM:-fieldfinder}
