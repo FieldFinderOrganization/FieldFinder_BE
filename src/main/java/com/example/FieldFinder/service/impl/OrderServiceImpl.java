@@ -58,6 +58,7 @@ public class OrderServiceImpl implements OrderService {
     private final com.example.FieldFinder.service.DiscountUsageService discountUsageService;
     private final com.example.FieldFinder.service.PointService pointService;
     private final com.example.FieldFinder.service.NotificationService notificationService;
+    private final com.example.FieldFinder.service.DeliveryFeeService deliveryFeeService;
 
     private static final long ORDER_REFUND_WINDOW_HOURS = 24;
 
@@ -150,7 +151,15 @@ public class OrderServiceImpl implements OrderService {
             throw e;
         }
 
-        order.setTotalAmount(finalAmount);
+        // Phí ship tính server-side theo khoảng cách kho -> điểm giao (không tin số client gửi).
+        double shippingFee = 0.0;
+        if (request.getDestLat() != null && request.getDestLng() != null) {
+            shippingFee = deliveryFeeService
+                    .quote(request.getDestLat(), request.getDestLng(), finalAmount)
+                    .fee();
+        }
+        order.setShippingFee(shippingFee);
+        order.setTotalAmount(finalAmount + shippingFee);
         order.setItems(orderItemsToSave);
 
         orderRepository.save(order);
@@ -623,6 +632,7 @@ public class OrderServiceImpl implements OrderService {
                 .orderId(order.getOrderId())
                 .userName(order.getUser() != null ? order.getUser().getName() : "Guest")
                 .totalAmount(order.getTotalAmount())
+                .shippingFee(order.getShippingFee())
                 .status(order.getStatus().name())
                 .paymentMethod(order.getPaymentMethod().name())
                 .createdAt(order.getCreatedAt())

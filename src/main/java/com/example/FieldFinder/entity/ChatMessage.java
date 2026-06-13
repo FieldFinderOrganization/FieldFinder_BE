@@ -46,4 +46,17 @@ public class ChatMessage {
     @Column(name = "reaction")
     private String reaction;
 
+    // ---- Cuộc gọi (chỉ dùng khi type = "CALL") — kiểu Messenger, lưu inline trong luồng chat ----
+    // ANSWERED | MISSED | REJECTED | CANCELED
+    @Column(name = "call_status")
+    private String callStatus;
+
+    // Thời lượng cuộc gọi (giây); null/0 nếu chưa kết nối
+    @Column(name = "call_duration_sec")
+    private Integer callDurationSec;
+
+    // AUDIO (Phase 1) | VIDEO (Phase 2)
+    @Column(name = "call_media")
+    private String callMedia;
+
 }

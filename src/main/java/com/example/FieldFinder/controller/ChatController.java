@@ -188,6 +188,9 @@ public class ChatController {
     private static String previewOf(ChatMessage msg) {
         if ("IMAGE".equals(msg.getType())) return "[Hình ảnh]";
         if ("VIDEO".equals(msg.getType())) return "[Video]";
+        if ("CALL".equals(msg.getType())) {
+            return "MISSED".equals(msg.getCallStatus()) ? "Cuộc gọi nhỡ" : "[Cuộc gọi thoại]";
+        }
         return msg.getContent();
     }
 }

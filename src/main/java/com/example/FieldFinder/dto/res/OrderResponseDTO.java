@@ -13,6 +13,7 @@ public class OrderResponseDTO {
     private Long orderId;
     private String userName;
     private Double totalAmount;
+    private Double shippingFee;
     private String status;
     private String paymentMethod;
     private LocalDateTime createdAt;
