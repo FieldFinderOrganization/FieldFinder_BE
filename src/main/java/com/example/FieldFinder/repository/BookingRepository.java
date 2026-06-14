@@ -72,6 +72,18 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     @Query("SELECT DAYOFWEEK(b.bookingDate), COUNT(b) FROM Booking b WHERE b.bookingDate BETWEEN :startDate AND :endDate GROUP BY DAYOFWEEK(b.bookingDate)")
     List<Object[]> countBookingsByDayOfWeek(@Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
 
+    // Thống kê lượt đặt + doanh thu theo từng sân của 1 provider — cho bảng xếp hạng.
+    // lượt đặt = số booking phân biệt (1 booking/sân, khớp _pitchBookings ở mobile);
+    // doanh thu chỉ tính booking CONFIRMED + PAID. Mỗi dòng: [pitchId, bookingCount, totalRevenue].
+    @Query("SELECT bd.pitch.pitchId, COUNT(DISTINCT bd.booking), " +
+            "COALESCE(SUM(CASE WHEN bd.booking.status = com.example.FieldFinder.Enum.BookingStatus.CONFIRMED " +
+            "  AND bd.booking.paymentStatus = com.example.FieldFinder.Enum.PaymentStatus.PAID " +
+            "  THEN bd.priceDetail ELSE 0 END), 0) " +
+            "FROM BookingDetail bd " +
+            "WHERE bd.pitch.providerAddress.provider.providerId = :providerId " +
+            "GROUP BY bd.pitch.pitchId")
+    List<Object[]> findPitchBookingStatsByProvider(@Param("providerId") UUID providerId);
+
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.user LEFT JOIN FETCH b.bookingDetails bd LEFT JOIN FETCH bd.pitch ORDER BY b.createdAt DESC")
     Page<Booking> findAllWithDetails(Pageable pageable);
 

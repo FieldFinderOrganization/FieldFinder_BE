@@ -6,6 +6,7 @@ import com.example.FieldFinder.entity.Review;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +38,14 @@ public interface ReviewRepository extends JpaRepository<Review, UUID> {
     @Query("SELECT AVG(r.rating) FROM Review r " +
             "WHERE r.status = com.example.FieldFinder.Enum.ReviewStatus.APPROVED")
     Double findOverallAverageRating();
+
+    // Thống kê rating theo từng sân của 1 provider (chỉ review đã duyệt) —
+    // dùng cho bảng xếp hạng "đánh giá cao nhất". Mỗi dòng: [pitchId, avgRating, reviewCount].
+    @Query("SELECT r.pitch.pitchId, AVG(r.rating), COUNT(r) FROM Review r " +
+            "WHERE r.pitch.providerAddress.provider.providerId = :providerId " +
+            "AND r.status = com.example.FieldFinder.Enum.ReviewStatus.APPROVED " +
+            "GROUP BY r.pitch.pitchId")
+    List<Object[]> findRatingStatsByProvider(@Param("providerId") UUID providerId);
 
     @Query("SELECT r.rating, COUNT(r) FROM Review r " +
             "WHERE r.status = com.example.FieldFinder.Enum.ReviewStatus.APPROVED " +

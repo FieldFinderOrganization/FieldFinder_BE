@@ -25,6 +25,9 @@ public interface PitchRepository extends JpaRepository<Pitch, UUID>, JpaSpecific
 
     List<Pitch> findByProviderAddressProviderAddressId(UUID providerAddressId);
 
+    /** Toàn bộ sân của 1 provider (mọi khu vực) — cho thống kê/xếp hạng. */
+    List<Pitch> findByProviderAddress_Provider_ProviderId(UUID providerId);
+
     /** Sân chưa có toạ độ riêng (cần seed jitter quanh tâm khu vực). */
     List<Pitch> findByLatitudeIsNullOrLongitudeIsNull();
 
