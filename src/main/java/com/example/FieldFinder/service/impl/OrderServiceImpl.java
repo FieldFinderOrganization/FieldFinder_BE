@@ -282,6 +282,16 @@ public class OrderServiceImpl implements OrderService {
             userDiscounts.add(userDiscount);
         }
 
+        // Server-authoritative: tối đa 1 mã GLOBAL / đơn (FE đã chặn nhưng API có thể bị
+        // gọi thẳng). Nhiều GLOBAL sẽ cộng dồn ở Phase 2 -> giảm vượt margin.
+        long globalCount = discounts.stream()
+                .filter(d -> d.getKind() != com.example.FieldFinder.Enum.DiscountKind.REFUND_CREDIT)
+                .filter(d -> d.getScope() == Discount.DiscountScope.GLOBAL)
+                .count();
+        if (globalCount > 1) {
+            throw new RuntimeException("Chỉ được áp dụng 1 mã giảm toàn đơn (GLOBAL) cho mỗi đơn hàng");
+        }
+
         // Phase 1: SPECIFIC_PRODUCT + CATEGORY (best-wins per item)
         Map<Integer, Double> itemDiscountMap = new HashMap<>();
         for (Discount d : discounts) {

@@ -1183,17 +1183,30 @@ public class AIChat {
         String action = (String) query.data.get("action");
         String productName = (String) query.data.get("productName");
 
+        // Scope filters cho query giảm giá (brand/loại): "Nike đang sale gì", "giày nào đang giảm".
+        String saleBrand = (String) query.data.get("brand");
+        String saleProductType = (String) query.data.get("productType");
+        String saleCategoryKeyword = (String) query.data.get("categoryKeyword");
+        String scopeLabel = buildSaleScopeLabel(saleBrand, saleProductType, saleCategoryKeyword);
+
         ProductResponseDTO foundProduct = null;
 
         if ("list_on_sale".equals(action)) {
-            List<ProductResponseDTO> onSaleProducts = products.stream()
-                    .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
-                    .collect(Collectors.toList());
+            List<ProductResponseDTO> onSaleProducts = applySaleScope(
+                    products.stream()
+                            .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
+                            .collect(Collectors.toList()),
+                    saleBrand, saleProductType, saleCategoryKeyword);
 
             if (onSaleProducts.isEmpty()) {
-                query.message = "Hiện tại shop chưa có sản phẩm nào đang giảm giá.";
+                query.message = scopeLabel == null
+                        ? "Hiện tại shop chưa có sản phẩm nào đang giảm giá."
+                        : String.format("Hiện %s chưa có sản phẩm nào đang giảm giá.", scopeLabel);
             } else {
-                query.message = String.format("Hiện tại shop có %d sản phẩm đang giảm giá. Tôi đã gửi danh sách cho bạn 👇", onSaleProducts.size());
+                onSaleProducts.sort(Comparator.comparing(ProductResponseDTO::getSalePercent).reversed());
+                query.message = scopeLabel == null
+                        ? String.format("Hiện tại shop có %d sản phẩm đang giảm giá. Tôi đã gửi danh sách cho bạn 👇", onSaleProducts.size())
+                        : String.format("%s hiện có %d sản phẩm đang giảm giá. Tôi đã gửi danh sách cho bạn 👇", capitalize(scopeLabel), onSaleProducts.size());
                 query.data.put("products", onSaleProducts);
             }
             logProductQuery(userId, sessionId, action, productName, query.message, null);
@@ -1201,10 +1214,14 @@ public class AIChat {
         }
 
         if ("count_on_sale".equals(action)) {
-            long count = products.stream()
-                    .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
-                    .count();
-            query.message = "Hiện tại shop có " + count + " sản phẩm đang giảm giá.";
+            long count = applySaleScope(
+                    products.stream()
+                            .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
+                            .collect(Collectors.toList()),
+                    saleBrand, saleProductType, saleCategoryKeyword).size();
+            query.message = scopeLabel == null
+                    ? "Hiện tại shop có " + count + " sản phẩm đang giảm giá."
+                    : String.format("Hiện %s có %d sản phẩm đang giảm giá.", scopeLabel, count);
             logProductQuery(userId, sessionId, action, productName, query.message, null);
             return query;
         }
@@ -1419,15 +1436,42 @@ public class AIChat {
             }
         }
         else if ("max_discount_product".equals(action)) {
-            foundProduct = products.stream()
-                    .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
+            foundProduct = applySaleScope(
+                    products.stream()
+                            .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
+                            .collect(Collectors.toList()),
+                    saleBrand, saleProductType, saleCategoryKeyword).stream()
                     .max(Comparator.comparing(ProductResponseDTO::getSalePercent))
                     .orElse(null);
             if (foundProduct != null) {
-                query.message = String.format("Sản phẩm giảm sâu nhất là %s (-%d%%).", foundProduct.getName(), foundProduct.getSalePercent());
+                query.message = scopeLabel == null
+                        ? String.format("Sản phẩm giảm sâu nhất là %s (-%d%%).", foundProduct.getName(), foundProduct.getSalePercent())
+                        : String.format("%s giảm sâu nhất là %s (-%d%%).", capitalize(scopeLabel), foundProduct.getName(), foundProduct.getSalePercent());
             } else {
-                query.message = "Hiện không có sản phẩm nào giảm giá.";
+                query.message = scopeLabel == null
+                        ? "Hiện không có sản phẩm nào giảm giá."
+                        : String.format("Hiện %s không có sản phẩm nào giảm giá.", scopeLabel);
             }
+        }
+        else if ("max_discount_brand".equals(action) || "max_discount_category".equals(action)) {
+            boolean byBrand = "max_discount_brand".equals(action);
+            List<ProductResponseDTO> onSale = products.stream()
+                    .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
+                    .collect(Collectors.toList());
+            DiscountGroup top = topDiscountGroup(onSale,
+                    byBrand ? ProductResponseDTO::getBrand : ProductResponseDTO::getCategoryName);
+            if (top == null) {
+                query.message = byBrand
+                        ? "Hiện chưa có thương hiệu nào đang giảm giá."
+                        : "Hiện chưa có danh mục nào đang giảm giá.";
+            } else {
+                query.message = String.format(
+                        "%s giảm giá mạnh nhất là %s (sâu nhất -%d%%, %d sản phẩm đang sale). Tôi gửi vài mẫu giảm sâu 👇",
+                        byBrand ? "Thương hiệu" : "Danh mục", top.key, top.maxPct, top.count);
+                query.data.put("products", top.products);
+            }
+            logProductQuery(userId, sessionId, action, productName, query.message, null);
+            return query;
         }
 
         else if ("search_by_price_range".equals(action)) {
@@ -1571,6 +1615,102 @@ public class AIChat {
         } else {
             return "từ " + formatMoney(minPrice) + " đến " + formatMoney(maxPrice) + " VNĐ";
         }
+    }
+
+    /**
+     * Lọc danh sách SP đang sale theo scope brand + loại (productType ưu tiên, fallback categoryKeyword).
+     * Trả list mutable (sort/cap được). null/blank scope → bỏ qua tiêu chí đó.
+     */
+    private List<ProductResponseDTO> applySaleScope(List<ProductResponseDTO> onSale,
+                                                    String brand, String productType, String categoryKeyword) {
+        List<ProductResponseDTO> out = new ArrayList<>(onSale);
+        if (brand != null && !brand.isBlank()) {
+            String b = brand.trim();
+            out = out.stream()
+                    .filter(p -> p.getBrand() != null && p.getBrand().equalsIgnoreCase(b))
+                    .collect(Collectors.toList());
+        }
+        if (productType != null && !productType.isBlank()) {
+            out = out.stream()
+                    .filter(p -> categoryService.productMatchesType(p, productType))
+                    .collect(Collectors.toList());
+        } else if (categoryKeyword != null && !categoryKeyword.isBlank()) {
+            out = new ArrayList<>(filterProductsByCategoryOrName(out, categoryKeyword));
+        }
+        return out;
+    }
+
+    /** Nhãn scope giảm giá để chèn vào message (vd "thương hiệu Nike", "giày"). null nếu không có scope. */
+    private String buildSaleScopeLabel(String brand, String productType, String categoryKeyword) {
+        List<String> parts = new ArrayList<>();
+        if (productType != null && !productType.isBlank()) {
+            String label = productTypeLabel(productType);
+            if (label != null) parts.add(label);
+        } else if (categoryKeyword != null && !categoryKeyword.isBlank()) {
+            parts.add(translateCategory(categoryKeyword));
+        }
+        if (brand != null && !brand.isBlank()) {
+            parts.add("thương hiệu " + brand.trim());
+        }
+        return parts.isEmpty() ? null : String.join(" ", parts);
+    }
+
+    private String productTypeLabel(String productType) {
+        return switch (productType == null ? "" : productType.toUpperCase()) {
+            case "SHOES" -> "giày";
+            case "TOP" -> "áo";
+            case "BOTTOM" -> "quần";
+            case "DRESS" -> "váy";
+            case "BAG" -> "balo/túi";
+            case "HAT" -> "nón";
+            case "SANDAL" -> "dép";
+            default -> null;
+        };
+    }
+
+    private String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    /** Nhóm SP sale theo key (brand/category) đã rank: maxPct desc, tiebreak count desc. */
+    private static class DiscountGroup {
+        final String key;
+        final int maxPct;
+        final int count;
+        final List<ProductResponseDTO> products; // sale của nhóm, sort salePercent desc, cap 10
+        DiscountGroup(String key, int maxPct, int count, List<ProductResponseDTO> products) {
+            this.key = key; this.maxPct = maxPct; this.count = count; this.products = products;
+        }
+    }
+
+    /**
+     * Group SP đang sale theo keyFn (bỏ null/blank), chọn nhóm "giảm nhiều nhất":
+     * rank theo độ sâu (maxPct) desc, tiebreak số lượng SP sale (count) desc — cách Shopee/Amazon làm.
+     * Trả null nếu không nhóm nào có SP sale.
+     */
+    private DiscountGroup topDiscountGroup(List<ProductResponseDTO> onSale,
+                                           java.util.function.Function<ProductResponseDTO, String> keyFn) {
+        Map<String, List<ProductResponseDTO>> grouped = new LinkedHashMap<>();
+        for (ProductResponseDTO p : onSale) {
+            String key = keyFn.apply(p);
+            if (key == null || key.isBlank()) continue;
+            grouped.computeIfAbsent(key.trim(), k -> new ArrayList<>()).add(p);
+        }
+        DiscountGroup best = null;
+        for (Map.Entry<String, List<ProductResponseDTO>> e : grouped.entrySet()) {
+            List<ProductResponseDTO> items = e.getValue();
+            int maxPct = items.stream().mapToInt(ProductResponseDTO::getSalePercent).max().orElse(0);
+            int count = items.size();
+            if (best == null || maxPct > best.maxPct || (maxPct == best.maxPct && count > best.count)) {
+                List<ProductResponseDTO> sorted = items.stream()
+                        .sorted(Comparator.comparing(ProductResponseDTO::getSalePercent).reversed())
+                        .limit(10)
+                        .collect(Collectors.toList());
+                best = new DiscountGroup(e.getKey(), maxPct, count, sorted);
+            }
+        }
+        return best;
     }
 
     private List<ProductResponseDTO> filterProductsByCategoryOrName(List<ProductResponseDTO> products, String keyword) {
@@ -2357,6 +2497,7 @@ public class AIChat {
             }
             if (action.contains("product") || action.contains("stock") ||
                     action.contains("sales") || action.contains("sale") ||
+                    action.contains("discount") ||
                     action.contains("size") || action.contains("order") ||
                     action.contains("price") ||
                     "search_by_price_range".equals(action) ||
@@ -3505,8 +3646,9 @@ public class AIChat {
           "location": "tên khu vực/quận/đường nếu user nêu" (hoặc null),
           "nearMe": true | false,
           "data": {
-            "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | "list_on_sale" | "count_on_sale" | "max_discount_product" | "best_selling_product" | "search_by_price_range" | "cheapest_product" | "most_expensive_product" | "product_detail" | "recommend_by_activity" | "list_pitches" | "recommend_pitch" | "count_pitches_by_type" | "check_pitch_availability" | "book_pitch" | "list_my_bookings" | "cheapest_pitch" | "most_expensive_pitch" | null,
+            "action": "get_weather" | "check_stock" | "check_sales" | "check_size" | "prepare_order" | "list_on_sale" | "count_on_sale" | "max_discount_product" | "max_discount_brand" | "max_discount_category" | "best_selling_product" | "search_by_price_range" | "cheapest_product" | "most_expensive_product" | "product_detail" | "recommend_by_activity" | "list_pitches" | "recommend_pitch" | "count_pitches_by_type" | "check_pitch_availability" | "book_pitch" | "list_my_bookings" | "cheapest_pitch" | "most_expensive_pitch" | null,
             "productName": "...",
+            "brand": "...",
             "city": "...",
             "size": "...",
             "quantity": 1,
@@ -3581,6 +3723,27 @@ public class AIChat {
           KHÔNG nêu loại sản phẩm/brand/màu/giới tính (vd "sản phẩm dưới 500k", "có gì tầm 1 triệu").
           Nếu query TÌM KIẾM có kèm khoảng giá (vd "giày nike đen dưới 2 triệu") -> action "recommend_by_activity"
           và VẪN điền minPrice/maxPrice (backend sẽ lọc giá + xếp hạng).
+
+        ❗️ QUY TẮC GIẢM GIÁ / SALE / KHUYẾN MÃI:
+        - Từ khóa "giảm giá", "sale", "khuyến mãi", "đang giảm", "ưu đãi", "deal", "giảm sốc":
+          + Liệt kê sản phẩm đang giảm giá -> action: "list_on_sale".
+          + Đếm số sản phẩm đang giảm giá -> action: "count_on_sale".
+          + Sản phẩm GIẢM SÂU NHẤT (1 sản phẩm) -> action: "max_discount_product".
+          + THƯƠNG HIỆU / BRAND giảm giá nhiều nhất -> action: "max_discount_brand".
+          + DANH MỤC / LOẠI sản phẩm giảm giá nhiều nhất -> action: "max_discount_category".
+        - Nếu câu hỏi giảm giá có kèm THƯƠNG HIỆU và/hoặc LOẠI sản phẩm -> vẫn dùng "list_on_sale"
+          (hoặc "count_on_sale"/"max_discount_product") và điền `brand` và/hoặc `productType`/`categoryKeyword`.
+        - PHÂN BIỆT: "thương hiệu/brand/hãng nào" -> max_discount_brand;
+          "danh mục/loại sản phẩm/nhóm hàng nào" -> max_discount_category.
+        - VÍ DỤ:
+          + "shop có gì đang sale" / "sản phẩm nào đang giảm giá" -> action: "list_on_sale"
+          + "có bao nhiêu sản phẩm giảm giá" -> action: "count_on_sale"
+          + "sản phẩm nào giảm sâu nhất" / "món nào giảm nhiều nhất" -> action: "max_discount_product"
+          + "Nike đang sale gì" / "adidas có giảm giá không" -> action: "list_on_sale", brand: "Nike"/"adidas"
+          + "giày nào đang giảm giá" -> action: "list_on_sale", productType: "SHOES"
+          + "áo nike nào đang sale" -> action: "list_on_sale", brand: "Nike", productType: "TOP"
+          + "thương hiệu nào giảm giá nhiều nhất" / "hãng nào đang sale mạnh nhất" -> action: "max_discount_brand"
+          + "danh mục nào giảm giá nhiều nhất" / "loại sản phẩm nào đang giảm sâu nhất" -> action: "max_discount_category"
 
         ❗️ QUY TẮC productType (BẮT BUỘC khi recommend sản phẩm):
         - "áo", "jersey", "tee", "hoodie", "jacket", "polo", "sơ mi" → productType: "TOP"

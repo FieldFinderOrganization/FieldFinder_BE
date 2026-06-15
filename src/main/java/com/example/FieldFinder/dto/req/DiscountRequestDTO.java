@@ -18,7 +18,7 @@ public class DiscountRequestDTO {
     private BigDecimal minOrderValue;
     private BigDecimal maxDiscountAmount;
 
-    private String scope; // "ALL" | "USER" | "PRODUCT"
+    private String scope; // "GLOBAL" | "SPECIFIC_PRODUCT" | "CATEGORY" (null/blank/invalid -> GLOBAL)
 
     private List<Long> applicableProductIds;
     private List<Long> applicableCategoryIds;
@@ -32,6 +32,18 @@ public class DiscountRequestDTO {
     private String minTier; // null/blank/"ALL" = mọi user | "MEMBER" | "SILVER" | "GOLD" | "DIAMOND"
 
     private Integer pointCost; // null = không bán bằng điểm; có giá = chỉ đổi qua điểm thưởng
+
+    /** Parse scope an toàn: null/blank/giá trị lạ -> GLOBAL. Dùng chung create + update. */
+    public Discount.DiscountScope parseScope() {
+        if (this.scope == null || this.scope.isBlank()) {
+            return Discount.DiscountScope.GLOBAL;
+        }
+        try {
+            return Discount.DiscountScope.valueOf(this.scope.toUpperCase());
+        } catch (Exception e) {
+            return Discount.DiscountScope.GLOBAL;
+        }
+    }
 
     public com.example.FieldFinder.Enum.UserTier parseMinTier() {
         if (this.minTier == null || this.minTier.isBlank() || "ALL".equalsIgnoreCase(this.minTier)) {
@@ -55,16 +67,7 @@ public class DiscountRequestDTO {
             statusEnum = Discount.DiscountStatus.INACTIVE;
         }
 
-        Discount.DiscountScope scopeEnum;
-        try {
-            scopeEnum = Discount.DiscountScope.valueOf(
-                    this.scope != null && !this.scope.isBlank()
-                            ? this.scope
-                            : "ALL"
-            );
-        } catch (Exception e) {
-            scopeEnum = Discount.DiscountScope.GLOBAL;
-        }
+        Discount.DiscountScope scopeEnum = parseScope();
 
         Discount.DiscountType discountTypeEnum;
         try {

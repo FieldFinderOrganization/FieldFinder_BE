@@ -149,7 +149,7 @@ public class DiscountServiceImpl implements DiscountService {
         discount.setValue(dto.getValue());
         discount.setMinOrderValue(dto.getMinOrderValue());
         discount.setMaxDiscountAmount(dto.getMaxDiscountAmount());
-        discount.setScope(Discount.DiscountScope.valueOf(dto.getScope()));
+        discount.setScope(dto.parseScope());
         discount.setQuantity(dto.getQuantity());
         discount.setStartDate(dto.getStartDate());
         discount.setEndDate(dto.getEndDate());
@@ -215,23 +215,34 @@ public class DiscountServiceImpl implements DiscountService {
         }
 
         if (discount.getScope() == Discount.DiscountScope.SPECIFIC_PRODUCT) {
-            if (dto.getApplicableProductIds() != null && !dto.getApplicableProductIds().isEmpty()) {
-                List<Product> products = productRepository.findAllById(dto.getApplicableProductIds());
-                discount.setApplicableProducts(new HashSet<>(products));
-            } else {
-                discount.getApplicableProducts().clear();
+            // Mã theo sản phẩm bắt buộc có ít nhất 1 sản phẩm — nếu rỗng thì mã "chết"
+            // (isApplicableToProduct luôn false), nên chặn ngay thay vì lưu im lặng.
+            if (dto.getApplicableProductIds() == null || dto.getApplicableProductIds().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Mã theo sản phẩm phải chọn ít nhất 1 sản phẩm áp dụng");
             }
+            List<Product> products = productRepository.findAllById(dto.getApplicableProductIds());
+            if (products.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Không tìm thấy sản phẩm hợp lệ nào trong danh sách áp dụng");
+            }
+            discount.setApplicableProducts(new HashSet<>(products));
             discount.getApplicableCategories().clear();
         }
         else if (discount.getScope() == Discount.DiscountScope.CATEGORY) {
-            if (dto.getApplicableCategoryIds() != null && !dto.getApplicableCategoryIds().isEmpty()) {
-                List<Category> selectedCategories = categoryRepository.findAllById(dto.getApplicableCategoryIds());
-                Set<Long> expandedIds = expandCategoryIds(selectedCategories);
-                List<Category> allCats = categoryRepository.findAllById(new ArrayList<>(expandedIds));
-                discount.setApplicableCategories(new HashSet<>(allCats));
-            } else {
-                discount.getApplicableCategories().clear();
+            // Tương tự: mã theo danh mục phải có ít nhất 1 danh mục.
+            if (dto.getApplicableCategoryIds() == null || dto.getApplicableCategoryIds().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Mã theo danh mục phải chọn ít nhất 1 danh mục áp dụng");
             }
+            List<Category> selectedCategories = categoryRepository.findAllById(dto.getApplicableCategoryIds());
+            if (selectedCategories.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Không tìm thấy danh mục hợp lệ nào trong danh sách áp dụng");
+            }
+            Set<Long> expandedIds = expandCategoryIds(selectedCategories);
+            List<Category> allCats = categoryRepository.findAllById(new ArrayList<>(expandedIds));
+            discount.setApplicableCategories(new HashSet<>(allCats));
             discount.getApplicableProducts().clear();
         }
         else {
