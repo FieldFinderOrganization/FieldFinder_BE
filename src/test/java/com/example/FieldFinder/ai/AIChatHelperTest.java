@@ -2,6 +2,7 @@ package com.example.FieldFinder.ai;
 
 import com.example.FieldFinder.Enum.PitchEnvironment;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
+import com.example.FieldFinder.ai.match.AiProductMatch;
 import com.example.FieldFinder.service.CategoryService;
 import org.junit.jupiter.api.Test;
 
@@ -15,9 +16,9 @@ class AIChatHelperTest {
 
     @Test
     void containsQueryToken_MatchesStandaloneBrandOnly() {
-        assertTrue(AIChat.containsQueryToken("tôi muốn puma size 42", "puma"));
-        assertTrue(AIChat.containsQueryToken("balo New Balance màu đen", "new balance"));
-        assertFalse(AIChat.containsQueryToken("spumante không phải brand", "puma"));
+        assertTrue(AiProductMatch.containsQueryToken("tôi muốn puma size 42", "puma"));
+        assertTrue(AiProductMatch.containsQueryToken("balo New Balance màu đen", "new balance"));
+        assertFalse(AiProductMatch.containsQueryToken("spumante không phải brand", "puma"));
     }
 
     @Test
@@ -51,37 +52,37 @@ class AIChatHelperTest {
 
     @Test
     void detectQuerySize_PrefersGeminiParsedValue() {
-        assertEquals("39", AIChat.detectQuerySize("39", "tìm giày nike size 40"));
+        assertEquals("39", AiProductMatch.detectQuerySize("39", "tìm giày nike size 40"));
     }
 
     @Test
     void detectQuerySize_FallbackRegexOnUserInput() {
-        assertEquals("39", AIChat.detectQuerySize(null, "tìm giày nike nam màu đen size 39"));
-        assertEquals("39.5", AIChat.detectQuerySize(null, "giày Size 39,5 còn không"));
-        assertEquals("40", AIChat.detectQuerySize(null, "cỡ 40 có hàng không"));
-        assertEquals("XL", AIChat.detectQuerySize(null, "áo sz xl màu trắng"));
-        assertEquals("2XL", AIChat.detectQuerySize(null, "áo size 2XL"));
+        assertEquals("39", AiProductMatch.detectQuerySize(null, "tìm giày nike nam màu đen size 39"));
+        assertEquals("39.5", AiProductMatch.detectQuerySize(null, "giày Size 39,5 còn không"));
+        assertEquals("40", AiProductMatch.detectQuerySize(null, "cỡ 40 có hàng không"));
+        assertEquals("XL", AiProductMatch.detectQuerySize(null, "áo sz xl màu trắng"));
+        assertEquals("2XL", AiProductMatch.detectQuerySize(null, "áo size 2XL"));
     }
 
     @Test
     void detectQuerySize_NullWhenAbsentOrAmbiguous() {
-        assertNull(AIChat.detectQuerySize(null, "tìm giày nike màu đen"));
-        assertNull(AIChat.detectQuerySize(null, "sân 7 còn trống không"));      // không có keyword size
-        assertNull(AIChat.detectQuerySize(null, "giày tầm 39k thôi"));          // giá, không phải size
-        assertNull(AIChat.detectQuerySize(null, "size 39k là gì"));             // 39k không phải size
-        assertNull(AIChat.detectQuerySize("null", null));                       // Gemini trả chuỗi "null"
+        assertNull(AiProductMatch.detectQuerySize(null, "tìm giày nike màu đen"));
+        assertNull(AiProductMatch.detectQuerySize(null, "sân 7 còn trống không"));      // không có keyword size
+        assertNull(AiProductMatch.detectQuerySize(null, "giày tầm 39k thôi"));          // giá, không phải size
+        assertNull(AiProductMatch.detectQuerySize(null, "size 39k là gì"));             // 39k không phải size
+        assertNull(AiProductMatch.detectQuerySize("null", null));                       // Gemini trả chuỗi "null"
     }
 
     @Test
     void detectQueryGender_TagsFirstThenUserInput() {
-        assertEquals("MEN", AIChat.detectQueryGender(List.of("nike", "nam"), "tìm giày"));
-        assertEquals("WOMEN", AIChat.detectQueryGender(List.of("nữ"), "tìm giày"));
+        assertEquals("MEN", AiProductMatch.detectQueryGender(List.of("nike", "nam"), "tìm giày"));
+        assertEquals("WOMEN", AiProductMatch.detectQueryGender(List.of("nữ"), "tìm giày"));
         // tags không có → fallback dò userInput nguyên-token
-        assertEquals("MEN", AIChat.detectQueryGender(List.of("nike"), "giày nike nam màu đen"));
-        assertEquals("WOMEN", AIChat.detectQueryGender(null, "áo thể thao nữ"));
-        assertNull(AIChat.detectQueryGender(List.of("nike"), "tìm giày nike"));
+        assertEquals("MEN", AiProductMatch.detectQueryGender(List.of("nike"), "giày nike nam màu đen"));
+        assertEquals("WOMEN", AiProductMatch.detectQueryGender(null, "áo thể thao nữ"));
+        assertNull(AiProductMatch.detectQueryGender(List.of("nike"), "tìm giày nike"));
         // "nam" nằm trong từ khác không tính (word boundary)
-        assertNull(AIChat.detectQueryGender(null, "giày namberone"));
+        assertNull(AiProductMatch.detectQueryGender(null, "giày namberone"));
     }
 
     @Test
@@ -90,7 +91,7 @@ class AIChatHelperTest {
         CategoryService categoryService = mock(CategoryService.class);
         when(categoryService.productMatchesType(wrong, "SHOES")).thenReturn(false);
 
-        AIChat.StrictTypeFilterResult result = AIChat.strictTypeFilter(
+        AiProductMatch.StrictTypeFilterResult result = AiProductMatch.strictTypeFilter(
                 List.of(wrong),
                 List.of(0.9),
                 "SHOES",

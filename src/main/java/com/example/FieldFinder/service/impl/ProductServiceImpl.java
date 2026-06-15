@@ -878,7 +878,7 @@ public class ProductServiceImpl implements ProductService {
 
     private void enrichSingleProduct(Long productId, String imageUrl) {
         try {
-            com.example.FieldFinder.ai.AIChat.ProductEnrichment enrich =
+            com.example.FieldFinder.ai.enrich.ProductEnrichment enrich =
                     aiChat.enrichProductFromImage(imageUrl);
             if (enrich.tags != null && !enrich.tags.isEmpty())
                 updateProductTagsInBackGround(productId, enrich.tags);
