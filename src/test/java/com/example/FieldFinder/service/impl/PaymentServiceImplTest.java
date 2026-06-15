@@ -18,6 +18,13 @@ import com.example.FieldFinder.repository.BookingRepository;
 import com.example.FieldFinder.repository.OrderRepository;
 import com.example.FieldFinder.repository.PaymentRepository;
 import com.example.FieldFinder.repository.UserRepository;
+import com.example.FieldFinder.service.DiscountUsageService;
+import com.example.FieldFinder.service.NotificationService;
+import com.example.FieldFinder.service.ProductService;
+import com.example.FieldFinder.service.UserTierService;
+import com.example.FieldFinder.service.strategy.payment.PaymentExecutionResult;
+import com.example.FieldFinder.service.strategy.payment.PaymentStrategy;
+import com.example.FieldFinder.service.strategy.payment.PaymentStrategyFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -50,6 +57,12 @@ class PaymentServiceImplTest {
     @Mock UserRepository userRepository;
     @Mock PayOSService payOSService;
     @Mock RabbitTemplate rabbitTemplate;
+    @Mock ProductService productService;
+    @Mock PaymentStrategyFactory paymentStrategyFactory;
+    @Mock UserTierService userTierService;
+    @Mock DiscountUsageService discountUsageService;
+    @Mock NotificationService notificationService;
+    @Mock PaymentStrategy paymentStrategy;
 
     @InjectMocks PaymentServiceImpl service;
 
@@ -149,12 +162,14 @@ class PaymentServiceImplTest {
     @Nested
     class createShopPayment {
         @Test
-        void bankMethod_callsPayOS() {
+        void bankMethod_usesStrategyResult() {
+            // Sau refactor: createShopPayment ủy quyền cho PaymentStrategy (Strategy pattern).
             Order order = Order.builder().orderId(42L).user(user).build();
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
             when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
-            when(payOSService.createPayment(any(), anyInt(), anyString(), anyString(), anyString()))
-                    .thenReturn(new PayOSService.PaymentResult("url", "linkId", "qr"));
+            when(paymentStrategyFactory.get(any())).thenReturn(paymentStrategy);
+            when(paymentStrategy.execute(any()))
+                    .thenReturn(new PaymentExecutionResult("url", "linkId", "qr"));
 
             ShopPaymentRequestDTO req = new ShopPaymentRequestDTO();
             req.setUserId(userId);
@@ -171,10 +186,13 @@ class PaymentServiceImplTest {
         }
 
         @Test
-        void cashMethod_skipsPayOS() {
+        void cashMethod_usesCodStrategyResult() {
             Order order = Order.builder().orderId(42L).user(user).build();
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
             when(orderRepository.findById(42L)).thenReturn(Optional.of(order));
+            when(paymentStrategyFactory.get(any())).thenReturn(paymentStrategy);
+            when(paymentStrategy.execute(any()))
+                    .thenReturn(new PaymentExecutionResult(null, "COD-42", null));
 
             ShopPaymentRequestDTO req = new ShopPaymentRequestDTO();
             req.setUserId(userId);

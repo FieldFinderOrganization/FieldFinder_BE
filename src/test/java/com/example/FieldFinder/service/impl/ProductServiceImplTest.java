@@ -86,7 +86,7 @@ class ProductServiceImplTest {
     class getProductById {
         @Test
         void hasData_ReturnsResponseDTO() {
-            when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+            when(productRepository.findAllListViewByIds(List.of(1L))).thenReturn(List.of(product));
             when(userDiscountRepository.findUsedDiscountIdsByUserId(any()))
                     .thenReturn(Collections.emptyList());
             when(userDiscountRepository.findWalletByUserId(any()))
@@ -101,7 +101,7 @@ class ProductServiceImplTest {
 
         @Test
         void anonymousUser_skipsWalletLookup() {
-            when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+            when(productRepository.findAllListViewByIds(List.of(1L))).thenReturn(List.of(product));
 
             ProductResponseDTO result = service.getProductById(1L, null);
 
@@ -112,7 +112,7 @@ class ProductServiceImplTest {
 
         @Test
         void notFound_ThrowsException() {
-            when(productRepository.findById(99L)).thenReturn(Optional.empty());
+            when(productRepository.findAllListViewByIds(List.of(99L))).thenReturn(Collections.emptyList());
 
             RuntimeException ex = assertThrows(RuntimeException.class,
                     () -> service.getProductById(99L, null));
