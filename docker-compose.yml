@@ -69,7 +69,7 @@ services:
     volumes:
       - ./osrm-data:/data
     command: osrm-routed --algorithm mld /data/vietnam-latest.osrm
-    restart: on-failure
+    restart: unless-stopped
 
   redis-master:
     image: redis:7-alpine

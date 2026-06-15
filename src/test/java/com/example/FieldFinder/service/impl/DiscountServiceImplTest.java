@@ -234,7 +234,7 @@ class DiscountServiceImplTest {
         }
 
         @Test
-        void valid_savesAndDecrementsQuantity() {
+        void valid_savesToWalletWithoutDecrementingQuantity() {
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
             when(discountRepository.findByCode("SALE10")).thenReturn(Optional.of(discount));
             when(userDiscountRepository.existsByUserAndDiscount(user, discount)).thenReturn(false);
@@ -242,9 +242,11 @@ class DiscountServiceImplTest {
             int before = discount.getQuantity();
             service.saveDiscountToWallet(userId, req);
 
+            // Lưu vào ví → tạo UserDiscount. Quantity (= tổng lượt dùng) KHÔNG trừ ở bước lưu,
+            // mà trừ atomic lúc checkout → save(discount) không được gọi ở đây.
             verify(userDiscountRepository, times(1)).save(any(UserDiscount.class));
-            verify(discountRepository, times(1)).save(discount);
-            assertEquals(before - 1, discount.getQuantity());
+            verify(discountRepository, never()).save(discount);
+            assertEquals(before, discount.getQuantity());
         }
 
         @Test

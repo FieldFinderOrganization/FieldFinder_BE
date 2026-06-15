@@ -4,11 +4,15 @@ import com.example.FieldFinder.repository.PitchRepository;
 import com.example.FieldFinder.repository.ReviewRepository;
 import com.example.FieldFinder.repository.ProductRepository;
 import com.example.FieldFinder.repository.ProductVariantRepository;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 
+// Integration smoke: nạp toàn bộ ApplicationContext + truy vấn DB thật (MySQL/Mongo/Redis/RabbitMQ).
+// Không chạy trong `mvn test` thường vì cần stack hạ tầng đang chạy → bật thủ công khi cần chẩn đoán.
+@Disabled("Integration smoke — cần MySQL/Mongo/Redis/RabbitMQ đang chạy; bật thủ công để chẩn đoán")
 @SpringBootTest
 class FieldFinderApplicationTests {
 
