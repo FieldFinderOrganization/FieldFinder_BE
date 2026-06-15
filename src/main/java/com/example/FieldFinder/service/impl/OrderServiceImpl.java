@@ -641,6 +641,9 @@ public class OrderServiceImpl implements OrderService {
                 .destLat(order.getDestLat())
                 .destLng(order.getDestLng())
                 .shipperName(order.getShipper() != null ? order.getShipper().getName() : null)
+                .shipperId(order.getShipper() != null ? order.getShipper().getUserId().toString() : null)
+                .customerId(order.getUser() != null ? order.getUser().getUserId().toString() : null)
+                .customerPhone(order.getUser() != null ? order.getUser().getPhone() : null)
                 .items(items)
                 .build();
     }

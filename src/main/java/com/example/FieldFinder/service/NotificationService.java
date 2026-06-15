@@ -13,6 +13,13 @@ public interface NotificationService {
     /** Chỉ đẩy realtime, không lưu DB (dùng cho event tạm như tin nhắn chat). */
     void pushTransient(UUID userId, Object payload);
 
-    /** Báo booking đã xác nhận — dùng chung cho CASH, payment polling và webhook. */
+    /** Báo booking đã xác nhận — dùng chung cho CASH, payment polling và webhook.
+     *  Đồng thời báo chủ sân có lịch đặt mới (PROVIDER_BOOKING_NEW). */
     void notifyBookingConfirmed(Booking booking);
+
+    /** Báo chủ sân khi khách hủy lịch đặt (PROVIDER_BOOKING_CANCELED). */
+    void notifyProviderBookingCanceled(Booking booking);
+
+    /** Báo chủ sân khi đánh giá sân được duyệt (PROVIDER_REVIEW_NEW). */
+    void notifyProviderReviewApproved(UUID pitchId, String pitchName, Integer rating);
 }

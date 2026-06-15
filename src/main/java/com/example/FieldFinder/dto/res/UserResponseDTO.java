@@ -39,6 +39,11 @@ public class UserResponseDTO {
     private String tier;
     private Double totalSpent12m;
 
+    // Shipper-only
+    private Boolean available;
+    private String vehicleType;
+    private String vehiclePlate;
+
     public static UserResponseDTO toDto(User user) {
         UserResponseDTO dto = new UserResponseDTO(
                 user.getUserId(),
@@ -61,7 +66,10 @@ public class UserResponseDTO {
                 user.getPreferredPitchType(),
                 user.getPreferredPlayTime(),
                 null,
-                null
+                null,
+                user.getAvailable(),
+                user.getVehicleType(),
+                user.getVehiclePlate()
         );
         dto.setTier(user.getEffectiveTier().name());
         dto.setTotalSpent12m(user.getTotalSpent12m());

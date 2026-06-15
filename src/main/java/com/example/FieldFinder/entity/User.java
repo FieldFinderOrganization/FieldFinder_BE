@@ -110,6 +110,18 @@ public class User {
     @Column(name = "Points")
     private Integer points;
 
+    /** Shipper online/sẵn sàng nhận đơn (chỉ dùng cho role SHIPPER). Row cũ NULL = chưa set. */
+    @Column(name = "Available")
+    private Boolean available;
+
+    /** Loại xe shipper (vd "Xe máy"). Chỉ dùng cho role SHIPPER. */
+    @Column(name = "VehicleType")
+    private String vehicleType;
+
+    /** Biển số xe shipper. Chỉ dùng cho role SHIPPER. */
+    @Column(name = "VehiclePlate")
+    private String vehiclePlate;
+
     /** Row cũ trước khi có cột Tier sẽ NULL — coi như MEMBER. */
     public UserTier getEffectiveTier() {
         return tier != null ? tier : UserTier.MEMBER;

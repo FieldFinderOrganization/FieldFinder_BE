@@ -29,6 +29,11 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             "WHERE prov.providerId = :providerId")
     List<Booking> findByProviderId(@Param("providerId") UUID providerId);
 
+    /** UserId của (các) provider sở hữu sân trong booking — để bắn thông báo cho chủ sân. */
+    @Query("SELECT DISTINCT bd.pitch.providerAddress.provider.user.userId FROM BookingDetail bd " +
+            "WHERE bd.booking.bookingId = :bookingId AND bd.pitch IS NOT NULL")
+    List<UUID> findProviderUserIdsByBookingId(@Param("bookingId") UUID bookingId);
+
     @Query("SELECT b FROM Booking b " +
             "LEFT JOIN FETCH b.bookingDetails bd " +
             "LEFT JOIN FETCH bd.pitch p " +

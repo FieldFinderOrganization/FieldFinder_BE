@@ -36,6 +36,10 @@ public interface PitchRepository extends JpaRepository<Pitch, UUID>, JpaSpecific
     @Query("SELECT p.type, COUNT(p) FROM Pitch p GROUP BY p.type")
     List<Object[]> countByType();
 
+    /** UserId của provider sở hữu sân — để bắn thông báo cho chủ sân (vd đánh giá mới). */
+    @Query("SELECT p.providerAddress.provider.user.userId FROM Pitch p WHERE p.pitchId = :pitchId")
+    UUID findProviderUserIdByPitchId(@Param("pitchId") UUID pitchId);
+
     @Query(value = "SELECT p FROM Pitch p " +
             "LEFT JOIN p.providerAddress pa LEFT JOIN pa.provider pr LEFT JOIN pr.user pu " +
             "WHERE (:search = '' OR LOWER(p.name) LIKE LOWER(CONCAT('%',:search,'%')) " +

@@ -849,5 +849,14 @@ public class BookingServiceImpl implements BookingService {
         } catch (Exception e) {
             System.err.println("Lỗi gửi email hủy đặt sân: " + e.getMessage());
         }
+
+        // Khách chủ động hủy → báo chủ sân (provider/SYSTEM tự hủy thì không tự báo mình)
+        if (actor == CancelActor.USER) {
+            try {
+                notificationService.notifyProviderBookingCanceled(booking);
+            } catch (Exception e) {
+                System.err.println("Lỗi báo chủ sân khi khách hủy booking: " + e.getMessage());
+            }
+        }
     }
 }

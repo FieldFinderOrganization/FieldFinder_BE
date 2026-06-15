@@ -172,6 +172,7 @@ public class ChatController {
                             partnerId.toString(),
                             partner.getName(),
                             partner.getImageUrl(),
+                            partner.getRole() != null ? partner.getRole().name() : null,
                             last != null ? previewOf(last) : "",
                             last != null ? last.getTimestamp() : null,
                             last != null && last.getSenderId().equals(userId),
