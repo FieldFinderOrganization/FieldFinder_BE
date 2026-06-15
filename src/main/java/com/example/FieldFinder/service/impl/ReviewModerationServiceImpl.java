@@ -8,6 +8,7 @@ import com.example.FieldFinder.entity.Item_Review;
 import com.example.FieldFinder.entity.Review;
 import com.example.FieldFinder.repository.ItemReviewRepository;
 import com.example.FieldFinder.repository.ReviewRepository;
+import com.example.FieldFinder.service.NotificationService;
 import com.example.FieldFinder.service.ReviewModerationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -28,6 +29,7 @@ public class ReviewModerationServiceImpl implements ReviewModerationService {
 
     private final ReviewRepository reviewRepository;
     private final ItemReviewRepository itemReviewRepository;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -54,7 +56,15 @@ public class ReviewModerationServiceImpl implements ReviewModerationService {
         review.setModerationSource(ModerationSource.MANUAL);
         review.setModerationReason(null);
         review.setModeratedAt(LocalDateTime.now());
-        return mapPitch(reviewRepository.save(review));
+        Review saved = reviewRepository.save(review);
+        // Báo chủ sân khi đánh giá được duyệt (chỉ lúc APPROVED, không phải PENDING)
+        try {
+            notificationService.notifyProviderReviewApproved(
+                    saved.getPitch().getPitchId(), saved.getPitch().getName(), saved.getRating());
+        } catch (Exception e) {
+            System.err.println("Lỗi báo chủ sân khi duyệt đánh giá: " + e.getMessage());
+        }
+        return mapPitch(saved);
     }
 
     @Override

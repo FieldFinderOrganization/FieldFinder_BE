@@ -22,5 +22,8 @@ public class OrderResponseDTO {
     private Double destLat;
     private Double destLng;
     private String shipperName;
+    private String shipperId;
+    private String customerId;
+    private String customerPhone;
     private List<OrderItemResponseDTO> items;
 }

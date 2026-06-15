@@ -282,6 +282,16 @@ public class OrderServiceImpl implements OrderService {
             userDiscounts.add(userDiscount);
         }
 
+        // Server-authoritative: tối đa 1 mã GLOBAL / đơn (FE đã chặn nhưng API có thể bị
+        // gọi thẳng). Nhiều GLOBAL sẽ cộng dồn ở Phase 2 -> giảm vượt margin.
+        long globalCount = discounts.stream()
+                .filter(d -> d.getKind() != com.example.FieldFinder.Enum.DiscountKind.REFUND_CREDIT)
+                .filter(d -> d.getScope() == Discount.DiscountScope.GLOBAL)
+                .count();
+        if (globalCount > 1) {
+            throw new RuntimeException("Chỉ được áp dụng 1 mã giảm toàn đơn (GLOBAL) cho mỗi đơn hàng");
+        }
+
         // Phase 1: SPECIFIC_PRODUCT + CATEGORY (best-wins per item)
         Map<Integer, Double> itemDiscountMap = new HashMap<>();
         for (Discount d : discounts) {
@@ -641,6 +651,9 @@ public class OrderServiceImpl implements OrderService {
                 .destLat(order.getDestLat())
                 .destLng(order.getDestLng())
                 .shipperName(order.getShipper() != null ? order.getShipper().getName() : null)
+                .shipperId(order.getShipper() != null ? order.getShipper().getUserId().toString() : null)
+                .customerId(order.getUser() != null ? order.getUser().getUserId().toString() : null)
+                .customerPhone(order.getUser() != null ? order.getUser().getPhone() : null)
                 .items(items)
                 .build();
     }

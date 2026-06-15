@@ -185,6 +185,11 @@ public class UserServiceImpl implements UserService {
         if (userUpdateRequestDTO.getPreferredPitchType() != null) user.setPreferredPitchType(userUpdateRequestDTO.getPreferredPitchType());
         if (userUpdateRequestDTO.getPreferredPlayTime() != null) user.setPreferredPlayTime(userUpdateRequestDTO.getPreferredPlayTime());
 
+        // Shipper-only: toggle online + thông tin xe (PATCH một phần — chỉ set khi gửi).
+        if (userUpdateRequestDTO.getAvailable() != null) user.setAvailable(userUpdateRequestDTO.getAvailable());
+        if (userUpdateRequestDTO.getVehicleType() != null) user.setVehicleType(userUpdateRequestDTO.getVehicleType());
+        if (userUpdateRequestDTO.getVehiclePlate() != null) user.setVehiclePlate(userUpdateRequestDTO.getVehiclePlate());
+
         User updatedUser = userRepository.save(user);
         if (addressChanged && updatedUser.getLatitude() == null) {
             geocodingService.geocodeAsync(updatedUser.getAddress()).thenAccept(opt -> opt.ifPresent(latLng -> {

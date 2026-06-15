@@ -32,4 +32,9 @@ public class UserUpdateRequestDTO {
     private String occupation;
     private Pitch.PitchType preferredPitchType;
     private PreferredPlayTime preferredPlayTime;
+
+    // Shipper-only: online toggle + thông tin xe
+    private Boolean available;
+    private String vehicleType;
+    private String vehiclePlate;
 }

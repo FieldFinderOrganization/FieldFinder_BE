@@ -32,6 +32,10 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT u.role, COUNT(u) FROM User u GROUP BY u.role")
     List<Object[]> countByRole();
 
+    /** UserId của user có đủ điểm để đổi 1 mã pointCost — danh sách nhận thông báo mã đổi điểm. */
+    @Query("SELECT u.userId FROM User u WHERE COALESCE(u.points, 0) >= :cost")
+    List<UUID> findUserIdsWithPointsAtLeast(@Param("cost") int cost);
+
     @Query("SELECT u.status, COUNT(u) FROM User u GROUP BY u.status")
     List<Object[]> countByStatus();
 

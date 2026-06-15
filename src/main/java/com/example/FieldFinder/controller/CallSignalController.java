@@ -106,18 +106,15 @@ public class CallSignalController {
             messagingTemplate.convertAndSend("/topic/messages." + saved.getSenderId(), saved);
         }
 
-        // Cuộc gọi nhỡ → banner thông báo toàn cục (giống CHAT_MESSAGE)
+        // Cuộc gọi nhỡ → LƯU vào chuông + badge (persist), không còn transient
         if ("MISSED".equals(saved.getCallStatus())) {
             String callerName = userRepository.findById(saved.getSenderId())
                     .map(User::getName)
                     .orElse("Người dùng");
-            notificationService.pushTransient(saved.getReceiverId(), Map.of(
-                    "type", "CALL_MISSED",
-                    "title", callerName,
-                    "body", "Cuộc gọi thoại nhỡ",
-                    "refType", "CHAT",
-                    "refId", saved.getSenderId().toString()
-            ));
+            notificationService.notify(saved.getReceiverId(), "CALL_MISSED",
+                    callerName,
+                    "Cuộc gọi thoại nhỡ",
+                    "CALL", saved.getSenderId().toString());
         }
         return ResponseEntity.ok(saved);
     }

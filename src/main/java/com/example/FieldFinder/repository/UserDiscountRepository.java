@@ -36,6 +36,13 @@ public interface UserDiscountRepository extends JpaRepository<UserDiscount, UUID
     @Query("SELECT ud.discount.discountId FROM UserDiscount ud WHERE ud.user.userId = :userId AND ud.isUsed = true")
     List<UUID> findUsedDiscountIdsByUserId(@Param("userId") UUID userId);
 
+    /**
+     * UserId của những người đã được phát mã này vào ví — dùng làm danh sách nhận thông báo
+     * "mã mới" sau bulk-assign (khớp đúng segment: all-users hoặc tier ≥ minTier).
+     */
+    @Query("SELECT ud.user.userId FROM UserDiscount ud WHERE ud.discount.discountId = :discountId")
+    List<UUID> findUserIdsByDiscountId(@Param("discountId") UUID discountId);
+
 //    List<UserDiscount> findByUserAndIsUsedFalse(User user);
 
     List<UserDiscount> findByUser_UserIdAndIsUsedFalse(UUID userId);
