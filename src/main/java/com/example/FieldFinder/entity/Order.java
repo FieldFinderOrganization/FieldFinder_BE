@@ -39,6 +39,10 @@ public class Order {
 
     private Double shippingFee;
 
+    // Phí ship gốc theo khoảng cách (TRƯỚC khi miễn phí freeship). Khách có thể được
+    // freeship (shippingFee = 0) nhưng shipper vẫn hưởng theo phí gốc này.
+    private Double grossShippingFee;
+
     private Double totalAmount;
 
     @Enumerated(EnumType.STRING)

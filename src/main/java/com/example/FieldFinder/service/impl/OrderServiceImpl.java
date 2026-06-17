@@ -8,6 +8,7 @@ import com.example.FieldFinder.dto.req.OrderItemRequestDTO;
 import com.example.FieldFinder.dto.req.OrderRequestDTO;
 import com.example.FieldFinder.dto.res.OrderItemResponseDTO;
 import com.example.FieldFinder.dto.res.OrderResponseDTO;
+import com.example.FieldFinder.dto.res.ShipperEarningsDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.EmailService;
@@ -153,12 +154,15 @@ public class OrderServiceImpl implements OrderService {
 
         // Phí ship tính server-side theo khoảng cách kho -> điểm giao (không tin số client gửi).
         double shippingFee = 0.0;
+        double grossShippingFee = 0.0;
         if (request.getDestLat() != null && request.getDestLng() != null) {
-            shippingFee = deliveryFeeService
-                    .quote(request.getDestLat(), request.getDestLng(), finalAmount)
-                    .fee();
+            var quote = deliveryFeeService
+                    .quote(request.getDestLat(), request.getDestLng(), finalAmount);
+            shippingFee = quote.fee();          // khách trả (0 nếu freeship)
+            grossShippingFee = quote.grossFee(); // phí gốc → thu nhập shipper
         }
         order.setShippingFee(shippingFee);
+        order.setGrossShippingFee(grossShippingFee);
         order.setTotalAmount(finalAmount + shippingFee);
         order.setItems(orderItemsToSave);
 
@@ -193,23 +197,47 @@ public class OrderServiceImpl implements OrderService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                // Sau commit: xóa cache list + chi tiết theo từng SP (không flush cả product_detail).
-                productService.evictAllListProductCaches();
-                for (Long pid : orderProductIds) {
-                    productService.evictProductDetailForId(pid);
+                // Thông báo "đặt hàng thành công" cho MỌI đơn có user (CASH + BANK + đặt qua AI —
+                // AI cũng chui vào createOrder). Chạy ĐẦU TIÊN và tự bọc try/catch để các side-effect
+                // best-effort phía dưới (xóa cache Redis, email) lỗi cũng không nuốt mất thông báo.
+                // ORDER_CONFIRMED giờ chỉ phát ở đường xác nhận thanh toán / đổi trạng thái.
+                if (finalOrder.getUser() != null) {
+                    try {
+                        String ref = String.valueOf(finalOrder.getOrderId());
+                        String body = finalOrder.getPaymentMethod() == PaymentMethod.BANK
+                                ? "Đơn hàng #" + ref + " đã được tạo, vui lòng hoàn tất thanh toán."
+                                : "Đơn hàng #" + ref + " đã đặt thành công và đang được chuẩn bị.";
+                        notificationService.notify(finalOrder.getUser().getUserId(),
+                                "ORDER_PLACED", "Đặt hàng thành công", body,
+                                "ORDER", ref);
+                    } catch (Exception e) {
+                        System.err.println("Không tạo được thông báo đặt hàng #"
+                                + finalOrder.getOrderId() + ": " + e.getMessage());
+                    }
                 }
 
-                if (finalOrder.getPaymentMethod() == PaymentMethod.CASH) {
-                    emailService.sendOrderConfirmation(finalOrder);
-                    if (finalOrder.getUser() != null) {
-                        notificationService.notify(finalOrder.getUser().getUserId(),
-                                "ORDER_CONFIRMED",
-                                "Đơn hàng #" + finalOrder.getOrderId() + " đã xác nhận",
-                                "Đơn hàng của bạn đã được xác nhận và đang được chuẩn bị.",
-                                "ORDER", String.valueOf(finalOrder.getOrderId()));
+                // Sau commit: xóa cache list + chi tiết theo từng SP (không flush cả product_detail).
+                // Lỗi Redis ở đây không được phá phần còn lại của callback.
+                try {
+                    productService.evictAllListProductCaches();
+                    for (Long pid : orderProductIds) {
+                        productService.evictProductDetailForId(pid);
                     }
-                } else if (finalOrder.getPaymentMethod() == PaymentMethod.BANK) {
-                    emailService.sendOrderPaymentReminder(finalOrder);
+                } catch (Exception e) {
+                    System.err.println("Không xóa được cache sản phẩm sau đặt đơn #"
+                            + finalOrder.getOrderId() + ": " + e.getMessage());
+                }
+
+                // Email đã là @Async nhưng vẫn bọc cho chắc.
+                try {
+                    if (finalOrder.getPaymentMethod() == PaymentMethod.CASH) {
+                        emailService.sendOrderConfirmation(finalOrder);
+                    } else if (finalOrder.getPaymentMethod() == PaymentMethod.BANK) {
+                        emailService.sendOrderPaymentReminder(finalOrder);
+                    }
+                } catch (Exception e) {
+                    System.err.println("Không gửi được email đơn hàng #"
+                            + finalOrder.getOrderId() + ": " + e.getMessage());
                 }
             }
         });
@@ -493,6 +521,7 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new RuntimeException("Shipper not found!"));
 
         order.setShipper(shipper);
+        order.setStatus(OrderStatus.SHIPPING);
         order.setUpdatedAt(LocalDateTime.now());
         orderRepository.save(order);
 
@@ -514,6 +543,41 @@ public class OrderServiceImpl implements OrderService {
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ShipperEarningsDTO getShipperEarnings(UUID shipperId) {
+        User shipper = userRepository.findById(shipperId)
+                .orElseThrow(() -> new RuntimeException("Shipper not found!"));
+
+        LocalDate now = LocalDate.now();
+        LocalDate startOfWeek = now.minusDays(now.getDayOfWeek().getValue() - 1L); // thứ 2
+
+        double today = 0, week = 0, month = 0;
+        int todayCount = 0, weekCount = 0, monthCount = 0;
+
+        for (Order o : orderRepository.findByShipperOrderByOrderIdDesc(shipper)) {
+            if (o.getStatus() != OrderStatus.DELIVERED) continue;
+            LocalDateTime ts = o.getPaymentTime() != null ? o.getPaymentTime() : o.getCreatedAt();
+            if (ts == null) continue;
+            LocalDate d = ts.toLocalDate();
+            // Thu nhập = phí gốc; đơn cũ chưa có grossShippingFee thì fallback shippingFee.
+            double earn = o.getGrossShippingFee() != null
+                    ? o.getGrossShippingFee()
+                    : (o.getShippingFee() != null ? o.getShippingFee() : 0.0);
+
+            if (d.isEqual(now)) { today += earn; todayCount++; }
+            if (!d.isBefore(startOfWeek)) { week += earn; weekCount++; }
+            if (d.getYear() == now.getYear() && d.getMonthValue() == now.getMonthValue()) {
+                month += earn; monthCount++;
+            }
+        }
+
+        return ShipperEarningsDTO.builder()
+                .today(today).week(week).month(month)
+                .todayCount(todayCount).weekCount(weekCount).monthCount(monthCount)
+                .build();
     }
 
     @Override
@@ -643,6 +707,7 @@ public class OrderServiceImpl implements OrderService {
                 .userName(order.getUser() != null ? order.getUser().getName() : "Guest")
                 .totalAmount(order.getTotalAmount())
                 .shippingFee(order.getShippingFee())
+                .grossShippingFee(order.getGrossShippingFee())
                 .status(order.getStatus().name())
                 .paymentMethod(order.getPaymentMethod().name())
                 .createdAt(order.getCreatedAt())

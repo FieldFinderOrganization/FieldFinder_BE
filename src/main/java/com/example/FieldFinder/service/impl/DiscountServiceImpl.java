@@ -6,9 +6,11 @@ import com.example.FieldFinder.dto.res.DiscountResponseDTO;
 import com.example.FieldFinder.dto.res.UserDiscountResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
+import com.example.FieldFinder.event.DiscountCreatedEvent;
 import com.example.FieldFinder.service.DiscountService;
 import com.example.FieldFinder.service.NotificationService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +36,8 @@ public class DiscountServiceImpl implements DiscountService {
     private final RedisTemplate<String, Object> redisTemplate;
 
     private final NotificationService notificationService;
+
+    private final ApplicationEventPublisher eventPublisher;
 
     private void clearProductCacheByDiscount(Discount discount) {
         if (discount == null) return;
@@ -85,47 +89,11 @@ public class DiscountServiceImpl implements DiscountService {
 
         clearProductCacheByDiscount(saved);
 
-        // Thông báo "mã mới" cho đúng segment đã nhận mã
-        try {
-            notifyNewDiscount(saved);
-        } catch (Exception e) {
-            System.err.println("Lỗi gửi thông báo mã giảm giá mới: " + e.getMessage());
-        }
+        // Thông báo "mã mới" chạy ASYNC sau khi transaction commit (DiscountCreatedListener)
+        // — trả response ngay, không treo request vì vòng lặp notify N user.
+        eventPublisher.publishEvent(new DiscountCreatedEvent(saved));
 
         return DiscountResponseDTO.fromEntity(saved);
-    }
-
-    /**
-     * Bắn DISCOUNT_NEW cho đúng segment đã nhận mã.
-     * Gate: chỉ báo mã dùng được ngay (ACTIVE + đã tới ngày bắt đầu) — mã INACTIVE / future thì khoan báo.
-     * - pointCost == null: recipients = đúng các dòng ví vừa bulk-assign (all-users hoặc tier ≥ minTier).
-     * - pointCost != null: báo user đủ điểm để đổi.
-     */
-    private void notifyNewDiscount(Discount saved) {
-        if (saved.getStatus() != Discount.DiscountStatus.ACTIVE) return;
-        if (saved.getStartDate() != null && LocalDate.now().isBefore(saved.getStartDate())) return;
-
-        List<UUID> recipients = (saved.getPointCost() == null)
-                ? userDiscountRepository.findUserIdsByDiscountId(saved.getDiscountId())
-                : userRepository.findUserIdsWithPointsAtLeast(saved.getPointCost());
-        if (recipients == null || recipients.isEmpty()) return;
-
-        String body = buildDiscountBody(saved);
-        for (UUID userId : recipients) {
-            if (userId == null) continue;
-            notificationService.notify(userId, "DISCOUNT_NEW",
-                    "Mã giảm giá mới 🎟️", body, "DISCOUNT", saved.getCode());
-        }
-    }
-
-    private String buildDiscountBody(Discount d) {
-        String value = d.getDiscountType() == Discount.DiscountType.PERCENTAGE
-                ? ("giảm " + d.getValue().stripTrailingZeros().toPlainString() + "%")
-                : ("giảm " + d.getValue().stripTrailingZeros().toPlainString() + "đ");
-        if (d.getPointCost() != null) {
-            return "Mã " + d.getCode() + " (" + value + ") — đổi bằng " + d.getPointCost() + " điểm.";
-        }
-        return "Mã " + d.getCode() + " " + value + " đã có trong ví của bạn.";
     }
 
     /** Tên các tier từ minTier trở lên (semantics "hạng đó trở lên"). */
