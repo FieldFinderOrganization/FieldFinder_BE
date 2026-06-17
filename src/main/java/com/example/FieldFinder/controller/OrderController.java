@@ -3,6 +3,7 @@ package com.example.FieldFinder.controller;
 
 import com.example.FieldFinder.dto.req.OrderRequestDTO;
 import com.example.FieldFinder.dto.res.OrderResponseDTO;
+import com.example.FieldFinder.dto.res.ShipperEarningsDTO;
 import com.example.FieldFinder.service.OrderService;
 import com.example.FieldFinder.service.RedisService;
 import lombok.RequiredArgsConstructor;
@@ -110,6 +111,17 @@ public class OrderController {
             return ResponseEntity.status(401).build();
         }
         return ResponseEntity.ok(orderService.getOrdersByShipperId(shipperId));
+    }
+
+    /** Thu nhập shipper tính server-side (tổng phí ship gốc đơn DELIVERED) theo hôm nay/tuần/tháng. */
+    @GetMapping("/shipper/me/earnings")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ResponseEntity<ShipperEarningsDTO> getMyShipperEarnings(Authentication authentication) {
+        UUID shipperId = getUserIdFromAuth(authentication);
+        if (shipperId == null) {
+            return ResponseEntity.status(401).build();
+        }
+        return ResponseEntity.ok(orderService.getShipperEarnings(shipperId));
     }
 
     @PutMapping("/{id}/cancel")

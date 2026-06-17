@@ -14,6 +14,7 @@ public class OrderResponseDTO {
     private String userName;
     private Double totalAmount;
     private Double shippingFee;
+    private Double grossShippingFee; // phí ship gốc (trước freeship) → cơ sở thu nhập shipper
     private String status;
     private String paymentMethod;
     private LocalDateTime createdAt;

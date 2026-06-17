@@ -8,6 +8,7 @@ import com.example.FieldFinder.dto.req.OrderItemRequestDTO;
 import com.example.FieldFinder.dto.req.OrderRequestDTO;
 import com.example.FieldFinder.dto.res.OrderItemResponseDTO;
 import com.example.FieldFinder.dto.res.OrderResponseDTO;
+import com.example.FieldFinder.dto.res.ShipperEarningsDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.EmailService;
@@ -153,12 +154,15 @@ public class OrderServiceImpl implements OrderService {
 
         // Phí ship tính server-side theo khoảng cách kho -> điểm giao (không tin số client gửi).
         double shippingFee = 0.0;
+        double grossShippingFee = 0.0;
         if (request.getDestLat() != null && request.getDestLng() != null) {
-            shippingFee = deliveryFeeService
-                    .quote(request.getDestLat(), request.getDestLng(), finalAmount)
-                    .fee();
+            var quote = deliveryFeeService
+                    .quote(request.getDestLat(), request.getDestLng(), finalAmount);
+            shippingFee = quote.fee();          // khách trả (0 nếu freeship)
+            grossShippingFee = quote.grossFee(); // phí gốc → thu nhập shipper
         }
         order.setShippingFee(shippingFee);
+        order.setGrossShippingFee(grossShippingFee);
         order.setTotalAmount(finalAmount + shippingFee);
         order.setItems(orderItemsToSave);
 
@@ -517,6 +521,7 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new RuntimeException("Shipper not found!"));
 
         order.setShipper(shipper);
+        order.setStatus(OrderStatus.SHIPPING);
         order.setUpdatedAt(LocalDateTime.now());
         orderRepository.save(order);
 
@@ -538,6 +543,41 @@ public class OrderServiceImpl implements OrderService {
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ShipperEarningsDTO getShipperEarnings(UUID shipperId) {
+        User shipper = userRepository.findById(shipperId)
+                .orElseThrow(() -> new RuntimeException("Shipper not found!"));
+
+        LocalDate now = LocalDate.now();
+        LocalDate startOfWeek = now.minusDays(now.getDayOfWeek().getValue() - 1L); // thứ 2
+
+        double today = 0, week = 0, month = 0;
+        int todayCount = 0, weekCount = 0, monthCount = 0;
+
+        for (Order o : orderRepository.findByShipperOrderByOrderIdDesc(shipper)) {
+            if (o.getStatus() != OrderStatus.DELIVERED) continue;
+            LocalDateTime ts = o.getPaymentTime() != null ? o.getPaymentTime() : o.getCreatedAt();
+            if (ts == null) continue;
+            LocalDate d = ts.toLocalDate();
+            // Thu nhập = phí gốc; đơn cũ chưa có grossShippingFee thì fallback shippingFee.
+            double earn = o.getGrossShippingFee() != null
+                    ? o.getGrossShippingFee()
+                    : (o.getShippingFee() != null ? o.getShippingFee() : 0.0);
+
+            if (d.isEqual(now)) { today += earn; todayCount++; }
+            if (!d.isBefore(startOfWeek)) { week += earn; weekCount++; }
+            if (d.getYear() == now.getYear() && d.getMonthValue() == now.getMonthValue()) {
+                month += earn; monthCount++;
+            }
+        }
+
+        return ShipperEarningsDTO.builder()
+                .today(today).week(week).month(month)
+                .todayCount(todayCount).weekCount(weekCount).monthCount(monthCount)
+                .build();
     }
 
     @Override
@@ -667,6 +707,7 @@ public class OrderServiceImpl implements OrderService {
                 .userName(order.getUser() != null ? order.getUser().getName() : "Guest")
                 .totalAmount(order.getTotalAmount())
                 .shippingFee(order.getShippingFee())
+                .grossShippingFee(order.getGrossShippingFee())
                 .status(order.getStatus().name())
                 .paymentMethod(order.getPaymentMethod().name())
                 .createdAt(order.getCreatedAt())

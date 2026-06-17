@@ -5,11 +5,14 @@ import com.example.FieldFinder.ai.AiChatSessionContextStore;
 import com.example.FieldFinder.ai.cache.AiCatalogCache;
 import com.example.FieldFinder.ai.util.AiTextUtil;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
+import com.example.FieldFinder.entity.Discount;
+import com.example.FieldFinder.repository.DiscountRepository;
 import com.example.FieldFinder.service.CategoryService;
 import com.example.FieldFinder.service.ProductService;
 import com.example.FieldFinder.service.log.LogPublisherService;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -33,15 +36,58 @@ public class ProductQueryHandler {
     private final AiChatSessionContextStore sessionContextStore;
     private final LogPublisherService logPublisherService;
     private final CategoryService categoryService;
+    private final DiscountRepository discountRepository;
 
     public ProductQueryHandler(AiCatalogCache catalogCache, ProductService productService,
                                AiChatSessionContextStore sessionContextStore,
-                               LogPublisherService logPublisherService, CategoryService categoryService) {
+                               LogPublisherService logPublisherService, CategoryService categoryService,
+                               DiscountRepository discountRepository) {
         this.catalogCache = catalogCache;
         this.productService = productService;
         this.sessionContextStore = sessionContextStore;
         this.logPublisherService = logPublisherService;
         this.categoryService = categoryService;
+        this.discountRepository = discountRepository;
+    }
+
+    /**
+     * Câu thông báo các chương trình giảm giá TOÀN SHOP (mã GLOBAL) đang chạy, hoặc null nếu không có.
+     * Mã GLOBAL không gắn vào salePercent từng sản phẩm nên các intent on-sale (đọc salePercent)
+     * không "thấy" nó — helper này bù lại để chatbot không trả lời "chưa có" khi đang có mã toàn shop.
+     */
+    private String globalCampaignAnnouncement() {
+        List<Discount> globals;
+        try {
+            globals = discountRepository.findActiveGlobalPromotions();
+        } catch (Exception e) {
+            return null;
+        }
+        if (globals == null || globals.isEmpty()) return null;
+
+        if (globals.size() == 1) {
+            return "Hiện hệ thống đang có chương trình " + describeGlobal(globals.get(0))
+                    + " — bạn hãy trải nghiệm và mua sắm ngay nhé! 🛍️";
+        }
+        StringBuilder sb = new StringBuilder("Hiện hệ thống đang có các chương trình giảm giá toàn shop:");
+        for (Discount d : globals) {
+            sb.append("\n• ").append(describeGlobal(d));
+        }
+        sb.append("\nBạn hãy trải nghiệm và mua sắm ngay nhé! 🛍️");
+        return sb.toString();
+    }
+
+    /** Mô tả 1 mã GLOBAL: "PROMO10 giảm 10% toàn bộ sản phẩm (đơn từ 200.000đ)". */
+    private String describeGlobal(Discount d) {
+        String value = d.getDiscountType() == Discount.DiscountType.PERCENTAGE
+                ? ("giảm " + d.getValue().stripTrailingZeros().toPlainString() + "%")
+                : ("giảm " + d.getValue().stripTrailingZeros().toPlainString() + "đ");
+        StringBuilder s = new StringBuilder(d.getCode()).append(" ").append(value)
+                .append(" cho toàn bộ sản phẩm");
+        BigDecimal minOrder = d.getMinOrderValue();
+        if (minOrder != null && minOrder.signum() > 0) {
+            s.append(" (đơn từ ").append(minOrder.stripTrailingZeros().toPlainString()).append("đ)");
+        }
+        return s.toString();
     }
 
     public AIChat.BookingQuery handle(AIChat.BookingQuery query, String userInput, String sessionId) {
@@ -67,16 +113,23 @@ public class ProductQueryHandler {
                             .collect(Collectors.toList()),
                     saleBrand, saleProductType, saleCategoryKeyword);
 
+            String globalAnnounce = globalCampaignAnnouncement();
             if (onSaleProducts.isEmpty()) {
-                query.message = scopeLabel == null
-                        ? "Hiện tại shop chưa có sản phẩm nào đang giảm giá."
-                        : String.format("Hiện %s chưa có sản phẩm nào đang giảm giá.", scopeLabel);
+                // Không có sale theo SP, nhưng nếu đang có mã GLOBAL toàn shop thì báo mã đó.
+                if (globalAnnounce != null) {
+                    query.message = globalAnnounce;
+                } else {
+                    query.message = scopeLabel == null
+                            ? "Hiện tại shop chưa có sản phẩm nào đang giảm giá."
+                            : String.format("Hiện %s chưa có sản phẩm nào đang giảm giá.", scopeLabel);
+                }
             } else {
                 onSaleProducts.sort(Comparator.comparing(ProductResponseDTO::getSalePercent).reversed());
                 query.message = scopeLabel == null
                         ? String.format("Hiện tại shop có %d sản phẩm đang giảm giá. Tôi đã gửi danh sách cho bạn 👇", onSaleProducts.size())
                         : String.format("%s hiện có %d sản phẩm đang giảm giá. Tôi đã gửi danh sách cho bạn 👇", AiTextUtil.capitalize(scopeLabel), onSaleProducts.size());
                 query.data.put("products", onSaleProducts);
+                if (globalAnnounce != null) query.message += "\n\n" + globalAnnounce;
             }
             logProductQuery(userId, sessionId, action, productName, query.message, null);
             return query;
@@ -88,9 +141,15 @@ public class ProductQueryHandler {
                             .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
                             .collect(Collectors.toList()),
                     saleBrand, saleProductType, saleCategoryKeyword).size();
-            query.message = scopeLabel == null
-                    ? "Hiện tại shop có " + count + " sản phẩm đang giảm giá."
-                    : String.format("Hiện %s có %d sản phẩm đang giảm giá.", scopeLabel, count);
+            String globalAnnounceCount = globalCampaignAnnouncement();
+            if (count == 0 && globalAnnounceCount != null) {
+                query.message = globalAnnounceCount;
+            } else {
+                query.message = scopeLabel == null
+                        ? "Hiện tại shop có " + count + " sản phẩm đang giảm giá."
+                        : String.format("Hiện %s có %d sản phẩm đang giảm giá.", scopeLabel, count);
+                if (globalAnnounceCount != null) query.message += "\n\n" + globalAnnounceCount;
+            }
             logProductQuery(userId, sessionId, action, productName, query.message, null);
             return query;
         }
@@ -117,7 +176,11 @@ public class ProductQueryHandler {
                         query.message = String.format("Sản phẩm '%s' đang giảm %d%%, giá chỉ còn %s VNĐ.",
                                 p.getName(), p.getSalePercent(), AiTextUtil.formatMoney(p.getSalePrice()));
                     } else {
-                        query.message = String.format("Sản phẩm '%s' hiện KHÔNG có chương trình giảm giá.", p.getName());
+                        // Không có sale riêng cho SP này, nhưng có thể có mã GLOBAL áp cho toàn shop.
+                        String globalAnnounceP = globalCampaignAnnouncement();
+                        query.message = (globalAnnounceP != null)
+                                ? String.format("Sản phẩm '%s' chưa có giảm giá riêng. %s", p.getName(), globalAnnounceP)
+                                : String.format("Sản phẩm '%s' hiện KHÔNG có chương trình giảm giá.", p.getName());
                     }
                 }
                 else if ("check_sales".equals(action) || "check_sales_context".equals(action)) {

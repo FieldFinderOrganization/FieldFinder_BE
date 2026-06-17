@@ -44,6 +44,9 @@ public class UserResponseDTO {
     private String vehicleType;
     private String vehiclePlate;
 
+    // Đặt CUỐI để không lệch constructor positional (toDto set qua setter). Presence WS.
+    private Date lastSeenAt;
+
     public static UserResponseDTO toDto(User user) {
         UserResponseDTO dto = new UserResponseDTO(
                 user.getUserId(),
@@ -69,7 +72,8 @@ public class UserResponseDTO {
                 null,
                 user.getAvailable(),
                 user.getVehicleType(),
-                user.getVehiclePlate()
+                user.getVehiclePlate(),
+                user.getLastSeenAt()
         );
         dto.setTier(user.getEffectiveTier().name());
         dto.setTotalSpent12m(user.getTotalSpent12m());

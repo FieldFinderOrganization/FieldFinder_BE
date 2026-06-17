@@ -59,6 +59,11 @@ public class User {
     @Column(name = "LastLoginAt")
     private Date lastLoginAt;
 
+    // Lần hoạt động cuối (WS chat/notification connect & disconnect) — dùng cho presence
+    // "Hoạt động X phút trước". Khác lastLoginAt (chỉ set lúc đăng nhập).
+    @Column(name = "LastSeenAt")
+    private Date lastSeenAt;
+
     @Column(name = "CreatedAt", updatable = false)
     private Date createdAt;
 

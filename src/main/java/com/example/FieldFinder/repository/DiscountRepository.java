@@ -54,6 +54,17 @@ public interface DiscountRepository extends JpaRepository<Discount, UUID> {
     );
 
     /**
+     * Mã GLOBAL khuyến mãi đang chạy, áp cho MỌI user (không gắn hạng, không đổi điểm, còn lượt).
+     * Dùng cho chatbot trả lời "shop đang giảm giá gì" khi chỉ có mã GLOBAL (không có salePercent/SP).
+     */
+    @Query("SELECT d FROM Discount d " +
+            "WHERE d.status = 'ACTIVE' AND d.scope = 'GLOBAL' AND d.kind = 'PROMOTION' " +
+            "AND d.pointCost IS NULL AND d.minTier IS NULL AND d.quantity > 0 " +
+            "AND CURRENT_DATE BETWEEN d.startDate AND d.endDate " +
+            "ORDER BY d.endDate ASC")
+    List<Discount> findActiveGlobalPromotions();
+
+    /**
      * Trừ lượt sử dụng atomic — quantity = tổng lượt DÙNG toàn hệ thống (trừ lúc checkout,
      * không trừ lúc lưu ví). Trả 0 row = mã đã hết lượt (guard race khi 2 user dùng đồng thời).
      */

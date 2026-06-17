@@ -10,6 +10,8 @@ import com.example.FieldFinder.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -23,6 +25,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final PitchRepository pitchRepository;
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Notification notify(UUID userId, String type, String title, String body,
                                String refType, String refId) {
         Notification saved = notificationRepository.save(Notification.builder()

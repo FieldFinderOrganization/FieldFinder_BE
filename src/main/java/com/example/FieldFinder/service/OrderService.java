@@ -4,6 +4,7 @@ package com.example.FieldFinder.service;
 
 import com.example.FieldFinder.dto.req.OrderRequestDTO;
 import com.example.FieldFinder.dto.res.OrderResponseDTO;
+import com.example.FieldFinder.dto.res.ShipperEarningsDTO;
 
 import java.util.List;
 import java.util.UUID;
@@ -21,4 +22,5 @@ public interface OrderService {
     List<OrderResponseDTO> getAvailableOrdersForShipper();
     OrderResponseDTO claimOrder(Long orderId, UUID shipperId);
     List<OrderResponseDTO> getOrdersByShipperId(UUID shipperId);
+    ShipperEarningsDTO getShipperEarnings(UUID shipperId);
 }

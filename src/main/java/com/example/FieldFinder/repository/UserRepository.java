@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,6 +26,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     @Query("SELECT u.name FROM User u WHERE u.userId = :id")
     String findNameByProviderId(@Param("id") UUID providerId);
+
+    /** Cập nhật mốc hoạt động cuối (presence) — update thẳng, không load entity. */
+    @Modifying
+    @Query("UPDATE User u SET u.lastSeenAt = :now WHERE u.userId = :id")
+    void updateLastSeen(@Param("id") UUID id, @Param("now") Date now);
 
     Page<User> findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(
             String name, String email, Pageable pageable);
