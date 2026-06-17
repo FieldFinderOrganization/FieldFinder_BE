@@ -67,14 +67,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     /**
      * Job đêm: tính lại tier + total_spent12m cho TOÀN BỘ user bằng 1 câu UPDATE...JOIN
-     * (set-based, không N+1). Chi tiêu = tổng đơn PAID/CONFIRMED/DELIVERED trong cửa sổ :since.
+     * (set-based, không N+1). Chi tiêu = tổng đơn DELIVERED trong cửa sổ :since (nhất quán điểm).
      */
     @Transactional
     @Modifying
     @Query(value = "UPDATE users u " +
             "LEFT JOIN (SELECT o.user_id AS uid, COALESCE(SUM(o.total_amount), 0) AS spent " +
             "           FROM orders o " +
-            "           WHERE o.status IN ('PAID','CONFIRMED','DELIVERED') " +
+            "           WHERE o.status = 'DELIVERED' " +
             "             AND COALESCE(o.payment_time, o.created_at) >= :since " +
             "           GROUP BY o.user_id) s ON s.uid = u.user_id " +
             "SET u.total_spent12m = COALESCE(s.spent, 0), " +
@@ -96,7 +96,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query(value = "SELECT BIN_TO_UUID(u.user_id) FROM users u " +
             "LEFT JOIN (SELECT o.user_id AS uid, COALESCE(SUM(o.total_amount), 0) AS spent " +
             "           FROM orders o " +
-            "           WHERE o.status IN ('PAID','CONFIRMED','DELIVERED') " +
+            "           WHERE o.status = 'DELIVERED' " +
             "             AND COALESCE(o.payment_time, o.created_at) >= :since " +
             "           GROUP BY o.user_id) s ON s.uid = u.user_id " +
             "WHERE (CASE WHEN COALESCE(s.spent, 0) >= :diamond THEN 3 " +

@@ -193,23 +193,47 @@ public class OrderServiceImpl implements OrderService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                // Sau commit: xóa cache list + chi tiết theo từng SP (không flush cả product_detail).
-                productService.evictAllListProductCaches();
-                for (Long pid : orderProductIds) {
-                    productService.evictProductDetailForId(pid);
+                // Thông báo "đặt hàng thành công" cho MỌI đơn có user (CASH + BANK + đặt qua AI —
+                // AI cũng chui vào createOrder). Chạy ĐẦU TIÊN và tự bọc try/catch để các side-effect
+                // best-effort phía dưới (xóa cache Redis, email) lỗi cũng không nuốt mất thông báo.
+                // ORDER_CONFIRMED giờ chỉ phát ở đường xác nhận thanh toán / đổi trạng thái.
+                if (finalOrder.getUser() != null) {
+                    try {
+                        String ref = String.valueOf(finalOrder.getOrderId());
+                        String body = finalOrder.getPaymentMethod() == PaymentMethod.BANK
+                                ? "Đơn hàng #" + ref + " đã được tạo, vui lòng hoàn tất thanh toán."
+                                : "Đơn hàng #" + ref + " đã đặt thành công và đang được chuẩn bị.";
+                        notificationService.notify(finalOrder.getUser().getUserId(),
+                                "ORDER_PLACED", "Đặt hàng thành công", body,
+                                "ORDER", ref);
+                    } catch (Exception e) {
+                        System.err.println("Không tạo được thông báo đặt hàng #"
+                                + finalOrder.getOrderId() + ": " + e.getMessage());
+                    }
                 }
 
-                if (finalOrder.getPaymentMethod() == PaymentMethod.CASH) {
-                    emailService.sendOrderConfirmation(finalOrder);
-                    if (finalOrder.getUser() != null) {
-                        notificationService.notify(finalOrder.getUser().getUserId(),
-                                "ORDER_CONFIRMED",
-                                "Đơn hàng #" + finalOrder.getOrderId() + " đã xác nhận",
-                                "Đơn hàng của bạn đã được xác nhận và đang được chuẩn bị.",
-                                "ORDER", String.valueOf(finalOrder.getOrderId()));
+                // Sau commit: xóa cache list + chi tiết theo từng SP (không flush cả product_detail).
+                // Lỗi Redis ở đây không được phá phần còn lại của callback.
+                try {
+                    productService.evictAllListProductCaches();
+                    for (Long pid : orderProductIds) {
+                        productService.evictProductDetailForId(pid);
                     }
-                } else if (finalOrder.getPaymentMethod() == PaymentMethod.BANK) {
-                    emailService.sendOrderPaymentReminder(finalOrder);
+                } catch (Exception e) {
+                    System.err.println("Không xóa được cache sản phẩm sau đặt đơn #"
+                            + finalOrder.getOrderId() + ": " + e.getMessage());
+                }
+
+                // Email đã là @Async nhưng vẫn bọc cho chắc.
+                try {
+                    if (finalOrder.getPaymentMethod() == PaymentMethod.CASH) {
+                        emailService.sendOrderConfirmation(finalOrder);
+                    } else if (finalOrder.getPaymentMethod() == PaymentMethod.BANK) {
+                        emailService.sendOrderPaymentReminder(finalOrder);
+                    }
+                } catch (Exception e) {
+                    System.err.println("Không gửi được email đơn hàng #"
+                            + finalOrder.getOrderId() + ": " + e.getMessage());
                 }
             }
         });

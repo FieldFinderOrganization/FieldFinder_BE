@@ -83,18 +83,26 @@ public class RedisService {
     public UUID getUserIdByEmail(String email) {
         String cacheKey = "USER_ID_MAPPING:" + email;
 
-        String cachedUserId = redisTemplate.opsForValue().get(cacheKey);
-
-        if (cachedUserId != null) {
-            return UUID.fromString(cachedUserId);
+        // Redis chết không được làm hỏng việc resolve userId (vd: GET /notifications sẽ 401 và
+        // ẩn hết thông báo dù DB có row) — bọc try/catch để rơi về tra DB.
+        try {
+            String cachedUserId = redisTemplate.opsForValue().get(cacheKey);
+            if (cachedUserId != null) {
+                return UUID.fromString(cachedUserId);
+            }
+        } catch (Exception e) {
+            System.err.println("Redis lỗi khi đọc USER_ID_MAPPING, fallback DB: " + e.getMessage());
         }
 
         User user = userRepository.findByEmail(email).orElse(null);
 
         if (user != null) {
             String userIdStr = user.getUserId().toString();
-
-            redisTemplate.opsForValue().set(cacheKey, userIdStr, 7, TimeUnit.DAYS);
+            try {
+                redisTemplate.opsForValue().set(cacheKey, userIdStr, 7, TimeUnit.DAYS);
+            } catch (Exception e) {
+                System.err.println("Redis lỗi khi ghi USER_ID_MAPPING: " + e.getMessage());
+            }
             return user.getUserId();
         }
 

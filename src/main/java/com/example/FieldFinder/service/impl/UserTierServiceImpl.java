@@ -25,9 +25,13 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserTierServiceImpl implements UserTierService {
 
-    /** Trạng thái đơn được tính là "đã chi tiêu" — nhất quán với AdminStatisticsController. */
-    private static final List<OrderStatus> PAID_STATUSES =
-            List.of(OrderStatus.PAID, OrderStatus.CONFIRMED, OrderStatus.DELIVERED);
+    /**
+     * Trạng thái đơn được tính vào chi tiêu xét hạng: CHỈ đơn đã giao thành công (DELIVERED) —
+     * nhất quán với cơ chế tích điểm (cũng cộng điểm khi DELIVERED). CONFIRMED/SHIPPING chưa tính
+     * để tránh đặt đơn (đã xác nhận) rồi hủy mà vẫn giữ hạng.
+     */
+    private static final List<OrderStatus> SPENDING_STATUSES =
+            List.of(OrderStatus.DELIVERED);
 
     private static final int SPENDING_WINDOW_MONTHS = 12;
 
@@ -56,7 +60,7 @@ public class UserTierServiceImpl implements UserTierService {
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) return;
 
-        double spent = orderRepository.sumSpentByUserSince(userId, PAID_STATUSES, windowStart());
+        double spent = orderRepository.sumSpentByUserSince(userId, SPENDING_STATUSES, windowStart());
         UserTier oldTier = user.getEffectiveTier();
         UserTier newTier = UserTier.fromSpending(spent);
 
@@ -99,7 +103,7 @@ public class UserTierServiceImpl implements UserTierService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         // Tính trực tiếp từ orders để luôn đúng (cache totalSpent12m chỉ dùng cho admin list)
-        double spent = orderRepository.sumSpentByUserSince(userId, PAID_STATUSES, windowStart());
+        double spent = orderRepository.sumSpentByUserSince(userId, SPENDING_STATUSES, windowStart());
         UserTier tier = UserTier.fromSpending(spent);
         UserTier next = tier.next();
 
