@@ -97,11 +97,6 @@ public class PitchController {
         return ResponseEntity.noContent().build();
     }
 
-    /**
-     * PATCH /api/pitches/{pitchId}/status
-     * Body: { "targetDate": "2026-06-14" }              → INACTIVE (ngưng từ ngày đó)
-     * Body: { "status": "ACTIVE" }                      → ACTIVE  (kích hoạt lại)
-     */
     @PatchMapping("/{pitchId}/status")
     @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ResponseEntity<?> updatePitchStatus(
@@ -161,7 +156,6 @@ public class PitchController {
     }
 
     @PostMapping("/admin/backfill-coordinates")
-    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Integer> backfillCoordinates() {
         return ResponseEntity.ok(pitchService.backfillPitchCoordinates());
     }

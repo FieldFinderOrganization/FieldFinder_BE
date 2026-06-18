@@ -90,6 +90,20 @@ public final class AiTextUtil {
                 : pitches.stream().max(Comparator.comparing(PitchResponseDTO::getPrice)).orElse(null);
     }
 
+    /**
+     * TẤT CẢ sân cùng mức giá rẻ nhất / đắt nhất (xử lý tie — vd 3 sân cùng 40.000đ).
+     * Trả list rỗng nếu input rỗng. Giữ nguyên thứ tự input cho các sân cùng giá.
+     */
+    public static List<PitchResponseDTO> findPitchesByPrice(List<PitchResponseDTO> pitches, boolean findCheapest) {
+        if (pitches == null || pitches.isEmpty()) return java.util.Collections.emptyList();
+        PitchResponseDTO extreme = findPitchByPrice(pitches, findCheapest);
+        if (extreme == null || extreme.getPrice() == null) return java.util.Collections.emptyList();
+        final java.math.BigDecimal target = extreme.getPrice();
+        return pitches.stream()
+                .filter(p -> p.getPrice() != null && p.getPrice().compareTo(target) == 0)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
     /** Môi trường sân user nêu trong câu (INDOOR/OUTDOOR) hoặc null. */
     public static PitchEnvironment detectEnvironmentFromInput(String userInput) {
         if (userInput == null) return null;
@@ -109,6 +123,7 @@ public final class AiTextUtil {
         if (type.equals("FIVE_A_SIDE")) return "sân 5";
         if (type.equals("SEVEN_A_SIDE")) return "sân 7";
         if (type.equals("ELEVEN_A_SIDE")) return "sân 11";
+        if (type.equals("ALL")) return "sân các loại (5, 7, 11)";
         return type;
     }
 

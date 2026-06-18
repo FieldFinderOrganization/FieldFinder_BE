@@ -102,13 +102,33 @@ public class PitchQueryHandler {
         final String areaFilter = (query.location != null && !query.location.isBlank()) ? query.location.trim().toLowerCase() : null;
         if (areaFilter != null) {
             int beforeArea = matched.size();
-            matched = matched.stream()
-                    .filter(p -> p.getAddress() != null && p.getAddress().toLowerCase().contains(areaFilter))
+            List<PitchResponseDTO> preArea = matched;
+            List<PitchResponseDTO> byArea = preArea.stream()
+                    .filter(p -> addressMatchesArea(p.getAddress(), areaFilter))
                     .collect(Collectors.toList());
-            reasoning.step(String.format("📍 Lọc khu vực '%s': %d/%d sân", query.location, matched.size(), beforeArea));
+            if (byArea.isEmpty()) {
+                // Gemini có thể nhét TÊN SÂN vào location (vd "đặt sân tbg arena ..."). Khu vực 0 sân
+                // → thử coi location là tên sân, khớp theo name trước khi báo "không tìm thấy".
+                List<PitchResponseDTO> byName = preArea.stream()
+                        .filter(p -> p.getName() != null && p.getName().toLowerCase().contains(areaFilter))
+                        .collect(Collectors.toList());
+                if (!byName.isEmpty()) {
+                    matched = byName;
+                    reasoning.step(String.format("📍 Khu vực '%s' không khớp địa chỉ → khớp theo TÊN sân: %d sân", query.location, byName.size()));
+                } else {
+                    matched = byArea;
+                    reasoning.step(String.format("📍 Lọc khu vực '%s': 0/%d sân (không khớp cả địa chỉ lẫn tên)", query.location, beforeArea));
+                }
+            } else {
+                matched = byArea;
+                reasoning.step(String.format("📍 Lọc khu vực '%s': %d/%d sân", query.location, matched.size(), beforeArea));
+            }
         } else {
             reasoning.step("📍 Không lọc khu vực (user không nêu location)");
         }
+
+        // Snapshot trước khi lọc slot trống — dùng để biết sân user CHỦ ĐỊNH có bị loại do bận slot không.
+        List<PitchResponseDTO> matchedBeforeAvail = new ArrayList<>(matched);
 
         boolean isAvailabilityCheck = "book_pitch".equals(action) || "check_pitch_availability".equals(action);
         if (isAvailabilityCheck && query.bookingDate != null && !query.slotList.isEmpty()) {
@@ -165,22 +185,39 @@ public class PitchQueryHandler {
                             : "Hệ thống hiện chưa có sân nào.";
                     break;
                 }
-                PitchResponseDTO picked = AiTextUtil.findPitchByPrice(searchPool, cheapest);
-                if (picked == null) {
+                List<PitchResponseDTO> tied = AiTextUtil.findPitchesByPrice(searchPool, cheapest);
+                if (tied.isEmpty()) {
                     query.message = "Không xác định được sân có giá phù hợp.";
                     break;
                 }
-                if (sessionId != null) sessionContextStore.setLastPitch(sessionId, picked);
+                PitchResponseDTO picked = tied.get(0);
                 String scopeLabel = typeSpecified ? (" " + typeStr + envStr).trim() : " (tất cả loại sân)";
-                query.message = String.format("Sân %s%s là \"%s\" - %s VNĐ (%s).",
-                        cheapest ? "rẻ nhất" : "mắc nhất",
-                        scopeLabel.isEmpty() ? "" : " " + scopeLabel.trim(),
-                        picked.getName(),
-                        picked.getPrice(),
-                        picked.getAddress());
-                query.data.put("pitch", picked);
-                query.data.put("suggestedPitch", picked);
-                query.data.put("showBookingButton", true);
+                String scopeStr = scopeLabel.isEmpty() ? "" : " " + scopeLabel.trim();
+                if (tied.size() == 1) {
+                    // 1 sân duy nhất → card đơn như cũ + nhớ lastPitch cho "sân này".
+                    if (sessionId != null) sessionContextStore.setLastPitch(sessionId, picked);
+                    query.message = String.format("Sân %s%s là \"%s\" - %s VNĐ (%s).",
+                            cheapest ? "rẻ nhất" : "mắc nhất",
+                            scopeStr,
+                            picked.getName(),
+                            picked.getPrice(),
+                            picked.getAddress());
+                    query.data.put("pitch", picked);
+                    query.data.put("suggestedPitch", picked);
+                    query.data.put("showBookingButton", true);
+                } else {
+                    // Nhiều sân cùng mức giá cực trị → list danh sách, KHÔNG set lastPitch
+                    // (tránh "sân này" mơ hồ). FE render theo matchedPitches.
+                    reasoning.step(String.format("⚖️ Tie giá %s: %d sân cùng %s VNĐ",
+                            cheapest ? "rẻ nhất" : "mắc nhất", tied.size(), picked.getPrice()));
+                    query.message = String.format("Có %d sân%s cùng mức giá %s nhất (%s VNĐ). Bạn xem danh sách bên dưới nhé 👇",
+                            tied.size(),
+                            scopeStr,
+                            cheapest ? "rẻ" : "mắc",
+                            picked.getPrice());
+                    query.data.put("matchedPitches", tied);
+                    query.data.put("showBookingButton", true);
+                }
                 break;
             }
             case "check_pitch_availability": {
@@ -255,6 +292,17 @@ public class PitchQueryHandler {
                                     formatSlotRange(query.slotList));
                             query.data.put("scheduleConflict", true);
                             query.data.put("conflictingBooking", existing);
+                            // Gợi ý thêm: các sân CÙNG LOẠI còn trống đúng khung giờ đó (matched đã lọc availability)
+                            // để user đặt sân khác nếu muốn — đảm bảo không sân nào dính slot.
+                            if (!matched.isEmpty()) {
+                                query.message += String.format(
+                                        " Nếu bạn muốn đặt %s khác trống khung giờ này, xem danh sách bên dưới nhé 👇", typeStr);
+                                query.data.put("matchedPitches", matched);
+                                query.data.put("pendingBooking", true);
+                                query.data.put("showBookingButton", true);
+                                query.data.put("bookingDate", query.bookingDate);
+                                query.data.put("slotList", query.slotList);
+                            }
                             break;
                         }
                         reasoning.step("✅ Không trùng lịch cá nhân");
@@ -264,6 +312,42 @@ public class PitchQueryHandler {
                 } else {
                     reasoning.step("⏭️ Bỏ qua kiểm tra trùng lịch (thiếu ngày hoặc slot)");
                 }
+
+                // Sân user CHỦ ĐỊNH ("sân này" / nêu tên) bị loại do bận slot yêu cầu → báo rõ
+                // "sân X giờ Y đã được đặt" thay vì lặng lẽ list sân khác.
+                if (query.bookingDate != null && !query.slotList.isEmpty()) {
+                    PitchResponseDTO intended = null;
+                    if (userInput.toLowerCase().contains("sân này") && sessionId != null) {
+                        intended = sessionContextStore.getLastPitch(sessionId);
+                    }
+                    if (intended == null) {
+                        String low = userInput.toLowerCase();
+                        for (PitchResponseDTO p : matchedBeforeAvail) {
+                            if (p.getName() != null && low.contains(p.getName().toLowerCase())) { intended = p; break; }
+                        }
+                    }
+                    if (intended != null) {
+                        final UUID iid = intended.getPitchId();
+                        boolean wasCandidate = matchedBeforeAvail.stream().anyMatch(p -> p.getPitchId().equals(iid));
+                        boolean stillFree = matched.stream().anyMatch(p -> p.getPitchId().equals(iid));
+                        if (wasCandidate && !stillFree) {
+                            int minSlot = Collections.min(query.slotList);
+                            int maxSlot = Collections.max(query.slotList);
+                            reasoning.step("❌ Sân chủ định \"" + intended.getName() + "\" bận slot " + query.slotList + " → báo + list sân khác");
+                            reasoning.parsed("outcome", "intended_pitch_busy");
+                            query.message = String.format(
+                                    "Rất tiếc, sân \"%s\" đã có người đặt khung giờ %dh-%dh ngày %s. Bạn xem các sân khác còn trống bên dưới nhé 👇",
+                                    intended.getName(), minSlot + 5, maxSlot + 6, query.bookingDate);
+                            query.data.put("matchedPitches", matched);
+                            query.data.put("pendingBooking", true);
+                            query.data.put("showBookingButton", true);
+                            query.data.put("bookingDate", query.bookingDate);
+                            query.data.put("slotList", query.slotList);
+                            break;
+                        }
+                    }
+                }
+
                 if (matched.isEmpty()) {
                     reasoning.step("❌ Không còn sân phù hợp sau các bước lọc");
                     reasoning.parsed("outcome", "no_pitch_matched");
@@ -347,9 +431,21 @@ public class PitchQueryHandler {
                     break;
                 }
 
+                // User KHÔNG nêu tên sân cụ thể và KHÔNG có khung giờ (vd "đặt sân 5 chiều mai")
+                // → list các sân khớp loại để user tự chọn sân + khung giờ ở UI, KHÔNG tự pick
+                // sân đầu tiên (tránh "chọn đại TBG Arena"). Giữ bookingDate nếu có.
                 if (target == null) {
-                    target = matched.get(0);
-                    reasoning.step("🏟️ Fallback chọn sân đầu tiên trong danh sách: \"" + target.getName() + "\"");
+                    reasoning.step(String.format("📋 Chế độ list (chưa có khung giờ cụ thể): %d %s", matched.size(), typeStr));
+                    reasoning.parsed("outcome", "list_pitches_no_slot");
+                    reasoning.parsed("listedPitchCount", matched.size());
+                    query.message = String.format("Có %d%s %s%s. Bạn chọn sân bên dưới rồi đặt khung giờ nhé 👇",
+                            matched.size(), envStr, typeStr,
+                            query.bookingDate != null ? " ngày " + query.bookingDate : "");
+                    query.data.put("matchedPitches", matched);
+                    query.data.put("pendingBooking", true);
+                    query.data.put("showBookingButton", true);
+                    if (query.bookingDate != null) query.data.put("bookingDate", query.bookingDate);
+                    break;
                 }
 
                 if (query.bookingDate != null && !query.slotList.isEmpty()) {
@@ -464,6 +560,38 @@ public class PitchQueryHandler {
             query.message = "Mình đã ghi nhận yêu cầu sân của bạn, nhưng chưa có dữ liệu phù hợp để trả lời.";
         }
         return query;
+    }
+
+    /**
+     * Khớp khu vực trong địa chỉ có chú ý ranh giới SỐ quận: "quận 1" KHÔNG khớp "quận 11"/"quận 12".
+     * Chuẩn hoá 2 phía trước khi so: bỏ dấu, "q1"/"q.1"/"q 1" → "quan 1" (để user gõ "Q1" vẫn khớp "Quận 1").
+     * Quy tắc ranh giới: nếu key kết thúc bằng chữ số thì ký tự ngay sau trong địa chỉ KHÔNG được là chữ số.
+     */
+    static boolean addressMatchesArea(String address, String area) {
+        if (address == null || area == null || area.isBlank()) return false;
+        String a = normalizeArea(address);
+        String key = normalizeArea(area);
+        if (key.isBlank()) return false;
+        boolean lastIsDigit = Character.isDigit(key.charAt(key.length() - 1));
+        int idx = 0;
+        while ((idx = a.indexOf(key, idx)) >= 0) {
+            int after = idx + key.length();
+            boolean nextIsDigit = after < a.length() && Character.isDigit(a.charAt(after));
+            if (!(lastIsDigit && nextIsDigit)) return true;
+            idx = after;
+        }
+        return false;
+    }
+
+    /** Chuẩn hoá địa danh: lowercase, bỏ dấu, đ→d, và "q"/"q."/"q " + số → "quan " + số. */
+    static String normalizeArea(String s) {
+        if (s == null) return "";
+        String t = java.text.Normalizer.normalize(s.toLowerCase().trim(), java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")   // bỏ dấu thanh/nguyên âm
+                .replace("đ", "d");
+        // "q1", "q.1", "q 1" -> "quan 1" (chỉ khi chưa phải "quan ...")
+        t = t.replaceAll("\\bq\\.?\\s*(\\d)", "quan $1");
+        return t.replaceAll("\\s+", " ").trim();
     }
 
     private void recordGeminiPitchParse(AiReasoningTrace trace, AIChat.BookingQuery query, Double userLat, Double userLng) {

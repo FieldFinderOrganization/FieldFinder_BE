@@ -297,6 +297,23 @@ public class ActivityRecommendHandler {
             retrievalScores = Collections.nCopies(results.size(), 0.0);
         }
 
+        // Lọc bỏ sản phẩm đã hết sạch hàng (mọi variant = 0) — không gợi ý sp không mua được.
+        // Giữ song song results + retrievalScores. SP chưa có variant không bị loại (hasAnyStock=true).
+        if (results != null && !results.isEmpty()) {
+            List<ProductResponseDTO> inStock = new ArrayList<>();
+            List<Double> inStockScores = new ArrayList<>();
+            for (int i = 0; i < results.size(); i++) {
+                if (com.example.FieldFinder.ai.ranking.CompositeRanker.hasAnyStock(results.get(i))) {
+                    inStock.add(results.get(i));
+                    inStockScores.add(i < retrievalScores.size() ? retrievalScores.get(i) : 0.0);
+                }
+            }
+            int dropped = results.size() - inStock.size();
+            if (dropped > 0) System.out.println("📦 Lọc hết hàng: bỏ " + dropped + " sp, còn " + inStock.size());
+            results = inStock;
+            retrievalScores = inStockScores;
+        }
+
         if (results == null || results.isEmpty()) {
             query.message = priceActive
                     ? String.format("Không tìm thấy sản phẩm phù hợp trong khoảng giá %s.",

@@ -208,14 +208,33 @@ public class CompositeRanker {
         return 0;
     }
 
-    /** True nếu sản phẩm có variant đúng size (so chuỗi, bỏ hoa thường) và còn hàng. */
+    /**
+     * True nếu sản phẩm có variant đúng size (so chuỗi, bỏ hoa thường) và còn hàng.
+     * Variant FREESIZE/ONE SIZE còn hàng được coi là khớp MỌI size (đồ một-size vừa tất cả).
+     */
     public static boolean hasSizeInStock(ProductResponseDTO p, String size) {
         if (size == null || size.isBlank() || p.getVariants() == null) return false;
         for (ProductResponseDTO.VariantDTO v : p.getVariants()) {
-            if (v.getSize() != null && v.getSize().trim().equalsIgnoreCase(size.trim())
-                    && v.getQuantity() != null && v.getQuantity() > 0) {
-                return true;
-            }
+            boolean inStock = v.getQuantity() != null && v.getQuantity() > 0;
+            if (!inStock || v.getSize() == null) continue;
+            String vs = v.getSize().trim();
+            if (vs.equalsIgnoreCase(size.trim()) || isFreeSize(vs)) return true;
+        }
+        return false;
+    }
+
+    /** Size một-cỡ (freesize/one size/OS/F) — vừa cho mọi yêu cầu size. */
+    public static boolean isFreeSize(String s) {
+        if (s == null) return false;
+        String t = s.trim().toLowerCase().replace("-", "").replace("_", "").replace(" ", "");
+        return t.equals("freesize") || t.equals("free") || t.equals("onesize") || t.equals("os") || t.equals("f");
+    }
+
+    /** True nếu sản phẩm còn hàng ở ÍT NHẤT 1 variant. Không có variant → coi như còn (không loại oan). */
+    public static boolean hasAnyStock(ProductResponseDTO p) {
+        if (p.getVariants() == null || p.getVariants().isEmpty()) return true;
+        for (ProductResponseDTO.VariantDTO v : p.getVariants()) {
+            if (v.getQuantity() != null && v.getQuantity() > 0) return true;
         }
         return false;
     }

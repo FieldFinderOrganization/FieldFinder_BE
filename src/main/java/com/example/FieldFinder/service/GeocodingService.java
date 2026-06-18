@@ -30,8 +30,12 @@ public class GeocodingService {
     public Optional<LatLng> geocode(String address) {
         if (address == null || address.isBlank()) return Optional.empty();
         try {
+            // countrycodes=vn: chặn match nước ngoài (vd "Tân Bình" lọt sang Vân Nam TQ).
+            // accept-language=vi: ưu tiên kết quả tiếng Việt. Phân biệt trùng tên trong VN
+            // (vd "Phước Ngãi" Vĩnh Long vs Quảng Ngãi) PHẢI dựa vào tỉnh trong chuỗi address.
+            String q = address.trim();
             JsonNode result = webClient.get()
-                    .uri("https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1", address)
+                    .uri("https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1&countrycodes=vn&accept-language=vi", q)
                     .header("User-Agent", userAgent)
                     .retrieve()
                     .bodyToMono(JsonNode.class)

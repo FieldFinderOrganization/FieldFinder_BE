@@ -30,6 +30,15 @@ public class SecurityConfig {
 
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
+                // Khi request CHƯA xác thực (vd access token hết hạn → JwtAuthenticationFilter
+                // không set authentication) → trả 401, KHÔNG để Spring default về 403.
+                // FE dio interceptor chỉ refresh khi gặp 401; 403 thì refresh không bao giờ chạy.
+                .exceptionHandling(ex -> ex.authenticationEntryPoint((request, response, authException) -> {
+                    response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"error\": \"Phiên đăng nhập đã hết hạn hoặc chưa đăng nhập. Vui lòng thử lại.\"}");
+                }))
+
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
@@ -80,6 +89,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/products/**").permitAll()
                         .requestMatchers(HttpMethod.PUT, "/api/products/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/products/enrich-data").permitAll()
+                        .requestMatchers(HttpMethod.POST, "api/pitches/admin/backfill-coordinates").permitAll()
 
                         .anyRequest().authenticated()
                 )

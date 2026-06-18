@@ -46,6 +46,18 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
         int updated = 0;
         for (ProviderAddress addr : missing) {
             try {
+                // AUTO-GOM: nếu đã có address CÙNG TÊN với toạ độ → tái dùng, không gọi API.
+                // (2 provider chọn cùng "Thủ Đức" = cùng nơi = cùng toạ độ, geocode 1 lần.)
+                var sib = siblingCoords(addr.getAddress(), addr.getProviderAddressId());
+                if (sib.isPresent()) {
+                    addr.setLatitude(sib.get().latitude());
+                    addr.setLongitude(sib.get().longitude());
+                    addressRepository.save(addr);
+                    updated++;
+                    log.info("[GEO-BACKFILL] gom '{}' theo address trùng -> {},{}", addr.getAddress(),
+                            sib.get().latitude(), sib.get().longitude());
+                    continue; // không gọi Nominatim, không cần sleep
+                }
                 var opt = geocodingService.geocode(addr.getAddress());
                 if (opt.isPresent()) {
                     addr.setLatitude(opt.get().latitude());
@@ -70,12 +82,24 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
         return updated;
     }
 
-    private void geocodeAndPersist(ProviderAddress address) {
-        geocodingService.geocodeAsync(address.getAddress()).thenAccept(opt -> opt.ifPresent(latLng -> {
-            address.setLatitude(latLng.latitude());
-            address.setLongitude(latLng.longitude());
-            addressRepository.save(address);
-        }));
+    /** Canonical hoá address để so trùng (trim + gộp khoảng trắng + thường hoá). */
+    private static String canonAddress(String s) {
+        return s == null ? "" : s.trim().replaceAll("\\s+", " ").toLowerCase();
+    }
+
+    /**
+     * Toạ độ của một provider_address CÙNG TÊN (canonical) đã có sẵn — null nếu chưa có.
+     * Cơ sở "auto-gom": cùng chuỗi address = cùng địa danh = dùng chung 1 toạ độ.
+     */
+    private java.util.Optional<GeocodingService.LatLng> siblingCoords(String address, UUID excludeId) {
+        if (address == null || address.isBlank()) return java.util.Optional.empty();
+        String key = canonAddress(address);
+        return addressRepository.findAll().stream()
+                .filter(a -> excludeId == null || !a.getProviderAddressId().equals(excludeId))
+                .filter(a -> a.getLatitude() != null && a.getLongitude() != null)
+                .filter(a -> canonAddress(a.getAddress()).equals(key))
+                .findFirst()
+                .map(a -> new GeocodingService.LatLng(a.getLatitude(), a.getLongitude()));
     }
 
     @Override
@@ -92,11 +116,30 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
         if (hasCoords) {
             address.setLatitude(addressRequestDTO.getLatitude());
             address.setLongitude(addressRequestDTO.getLongitude());
+        } else {
+            // Không có toạ độ map → resolve đồng bộ (gom theo tên / geocode); fail = từ chối (chặn fake).
+            GeocodingService.LatLng resolved = resolveCoordsOrThrow(address.getAddress(), null);
+            address.setLatitude(resolved.latitude());
+            address.setLongitude(resolved.longitude());
         }
         address = addressRepository.save(address);
-        // Chỉ geocode khi không có toạ độ chính xác từ map picker.
-        if (!hasCoords) geocodeAndPersist(address);
         return ProviderAddressResponseDTO.fromEntity(address);
+    }
+
+    /**
+     * Toạ độ cho address: ưu tiên gom theo tên (sibling), else geocode. KHÔNG geocode được -> ném 400.
+     * Chặn provider nhập địa chỉ rác / không tồn tại.
+     */
+    private GeocodingService.LatLng resolveCoordsOrThrow(String address, UUID excludeId) {
+        var sib = siblingCoords(address, excludeId);
+        if (sib.isPresent()) return sib.get();
+        var opt = geocodingService.geocode(address);
+        if (opt.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Không xác định được vị trí cho địa chỉ này. Vui lòng chọn vị trí trên bản đồ, "
+                    + "hoặc nhập rõ hơn (kèm quận/huyện và tỉnh/thành).");
+        }
+        return opt.get();
     }
 
     @Override
@@ -115,11 +158,11 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
             address.setLongitude(addressRequestDTO.getLongitude());
             address = addressRepository.save(address);
         } else if (addressChanged) {
-            // Đổi địa chỉ mà không kèm toạ độ → xoá + geocode lại.
-            address.setLatitude(null);
-            address.setLongitude(null);
+            // Đổi địa chỉ mà không kèm toạ độ → resolve đồng bộ, fail = từ chối (chặn fake).
+            GeocodingService.LatLng resolved = resolveCoordsOrThrow(address.getAddress(), address.getProviderAddressId());
+            address.setLatitude(resolved.latitude());
+            address.setLongitude(resolved.longitude());
             address = addressRepository.save(address);
-            geocodeAndPersist(address);
         } else {
             address = addressRepository.save(address);
         }
@@ -156,5 +199,20 @@ public class ProviderAddressServiceImpl implements ProviderAddressService {
         return addresses.stream()
                 .map(addr -> new ProviderAddressResponseDTO(addr.getProviderAddressId(), addr.getAddress()))
                 .toList();
+    }
+
+    @Override
+    public List<String> getDistinctAreas() {
+        // Phân biệt theo canonical (trim + thường hoá) nhưng GIỮ nguyên văn bản gốc đầu tiên gặp,
+        // sắp xếp alpha — danh sách cho dropdown chọn khu vực.
+        java.util.Map<String, String> seen = new java.util.LinkedHashMap<>();
+        for (ProviderAddress a : addressRepository.findAll()) {
+            String raw = a.getAddress();
+            if (raw == null || raw.isBlank()) continue;
+            seen.putIfAbsent(canonAddress(raw), raw.trim());
+        }
+        List<String> out = new java.util.ArrayList<>(seen.values());
+        out.sort(String.CASE_INSENSITIVE_ORDER);
+        return out;
     }
 }

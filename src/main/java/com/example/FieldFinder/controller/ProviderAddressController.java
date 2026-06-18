@@ -57,6 +57,12 @@ public class ProviderAddressController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/areas")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<String>> getDistinctAreas() {
+        return ResponseEntity.ok(providerAddressService.getDistinctAreas());
+    }
+
     @PostMapping("/backfill-coordinates")
     public ResponseEntity<java.util.Map<String, Integer>> backfillCoordinates() {
         int updated = providerAddressService.backfillMissingCoordinates();

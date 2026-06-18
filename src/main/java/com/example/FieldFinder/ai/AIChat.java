@@ -248,7 +248,25 @@ public class AIChat {
             PitchEnvironment env = suggestEnvironmentByWeather(weather);
             String envLabel = env == PitchEnvironment.INDOOR ? "trong nhà (Indoor)" : "ngoài trời (Outdoor)";
 
-            List<PitchResponseDTO> envFiltered = catalogCache.getAllPitchesCached().stream()
+            List<PitchResponseDTO> allCached = catalogCache.getAllPitchesCached();
+
+            // User nêu RÕ một thành phố không có sân nào (vd "thời tiết Hà Nội") → vẫn báo thời tiết,
+            // nhưng nói rõ chưa có sân ở đó thay vì gợi ý sân HCM gây hiểu nhầm.
+            boolean cityExplicit = explicitCity != null && !explicitCity.isBlank();
+            if (cityExplicit && !isCityServed(city, allCached)) {
+                query.message = String.format(
+                        "Thời tiết ở %s hiện là %s 🌤️\nRất tiếc, hiện FieldFinder chưa có sân nào ở %s — các sân đang hoạt động đều ở khu vực TP. Hồ Chí Minh. Mong bạn thông cảm nhé!",
+                        city, weather, city);
+                query.data.clear();
+                query.data.put("action", "weather_pitch_suggestion");
+                query.data.put("weather", weather);
+                query.data.put("weatherCity", city);
+                query.data.put("matchedPitches", new ArrayList<>());
+                query.data.put("pitches", new ArrayList<>());
+                return logWeatherAndReturn(query, sessionId, city);
+            }
+
+            List<PitchResponseDTO> envFiltered = allCached.stream()
                     .filter(p -> p.getEnvironment() == env)
                     .collect(Collectors.toList());
             PitchQueryHandler.PitchRankResult rr = pitchQueryHandler.rankRecommendedPitches(envFiltered, sessionId, null, userLat, userLng, true, 10);
@@ -285,6 +303,11 @@ public class AIChat {
             query.data.clear();
         }
 
+        return logWeatherAndReturn(query, sessionId, city);
+    }
+
+    /** Ghi telemetry CHAT_WEATHER_QUERY (kèm pitch IDs nếu có) rồi trả query — dùng chung mọi nhánh weather. */
+    private BookingQuery logWeatherAndReturn(BookingQuery query, String sessionId, String city) {
         try {
             UUID userId = catalogCache.resolveCurrentUserId(sessionId);
             Map<String, Object> metadata = new HashMap<>();
@@ -313,6 +336,20 @@ public class AIChat {
         }
 
         return query;
+    }
+
+    // Alias thành phố HCM — toàn bộ sân hiện thuộc khu vực này.
+    private static final java.util.Set<String> HCM_CITY_ALIASES = java.util.Set.of(
+            "hồ chí minh", "ho chi minh city", "ho chi minh", "tp hồ chí minh",
+            "tp. hồ chí minh", "tphcm", "hcm", "sài gòn", "saigon");
+
+    /** Thành phố có sân để gợi ý không: là HCM (alias) hoặc có sân nào địa chỉ chứa tên thành phố. */
+    private static boolean isCityServed(String city, List<PitchResponseDTO> pitches) {
+        if (city == null || city.isBlank()) return true;
+        String c = city.trim().toLowerCase();
+        if (HCM_CITY_ALIASES.contains(c)) return true;
+        return pitches.stream()
+                .anyMatch(p -> p.getAddress() != null && p.getAddress().toLowerCase().contains(c));
     }
 
     /**
@@ -589,6 +626,9 @@ public class AIChat {
         
         ❗️ QUY TẮC THỜI TIẾT:
         - Câu hỏi thời tiết (vd: "thời tiết hôm nay", "trời mưa không", "thời tiết thế nào") -> action: "get_weather".
+        - QUAN TRỌNG: nếu user VỪA hỏi/nhắc thời tiết VỪA nhờ gợi ý/tìm sân trong cùng câu
+          (vd "trời mưa không, gợi ý sân giúp mình", "thời tiết sao rồi tìm sân với", "trời nắng thì đặt sân nào") -> action: "get_weather"
+          (KHÔNG dùng "recommend_pitch"). Backend sẽ tự gợi ý sân đã lọc theo thời tiết (mưa→trong nhà, nắng→ngoài trời) kèm lý do.
         - Nếu user KHÔNG nêu tên thành phố -> để `city` = null (backend sẽ tự lấy vị trí GPS hoặc tỉnh/thành trong profile).
         - Nếu user nêu thành phố cụ thể (vd "thời tiết Hồ Chí Minh") -> `city`: "Hồ Chí Minh" hoặc "Ho Chi Minh City".
 
