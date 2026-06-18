@@ -1,9 +1,12 @@
 package com.example.FieldFinder.controller;
 
+import com.example.FieldFinder.Enum.OrderStatus;
 import com.example.FieldFinder.dto.res.ConversationDTO;
 import com.example.FieldFinder.entity.ChatMessage;
+import com.example.FieldFinder.entity.Order;
 import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.repository.ChatMessageRepository;
+import com.example.FieldFinder.repository.OrderRepository;
 import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.CloudinaryService;
 import com.example.FieldFinder.service.NotificationService;
@@ -30,8 +33,20 @@ public class ChatController {
     private final SimpMessagingTemplate messagingTemplate;
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
+    private final OrderRepository orderRepository;
     private final CloudinaryService cloudinaryService;
     private final NotificationService notificationService;
+
+    /**
+     * Hội thoại bị khóa khi đây là chat khách↔shipper của một đơn ĐÃ KẾT THÚC
+     * (DELIVERED/CANCELED). Chat với shop/provider (không có đơn shipper chung) luôn mở.
+     */
+    private boolean isConversationLocked(UUID a, UUID b) {
+        List<Order> orders = orderRepository.findBetweenCustomerAndShipper(a, b, PageRequest.of(0, 1));
+        if (orders.isEmpty()) return false;
+        OrderStatus s = orders.get(0).getStatus();
+        return s == OrderStatus.DELIVERED || s == OrderStatus.CANCELED;
+    }
 
     @MessageMapping("/chat")
     public void processMessage(@Payload ChatMessage chatMessage) {
@@ -40,6 +55,17 @@ public class ChatController {
         if ("TYPING".equals(chatMessage.getType())) {
             String destination = "/topic/messages." + chatMessage.getReceiverId().toString();
             messagingTemplate.convertAndSend(destination, chatMessage);
+            return;
+        }
+
+        // Khóa nhắn tin khi đơn shipper đã hoàn tất/hủy — chặn cả 2 phía ở server.
+        // (Cuộc gọi CALL đi qua signaling riêng + UI đã ẩn nút gọi khi khóa.)
+        if (!"CALL".equals(chatMessage.getType())
+                && isConversationLocked(chatMessage.getSenderId(), chatMessage.getReceiverId())) {
+            messagingTemplate.convertAndSend(
+                    "/topic/messages." + chatMessage.getSenderId().toString(),
+                    Map.of("type", "LOCKED",
+                            "message", "Đơn đã hoàn tất, hội thoại đã được khóa."));
             return;
         }
 
@@ -96,6 +122,13 @@ public class ChatController {
     @GetMapping("/unread-count")
     public ResponseEntity<Long> getUnreadCount(@RequestParam UUID userId) {
         return ResponseEntity.ok(chatMessageRepository.countUnreadMessages(userId));
+    }
+
+    /** Hội thoại với peer có bị khóa nhắn tin không (đơn shipper đã hoàn tất/hủy). */
+    @GetMapping("/lock-status")
+    public ResponseEntity<Map<String, Boolean>> getLockStatus(
+            @RequestParam UUID userId, @RequestParam UUID peerId) {
+        return ResponseEntity.ok(Map.of("locked", isConversationLocked(userId, peerId)));
     }
 
     @PostMapping("/upload-image")

@@ -72,4 +72,9 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
                                                    @Param("minAmount") Double minAmount,
                                                    @Param("maxAmount") Double maxAmount,
                                                    Pageable pageable);
+
+    /** Đơn giữa 1 khách và 1 shipper (cả 2 chiều), mới nhất trước — để khóa chat khi đơn hoàn tất. */
+    @Query("SELECT o FROM Order o WHERE (o.user.userId = :a AND o.shipper.userId = :b) " +
+            "OR (o.user.userId = :b AND o.shipper.userId = :a) ORDER BY o.createdAt DESC")
+    List<Order> findBetweenCustomerAndShipper(@Param("a") UUID a, @Param("b") UUID b, Pageable pageable);
 }

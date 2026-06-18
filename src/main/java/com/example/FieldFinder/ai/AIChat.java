@@ -653,11 +653,13 @@ public class AIChat {
           + Đếm số sản phẩm đang giảm giá -> action: "count_on_sale".
           + Sản phẩm GIẢM SÂU NHẤT (1 sản phẩm) -> action: "max_discount_product".
           + THƯƠNG HIỆU / BRAND giảm giá nhiều nhất -> action: "max_discount_brand".
-          + DANH MỤC / LOẠI sản phẩm giảm giá nhiều nhất -> action: "max_discount_category".
+          + DANH MỤC / LOẠI sản phẩm giảm giá nhiều nhất (1 danh mục) -> action: "max_discount_category".
+          + LIỆT KÊ các DANH MỤC đang giảm giá (số nhiều, "các/những danh mục nào đang giảm") -> action: "list_discount_categories".
         - Nếu câu hỏi giảm giá có kèm THƯƠNG HIỆU và/hoặc LOẠI sản phẩm -> vẫn dùng "list_on_sale"
           (hoặc "count_on_sale"/"max_discount_product") và điền `brand` và/hoặc `productType`/`categoryKeyword`.
         - PHÂN BIỆT: "thương hiệu/brand/hãng nào" -> max_discount_brand;
-          "danh mục/loại sản phẩm/nhóm hàng nào" -> max_discount_category.
+          "danh mục/loại NÀO giảm NHIỀU NHẤT / SÂU NHẤT" (hỏi cái nhất) -> max_discount_category;
+          "(các/những) danh mục NÀO đang giảm giá" (liệt kê danh sách, KHÔNG hỏi nhất) -> list_discount_categories.
         - VÍ DỤ:
           + "shop có gì đang sale" / "sản phẩm nào đang giảm giá" -> action: "list_on_sale"
           + "có bao nhiêu sản phẩm giảm giá" -> action: "count_on_sale"
@@ -667,6 +669,7 @@ public class AIChat {
           + "áo nike nào đang sale" -> action: "list_on_sale", brand: "Nike", productType: "TOP"
           + "thương hiệu nào giảm giá nhiều nhất" / "hãng nào đang sale mạnh nhất" -> action: "max_discount_brand"
           + "danh mục nào giảm giá nhiều nhất" / "loại sản phẩm nào đang giảm sâu nhất" -> action: "max_discount_category"
+          + "shop có các danh mục nào đang giảm giá" / "những loại nào đang sale" / "có danh mục nào đang giảm không" -> action: "list_discount_categories"
 
         ❗️ QUY TẮC productType (BẮT BUỘC khi recommend sản phẩm):
         - "áo", "jersey", "tee", "hoodie", "jacket", "polo", "sơ mi" → productType: "TOP"

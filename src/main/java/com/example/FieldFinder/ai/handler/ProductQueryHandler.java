@@ -463,6 +463,30 @@ public class ProductQueryHandler {
             logProductQuery(userId, sessionId, action, productName, query.message, null);
             return query;
         }
+        else if ("list_discount_categories".equals(action)) {
+            List<ProductResponseDTO> onSale = products.stream()
+                    .filter(p -> p.getSalePercent() != null && p.getSalePercent() > 0)
+                    .collect(Collectors.toList());
+            List<DiscountGroup> groups = allDiscountGroups(onSale, ProductResponseDTO::getCategoryName);
+            if (groups.isEmpty()) {
+                query.message = "Hiện chưa có danh mục nào đang giảm giá.";
+            } else {
+                String catList = groups.stream()
+                        .limit(8)
+                        .map(g -> String.format("%s (%d sp, tới -%d%%)", g.key, g.count, g.maxPct))
+                        .collect(Collectors.joining(", "));
+                query.message = String.format(
+                        "Đang giảm giá theo danh mục: %s. Tôi gửi vài mẫu giảm sâu 👇", catList);
+                // Mẫu xuyên danh mục: gom toàn bộ SP sale, sâu nhất lên trước, cap 10.
+                List<ProductResponseDTO> samples = onSale.stream()
+                        .sorted(Comparator.comparing(ProductResponseDTO::getSalePercent).reversed())
+                        .limit(10)
+                        .collect(Collectors.toList());
+                query.data.put("products", samples);
+            }
+            logProductQuery(userId, sessionId, action, productName, query.message, null);
+            return query;
+        }
 
         else if ("search_by_price_range".equals(action)) {
             Object minPriceObj = query.data.get("minPrice");
@@ -673,6 +697,31 @@ public class ProductQueryHandler {
             }
         }
         return best;
+    }
+
+    /** Tất cả nhóm SP sale theo keyFn (bỏ null/blank), rank maxPct desc, tiebreak count desc. */
+    private List<DiscountGroup> allDiscountGroups(List<ProductResponseDTO> onSale,
+                                                  java.util.function.Function<ProductResponseDTO, String> keyFn) {
+        Map<String, List<ProductResponseDTO>> grouped = new LinkedHashMap<>();
+        for (ProductResponseDTO p : onSale) {
+            String key = keyFn.apply(p);
+            if (key == null || key.isBlank()) continue;
+            grouped.computeIfAbsent(key.trim(), k -> new ArrayList<>()).add(p);
+        }
+        List<DiscountGroup> groups = new ArrayList<>();
+        for (Map.Entry<String, List<ProductResponseDTO>> e : grouped.entrySet()) {
+            List<ProductResponseDTO> items = e.getValue();
+            int maxPct = items.stream().mapToInt(ProductResponseDTO::getSalePercent).max().orElse(0);
+            List<ProductResponseDTO> sorted = items.stream()
+                    .sorted(Comparator.comparing(ProductResponseDTO::getSalePercent).reversed())
+                    .limit(10)
+                    .collect(Collectors.toList());
+            groups.add(new DiscountGroup(e.getKey(), maxPct, items.size(), sorted));
+        }
+        groups.sort((a, b) -> a.maxPct != b.maxPct
+                ? Integer.compare(b.maxPct, a.maxPct)
+                : Integer.compare(b.count, a.count));
+        return groups;
     }
 
     private List<ProductResponseDTO> filterProductsByCategoryOrName(List<ProductResponseDTO> products, String keyword) {
