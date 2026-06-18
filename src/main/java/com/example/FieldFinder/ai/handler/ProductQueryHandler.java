@@ -598,7 +598,10 @@ public class ProductQueryHandler {
 
             if ("product_detail".equals(action) ||
                     "image_search_result".equals(action) ||
-                    "prepare_order".equals(action)) {
+                    "prepare_order".equals(action) ||
+                    "cheapest_product".equals(action) ||
+                    "most_expensive_product".equals(action) ||
+                    "best_selling_product".equals(action)) {
 
                 shouldShowImage = true;
             }

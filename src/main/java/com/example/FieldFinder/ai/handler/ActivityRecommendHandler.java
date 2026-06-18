@@ -413,8 +413,40 @@ public class ActivityRecommendHandler {
                     + " otherSize=" + otherSizeIdx.size() + " sizeAlt=" + sizeAltIdx.size());
         }
 
+        // ===== Trung thực khi loại/hoạt động CỤ THỂ không (hoặc ít) có hàng thật =====
+        // User hỏi "giày trượt băng"/"chân váy" → nếu không có sp đúng category cụ thể đó,
+        // KHÔNG trình bày sp generic như thể khớp; nói rõ + đưa làm "tương tự".
+        java.util.Set<String> broadCats = java.util.Set.of("shoes", "clothing", "footwear", "accessories");
+        List<String> specificCats = (aiCategories == null) ? List.of() : aiCategories.stream()
+                .filter(c -> c != null && !c.isBlank() && !broadCats.contains(c.trim().toLowerCase()))
+                .collect(Collectors.toList());
+        String categoryMessage = null;
+        if (!specificCats.isEmpty()) {
+            java.util.Set<String> wanted = specificCats.stream()
+                    .map(c -> c.trim().toLowerCase()).collect(Collectors.toSet());
+            List<ProductResponseDTO> genuine = results.stream()
+                    .filter(p -> p.getCategoryName() != null && wanted.contains(p.getCategoryName().trim().toLowerCase()))
+                    .collect(Collectors.toList());
+            String label = (activity != null && !activity.isBlank() && !"null".equalsIgnoreCase(activity))
+                    ? "cho hoạt động " + activity
+                    : "loại \"" + AiTextUtil.translateCategory(specificCats.get(0)) + "\"";
+            if (genuine.isEmpty()) {
+                categoryMessage = String.format(
+                        "Chúng mình hiện chưa có sản phẩm %s, bạn vui lòng tham khảo các sản phẩm tương tự bên dưới nhé 👇", label);
+            } else if (genuine.size() < results.size()) {
+                // Đưa sp đúng loại lên đầu, phần còn lại là "tương tự".
+                List<ProductResponseDTO> reordered = new ArrayList<>(genuine);
+                for (ProductResponseDTO p : results) if (!genuine.contains(p)) reordered.add(p);
+                results = reordered;
+                categoryMessage = String.format(
+                        "Tìm thấy %d sản phẩm %s, kèm vài mẫu tương tự bên dưới nhé 👇", genuine.size(), label);
+            }
+        }
+
         if (tieredMessage != null) {
             query.message = tieredMessage;
+        } else if (categoryMessage != null) {
+            query.message = categoryMessage;
         } else if (activity != null && !activity.isBlank() && !"null".equalsIgnoreCase(activity)) {
             query.message = String.format("Với hoạt động %s, bạn có thể tham khảo các sản phẩm sau 👇", activity);
         } else {

@@ -266,10 +266,15 @@ public class AIChat {
                 return logWeatherAndReturn(query, sessionId, city);
             }
 
+            // User nêu RÕ thành phố → chỉ gợi ý sân TRONG thành phố đó (rank theo lịch sử/sở thích,
+            // KHÔNG theo khoảng cách user vì user có thể ở tỉnh khác). Không nêu → giữ proximity user.
             List<PitchResponseDTO> envFiltered = allCached.stream()
                     .filter(p -> p.getEnvironment() == env)
+                    .filter(p -> !cityExplicit || pitchInCity(p.getAddress(), city))
                     .collect(Collectors.toList());
-            PitchQueryHandler.PitchRankResult rr = pitchQueryHandler.rankRecommendedPitches(envFiltered, sessionId, null, userLat, userLng, true, 10);
+            PitchQueryHandler.PitchRankResult rr = cityExplicit
+                    ? pitchQueryHandler.rankRecommendedPitches(envFiltered, sessionId, null, null, null, false, 10)
+                    : pitchQueryHandler.rankRecommendedPitches(envFiltered, sessionId, null, userLat, userLng, true, 10);
             List<PitchResponseDTO> suggestedPitches = rr.pitches;
 
             StringBuilder msg = new StringBuilder();
@@ -281,11 +286,14 @@ public class AIChat {
                 if (rr.usedHistory) bits.add("theo lịch sử đặt/xem");
                 if (rr.usedProfile) bits.add("hợp sở thích");
                 String basis = bits.isEmpty() ? "" : " (" + String.join(", ", bits) + ")";
+                String atCity = cityExplicit ? " ở " + city : "";
                 msg.append(String.format(
-                        "\nDưới đây là %d sân %s phù hợp%s 👇",
-                        suggestedPitches.size(), envLabel, basis));
+                        "\nDưới đây là %d sân %s%s phù hợp%s 👇",
+                        suggestedPitches.size(), envLabel, atCity, basis));
             } else {
-                msg.append(String.format("\nHiện chưa có sân %s trong hệ thống.", envLabel));
+                msg.append(cityExplicit
+                        ? String.format("\nHiện chưa có sân %s ở %s.", envLabel, city)
+                        : String.format("\nHiện chưa có sân %s trong hệ thống.", envLabel));
             }
             query.message = msg.toString();
 
@@ -348,8 +356,18 @@ public class AIChat {
         if (city == null || city.isBlank()) return true;
         String c = city.trim().toLowerCase();
         if (HCM_CITY_ALIASES.contains(c)) return true;
-        return pitches.stream()
-                .anyMatch(p -> p.getAddress() != null && p.getAddress().toLowerCase().contains(c));
+        return pitches.stream().anyMatch(p -> pitchInCity(p.getAddress(), c));
+    }
+
+    /** Sân có thuộc thành phố/tỉnh `city` không (address chứa tên; HCM khớp mọi alias). */
+    private static boolean pitchInCity(String address, String city) {
+        if (address == null || city == null) return false;
+        String a = address.toLowerCase();
+        String c = city.trim().toLowerCase();
+        if (a.contains(c)) return true;
+        boolean cityIsHcm = HCM_CITY_ALIASES.contains(c);
+        boolean addrIsHcm = a.contains("hồ chí minh") || a.contains("hcm") || a.contains("sài gòn");
+        return cityIsHcm && addrIsHcm;
     }
 
     /**

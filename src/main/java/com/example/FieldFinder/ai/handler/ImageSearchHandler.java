@@ -605,6 +605,20 @@ public class ImageSearchHandler {
         }
         keepP.addAll(overP); keepS.addAll(overS);
 
+        // Brand-cap (overflow nối cuối) có thể đẩy sp ĐÚNG MÀU xuống sau sp khác màu.
+        // Khi query có màu rõ → sort ỔN ĐỊNH lại theo tầng màu: mọi sp đúng dominant color (cr=2)
+        // trước cr=1, rồi mới khác màu (cr=0). Giữ nguyên thứ tự brand-cap/điểm trong cùng tầng.
+        if (qColor != null) {
+            final String fq = qColor;
+            List<Integer> idx = new ArrayList<>();
+            for (int i = 0; i < keepP.size(); i++) idx.add(i);
+            idx.sort((a, b) -> Integer.compare(colorRankOf(keepP.get(b), fq), colorRankOf(keepP.get(a), fq)));
+            List<ProductResponseDTO> rp = new ArrayList<>(keepP.size());
+            List<Double> rs = new ArrayList<>(keepP.size());
+            for (int i : idx) { rp.add(keepP.get(i)); rs.add(keepS.get(i)); }
+            keepP = rp; keepS = rs;
+        }
+
         products.clear(); products.addAll(keepP);
         scores.clear();   scores.addAll(keepS);
     }
