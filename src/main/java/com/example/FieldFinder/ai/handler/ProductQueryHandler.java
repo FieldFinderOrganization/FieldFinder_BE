@@ -60,23 +60,29 @@ public class ProductQueryHandler {
         try {
             globals = discountRepository.findActiveGlobalPromotions();
         } catch (Exception e) {
+            System.err.println("[globalCampaignAnnouncement] query lỗi: " + e.getMessage());
             return null;
         }
         if (globals == null || globals.isEmpty()) return null;
 
+        StringBuilder sb = new StringBuilder();
         if (globals.size() == 1) {
-            return "Hiện hệ thống đang có chương trình " + describeGlobal(globals.get(0))
-                    + " — bạn hãy trải nghiệm và mua sắm ngay nhé! 🛍️";
+            sb.append("Hiện hệ thống đang có chương trình ").append(describeGlobal(globals.get(0)))
+                    .append(" — bạn hãy trải nghiệm và mua sắm ngay nhé! 🛍️");
+        } else {
+            sb.append("Hiện hệ thống đang có các chương trình giảm giá toàn shop:");
+            for (Discount d : globals) {
+                sb.append("\n• ").append(describeGlobal(d));
+            }
+            sb.append("\nBạn hãy trải nghiệm và mua sắm ngay nhé! 🛍️");
         }
-        StringBuilder sb = new StringBuilder("Hiện hệ thống đang có các chương trình giảm giá toàn shop:");
-        for (Discount d : globals) {
-            sb.append("\n• ").append(describeGlobal(d));
-        }
-        sb.append("\nBạn hãy trải nghiệm và mua sắm ngay nhé! 🛍️");
+        // Note: mã toàn đơn chỉ áp ở bước thanh toán, KHÔNG đổi giá hiển thị từng SP trong shop.
+        sb.append("\n(Lưu ý: mã giảm toàn đơn được chọn & trừ tiền ở bước thanh toán; "
+                + "giá từng sản phẩm trong shop vẫn giữ nguyên nhé.)");
         return sb.toString();
     }
 
-    /** Mô tả 1 mã GLOBAL: "PROMO10 giảm 10% toàn bộ sản phẩm (đơn từ 200.000đ)". */
+    /** Mô tả 1 mã GLOBAL: "PROMO10 giảm 10% toàn bộ sản phẩm (đơn từ 200.000đ)" (+ "đổi N điểm" nếu là mã đổi-điểm). */
     private String describeGlobal(Discount d) {
         String value = d.getDiscountType() == Discount.DiscountType.PERCENTAGE
                 ? ("giảm " + d.getValue().stripTrailingZeros().toPlainString() + "%")
@@ -86,6 +92,9 @@ public class ProductQueryHandler {
         BigDecimal minOrder = d.getMinOrderValue();
         if (minOrder != null && minOrder.signum() > 0) {
             s.append(" (đơn từ ").append(minOrder.stripTrailingZeros().toPlainString()).append("đ)");
+        }
+        if (d.getPointCost() != null && d.getPointCost() > 0) {
+            s.append(" — đổi bằng ").append(d.getPointCost()).append(" điểm");
         }
         return s.toString();
     }
