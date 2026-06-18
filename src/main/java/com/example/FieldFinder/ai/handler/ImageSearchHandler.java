@@ -605,22 +605,22 @@ public class ImageSearchHandler {
         }
         keepP.addAll(overP); keepS.addAll(overS);
 
+        products.clear(); products.addAll(keepP);
+        scores.clear();   scores.addAll(keepS);
+
         // Brand-cap (overflow nối cuối) có thể đẩy sp ĐÚNG MÀU xuống sau sp khác màu.
         // Khi query có màu rõ → sort ỔN ĐỊNH lại theo tầng màu: mọi sp đúng dominant color (cr=2)
         // trước cr=1, rồi mới khác màu (cr=0). Giữ nguyên thứ tự brand-cap/điểm trong cùng tầng.
         if (qColor != null) {
             final String fq = qColor;
+            final List<ProductResponseDTO> snapP = new ArrayList<>(products);
+            final List<Double> snapS = new ArrayList<>(scores);
             List<Integer> idx = new ArrayList<>();
-            for (int i = 0; i < keepP.size(); i++) idx.add(i);
-            idx.sort((a, b) -> Integer.compare(colorRankOf(keepP.get(b), fq), colorRankOf(keepP.get(a), fq)));
-            List<ProductResponseDTO> rp = new ArrayList<>(keepP.size());
-            List<Double> rs = new ArrayList<>(keepP.size());
-            for (int i : idx) { rp.add(keepP.get(i)); rs.add(keepS.get(i)); }
-            keepP = rp; keepS = rs;
+            for (int i = 0; i < snapP.size(); i++) idx.add(i);
+            idx.sort((a, b) -> Integer.compare(colorRankOf(snapP.get(b), fq), colorRankOf(snapP.get(a), fq)));
+            products.clear(); scores.clear();
+            for (int i : idx) { products.add(snapP.get(i)); scores.add(i < snapS.size() ? snapS.get(i) : 0.0); }
         }
-
-        products.clear(); products.addAll(keepP);
-        scores.clear();   scores.addAll(keepS);
     }
 
     /** Mức khớp màu canonical: 2 = dominant, 1 = trong colors/fallback tag, 0 = không. */
