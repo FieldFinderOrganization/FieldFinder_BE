@@ -447,9 +447,14 @@ public class ProductQueryHandler {
                         ? String.format("Sản phẩm giảm sâu nhất là %s (-%d%%).", foundProduct.getName(), foundProduct.getSalePercent())
                         : String.format("%s giảm sâu nhất là %s (-%d%%).", AiTextUtil.capitalize(scopeLabel), foundProduct.getName(), foundProduct.getSalePercent());
             } else {
-                query.message = scopeLabel == null
-                        ? "Hiện không có sản phẩm nào giảm giá."
-                        : String.format("Hiện %s không có sản phẩm nào giảm giá.", scopeLabel);
+                String globalAnnounce = globalCampaignAnnouncement();
+                if (globalAnnounce != null) {
+                    query.message = globalAnnounce;
+                } else {
+                    query.message = scopeLabel == null
+                            ? "Hiện không có sản phẩm nào giảm giá."
+                            : String.format("Hiện %s không có sản phẩm nào giảm giá.", scopeLabel);
+                }
             }
         }
         else if ("max_discount_brand".equals(action) || "max_discount_category".equals(action)) {
@@ -460,9 +465,11 @@ public class ProductQueryHandler {
             DiscountGroup top = topDiscountGroup(onSale,
                     byBrand ? ProductResponseDTO::getBrand : ProductResponseDTO::getCategoryName);
             if (top == null) {
-                query.message = byBrand
-                        ? "Hiện chưa có thương hiệu nào đang giảm giá."
-                        : "Hiện chưa có danh mục nào đang giảm giá.";
+                String globalAnnounce = globalCampaignAnnouncement();
+                query.message = globalAnnounce != null
+                        ? globalAnnounce
+                        : (byBrand ? "Hiện chưa có thương hiệu nào đang giảm giá."
+                                   : "Hiện chưa có danh mục nào đang giảm giá.");
             } else {
                 query.message = String.format(
                         "%s giảm giá mạnh nhất là %s (sâu nhất -%d%%, %d sản phẩm đang sale). Tôi gửi vài mẫu giảm sâu 👇",
@@ -478,7 +485,10 @@ public class ProductQueryHandler {
                     .collect(Collectors.toList());
             List<DiscountGroup> groups = allDiscountGroups(onSale, ProductResponseDTO::getCategoryName);
             if (groups.isEmpty()) {
-                query.message = "Hiện chưa có danh mục nào đang giảm giá.";
+                String globalAnnounce = globalCampaignAnnouncement();
+                query.message = globalAnnounce != null
+                        ? globalAnnounce
+                        : "Hiện chưa có danh mục nào đang giảm giá.";
             } else {
                 String catList = groups.stream()
                         .limit(8)
