@@ -54,6 +54,10 @@ public class ProviderDebt {
     @Column(name = "Reason", length = 500)
     private String reason;
 
+    /** Hạn chót chủ sân phải trả; quá hạn còn OUTSTANDING ⇒ chặn nhận booking mới. */
+    @Column(name = "DeadlineAt")
+    private LocalDateTime deadlineAt;
+
     @Builder.Default
     @Column(name = "CreatedAt", updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

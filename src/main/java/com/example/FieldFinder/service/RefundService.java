@@ -42,6 +42,13 @@ public interface RefundService {
                                   String reason,
                                   BankAccount bankAccount);
 
+    /**
+     * Bù voucher cho một refund tiền mặt đã QUÁ HẠN mà chưa chi xong.
+     * Gắn mã REFUND_CREDIT vào chính bản ghi đó (không tạo refund mới ⇒ không vướng
+     * idempotency), đặt status ISSUED + method VOUCHER. Chỉ gọi cho khoản chưa gửi PayOS.
+     */
+    RefundRequest fallbackToVoucher(RefundRequest existing, String note);
+
     int DEFAULT_EXPIRY_DAYS = 90;
 
     String CODE_PREFIX = "RF-";

@@ -4,6 +4,7 @@ import com.example.FieldFinder.Enum.RefundStatus;
 import com.example.FieldFinder.entity.RefundRequest;
 import com.example.FieldFinder.repository.BankAccountRepository;
 import com.example.FieldFinder.repository.RefundRequestRepository;
+import com.example.FieldFinder.service.RefundService;
 import com.example.FieldFinder.service.payout.PayoutCommand;
 import com.example.FieldFinder.service.payout.PayoutProvider;
 import com.example.FieldFinder.service.payout.PayoutResult;
@@ -30,6 +31,7 @@ public class RefundPayoutProcessor {
     private final RefundRequestRepository refundRequestRepository;
     private final BankAccountRepository bankAccountRepository;
     private final PayoutProvider payoutProvider;
+    private final RefundService refundService;
 
     @Value("${refund.payout.max-attempts:5}")
     private int maxAttempts;
@@ -103,15 +105,28 @@ public class RefundPayoutProcessor {
         }
     }
 
-    /** (3) Canh deadline: khoản chưa xong mà quá hạn ⇒ cảnh báo admin. */
+    /**
+     * (3) Canh deadline. Quá hạn mà chưa chi xong:
+     *  - PAYOUT_PENDING (CHƯA gửi PayOS) ⇒ BÙ VOUCHER ngay để user nhận được, đóng khoản.
+     *  - PAYOUT_PROCESSING (ĐÃ gửi PayOS) ⇒ chỉ cảnh báo, KHÔNG bù (tránh chi đôi nếu PayOS
+     *    vẫn đang xử lý và sẽ thành công).
+     */
     @Scheduled(fixedDelayString = "${refund.payout.deadline-interval-ms:600000}")
-    @Transactional(readOnly = true)
+    @Transactional
     public void checkDeadlines() {
         List<RefundRequest> overdue = refundRequestRepository.findByStatusInAndDeadlineAtBefore(
                 List.of(RefundStatus.PAYOUT_PENDING, RefundStatus.PAYOUT_PROCESSING),
                 LocalDateTime.now());
         for (RefundRequest r : overdue) {
-            alertAdmin(r, "QUÁ HẠN hoàn tiền (deadline " + r.getDeadlineAt() + ", status " + r.getStatus() + ")");
+            if (r.getStatus() == RefundStatus.PAYOUT_PENDING) {
+                refundService.fallbackToVoucher(r,
+                        "Quá hạn " + r.getDeadlineAt() + " mà chưa chi được tiền mặt — đã phát voucher bù.");
+                System.out.println("[Payout] Quá hạn refund " + r.getRefundId()
+                        + " — bù voucher thay tiền mặt.");
+            } else {
+                alertAdmin(r, "QUÁ HẠN khi đang PROCESSING (deadline " + r.getDeadlineAt()
+                        + ") — chờ PayOS, không bù để tránh chi đôi.");
+            }
         }
     }
 

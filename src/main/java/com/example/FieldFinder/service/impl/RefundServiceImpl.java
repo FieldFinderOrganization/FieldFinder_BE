@@ -171,6 +171,51 @@ public class RefundServiceImpl implements RefundService {
     }
 
     @Override
+    @Transactional
+    public RefundRequest fallbackToVoucher(RefundRequest existing, String note) {
+        if (existing == null) throw new IllegalArgumentException("Refund required");
+
+        Discount discount = generateRefundDiscount(existing.getAmount());
+        discount = discountRepository.save(discount);
+
+        UserDiscount userDiscount = UserDiscount.builder()
+                .user(existing.getUser())
+                .discount(discount)
+                .isUsed(false)
+                .savedAt(LocalDateTime.now())
+                .remainingValue(existing.getAmount())
+                .build();
+        userDiscountRepository.save(userDiscount);
+
+        existing.setIssuedDiscount(discount);
+        existing.setRefundMethod(RefundMethod.VOUCHER);
+        existing.setStatus(RefundStatus.ISSUED);
+        existing.setFailureReason(note);
+        existing.setProcessedAt(LocalDateTime.now());
+        RefundRequest saved = refundRequestRepository.save(existing);
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        emailService.sendRefundCodeIssued(saved);
+                    } catch (Exception e) {
+                        System.err.println("Lỗi gửi email voucher bù: " + e.getMessage());
+                    }
+                }
+            });
+        } else {
+            try {
+                emailService.sendRefundCodeIssued(saved);
+            } catch (Exception e) {
+                System.err.println("Lỗi gửi email voucher bù: " + e.getMessage());
+            }
+        }
+        return saved;
+    }
+
+    @Override
     public Discount generateRefundDiscount(BigDecimal amount) {
         String code = generateUniqueCode();
         LocalDate today = LocalDate.now();

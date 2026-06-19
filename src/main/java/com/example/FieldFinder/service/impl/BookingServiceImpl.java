@@ -55,6 +55,8 @@ public class BookingServiceImpl implements BookingService {
     private final RefundService refundService;
     private final com.example.FieldFinder.service.BankAccountService bankAccountService;
     private final com.example.FieldFinder.repository.ProviderDebtRepository providerDebtRepository;
+    @org.springframework.beans.factory.annotation.Value("${provider.debt.settle-days:7}")
+    private long providerDebtSettleDays;
     private final DiscountRepository discountRepository;
     private final DiscountUsageService discountUsageService;
     private final UserDiscountRepository userDiscountRepository;
@@ -128,6 +130,21 @@ public class BookingServiceImpl implements BookingService {
                 .orElseThrow(() -> new RuntimeException("User not found!"));
         Pitch pitch = pitchRepository.findById(bookingRequest.getPitchId())
                 .orElseThrow(() -> new RuntimeException("Pitch not found!"));
+
+        // Chặn nhận booking nếu chủ sân đang có khoản nợ QUÁ HẠN chưa trả
+        if (pitch.getProviderAddress() != null
+                && pitch.getProviderAddress().getProvider() != null) {
+            UUID pitchProviderId = pitch.getProviderAddress().getProvider().getProviderId();
+            boolean blocked = providerDebtRepository
+                    .existsByProvider_ProviderIdAndStatusAndDeadlineAtBefore(
+                            pitchProviderId,
+                            com.example.FieldFinder.Enum.ProviderDebtStatus.OUTSTANDING,
+                            LocalDateTime.now());
+            if (blocked) {
+                throw new RuntimeException(
+                        "Sân này tạm thời không nhận đặt do chủ sân chưa hoàn tất nghĩa vụ thanh toán. Vui lòng chọn sân khác.");
+            }
+        }
 
         LocalDate bookingDate = bookingRequest.getBookingDate();
         UUID pitchId = (bookingRequest.getPitchId());
@@ -611,13 +628,15 @@ public class BookingServiceImpl implements BookingService {
                                     String bookingId, java.math.BigDecimal amount, String reason) {
         if (provider == null || amount == null || amount.signum() <= 0) return;
         if (providerDebtRepository.existsBySourceBookingId(bookingId)) return;
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
         providerDebtRepository.save(com.example.FieldFinder.entity.ProviderDebt.builder()
                 .provider(provider)
                 .sourceBookingId(bookingId)
                 .amount(amount)
                 .status(com.example.FieldFinder.Enum.ProviderDebtStatus.OUTSTANDING)
                 .reason("Hệ thống ứng hoàn tiền khi chủ sân hủy: " + reason)
-                .createdAt(java.time.LocalDateTime.now())
+                .deadlineAt(now.plusDays(providerDebtSettleDays))
+                .createdAt(now)
                 .build());
     }
 
