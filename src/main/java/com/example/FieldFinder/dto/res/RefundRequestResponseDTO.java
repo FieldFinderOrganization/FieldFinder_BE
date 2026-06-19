@@ -24,6 +24,12 @@ public class RefundRequestResponseDTO {
     private LocalDateTime createdAt;
     private LocalDateTime processedAt;
 
+    // ----- Hoàn tiền mặt (PayOS payout) -----
+    private String refundMethod;     // VOUCHER | CASH
+    private String maskedAccount;    // số TK nhận đã che
+    private String payosTxnState;    // trạng thái giao dịch PayOS gần nhất
+    private LocalDateTime deadlineAt;
+
     public static RefundRequestResponseDTO fromEntity(RefundRequest req, BigDecimal remainingValue) {
         return RefundRequestResponseDTO.builder()
                 .refundId(req.getRefundId())
@@ -37,6 +43,17 @@ public class RefundRequestResponseDTO {
                 .remainingValue(remainingValue)
                 .createdAt(req.getCreatedAt())
                 .processedAt(req.getProcessedAt())
+                .refundMethod(req.getRefundMethod() != null ? req.getRefundMethod().name() : null)
+                .maskedAccount(mask(req.getBankAccountNumber()))
+                .payosTxnState(req.getPayosTxnState())
+                .deadlineAt(req.getDeadlineAt())
                 .build();
+    }
+
+    private static String mask(String acc) {
+        if (acc == null || acc.length() <= 4) return acc;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < acc.length() - 4; i++) sb.append('*');
+        return sb.append(acc.substring(acc.length() - 4)).toString();
     }
 }

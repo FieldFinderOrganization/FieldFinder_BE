@@ -1,6 +1,7 @@
 package com.example.FieldFinder.service;
 
 import com.example.FieldFinder.Enum.RefundSourceType;
+import com.example.FieldFinder.entity.BankAccount;
 import com.example.FieldFinder.entity.Discount;
 import com.example.FieldFinder.entity.RefundRequest;
 import com.example.FieldFinder.entity.User;
@@ -27,6 +28,19 @@ public interface RefundService {
                                     BigDecimal amount,
                                     String reason,
                                     UUID restrictProviderId);
+
+    /**
+     * Hoàn TIỀN MẶT về TK ngân hàng (PayOS payout). Tạo bản ghi PAYOUT_PENDING,
+     * job nền sẽ đẩy lệnh chi + poll trạng thái. Idempotent theo (sourceType, sourceId).
+     *
+     * @param bankAccount TK nhận tiền (mặc định của user), bắt buộc.
+     */
+    RefundRequest issueCashRefund(User user,
+                                  RefundSourceType sourceType,
+                                  String sourceId,
+                                  BigDecimal amount,
+                                  String reason,
+                                  BankAccount bankAccount);
 
     int DEFAULT_EXPIRY_DAYS = 90;
 

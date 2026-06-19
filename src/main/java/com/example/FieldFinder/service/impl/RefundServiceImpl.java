@@ -1,8 +1,10 @@
 package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.Enum.DiscountKind;
+import com.example.FieldFinder.Enum.RefundMethod;
 import com.example.FieldFinder.Enum.RefundSourceType;
 import com.example.FieldFinder.Enum.RefundStatus;
+import com.example.FieldFinder.entity.BankAccount;
 import com.example.FieldFinder.entity.Discount;
 import com.example.FieldFinder.entity.RefundRequest;
 import com.example.FieldFinder.entity.User;
@@ -13,6 +15,7 @@ import com.example.FieldFinder.repository.UserDiscountRepository;
 import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.RefundService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +40,9 @@ public class RefundServiceImpl implements RefundService {
     private final UserDiscountRepository userDiscountRepository;
     private final RefundRequestRepository refundRequestRepository;
     private final EmailService emailService;
+
+    @Value("${refund.payout.deadline-hours:24}")
+    private long payoutDeadlineHours;
 
     @Override
     @Transactional
@@ -120,6 +126,48 @@ public class RefundServiceImpl implements RefundService {
         }
 
         return saved;
+    }
+
+    @Override
+    @Transactional
+    public RefundRequest issueCashRefund(User user,
+                                         RefundSourceType sourceType,
+                                         String sourceId,
+                                         BigDecimal amount,
+                                         String reason,
+                                         BankAccount bankAccount) {
+        if (user == null) throw new IllegalArgumentException("User required");
+        if (amount == null || amount.signum() <= 0) {
+            throw new IllegalArgumentException("Refund amount must be positive");
+        }
+        if (bankAccount == null) throw new IllegalArgumentException("Bank account required for cash refund");
+
+        // Idempotency: chặn refund trùng nguồn (voucher hoặc cash)
+        refundRequestRepository.findBySourceTypeAndSourceId(sourceType, sourceId)
+                .ifPresent(r -> {
+                    throw new RuntimeException("Refund đã tồn tại cho " + sourceType + " #" + sourceId);
+                });
+
+        RefundRequest req = RefundRequest.builder()
+                .user(user)
+                .sourceType(sourceType)
+                .sourceId(sourceId)
+                .amount(amount)
+                .reason(reason)
+                .refundMethod(RefundMethod.CASH)
+                .status(RefundStatus.PAYOUT_PENDING)
+                .bankBin(bankAccount.getBankBin())
+                .bankAccountNumber(bankAccount.getAccountNumber())
+                .bankAccountName(bankAccount.getAccountName())
+                .deadlineAt(LocalDateTime.now().plusHours(payoutDeadlineHours))
+                .attemptCount(0)
+                .createdAt(LocalDateTime.now())
+                .build();
+        req = refundRequestRepository.save(req);
+
+        // referenceId PayOS ổn định, duy nhất, ≤64 ký tự — dùng làm khóa idempotency phía PayOS
+        req.setPayosReferenceId("RF" + req.getRefundId().toString().replace("-", ""));
+        return refundRequestRepository.save(req);
     }
 
     @Override

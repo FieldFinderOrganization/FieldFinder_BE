@@ -55,6 +55,7 @@ public class OrderServiceImpl implements OrderService {
     private final StockLockService stockLockService;
     private final PaymentRepository paymentRepository;
     private final RefundService refundService;
+    private final com.example.FieldFinder.service.BankAccountService bankAccountService;
     private final UserTierService userTierService;
     private final com.example.FieldFinder.service.DiscountUsageService discountUsageService;
     private final com.example.FieldFinder.service.PointService pointService;
@@ -640,14 +641,18 @@ public class OrderServiceImpl implements OrderService {
             BigDecimal refundAmount = BigDecimal.valueOf(
                     order.getTotalAmount() != null ? order.getTotalAmount() : 0.0);
             if (refundAmount.signum() > 0) {
-                refundService.issueRefundCredit(
-                        order.getUser(),
-                        RefundSourceType.ORDER,
-                        String.valueOf(order.getOrderId()),
-                        refundAmount,
-                        reason != null && !reason.isBlank()
-                                ? reason
-                                : "User cancel order within 24h refund window");
+                String refundReason = reason != null && !reason.isBlank()
+                        ? reason
+                        : "User cancel order within 24h refund window";
+                // Có TK ngân hàng mặc định ⇒ hoàn TIỀN MẶT (PayOS payout); chưa có ⇒ voucher (cũ)
+                bankAccountService.getDefault(order.getUser().getUserId())
+                        .ifPresentOrElse(
+                                bank -> refundService.issueCashRefund(
+                                        order.getUser(), RefundSourceType.ORDER,
+                                        String.valueOf(order.getOrderId()), refundAmount, refundReason, bank),
+                                () -> refundService.issueRefundCredit(
+                                        order.getUser(), RefundSourceType.ORDER,
+                                        String.valueOf(order.getOrderId()), refundAmount, refundReason));
 
                 paymentRepository
                         .findFirstByOrder_OrderIdOrderByCreatedAtDesc(order.getOrderId())

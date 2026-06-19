@@ -53,6 +53,8 @@ public class BookingServiceImpl implements BookingService {
     private final ProviderRepository providerRepository;
     private final EmailService emailService;
     private final RefundService refundService;
+    private final com.example.FieldFinder.service.BankAccountService bankAccountService;
+    private final com.example.FieldFinder.repository.ProviderDebtRepository providerDebtRepository;
     private final DiscountRepository discountRepository;
     private final DiscountUsageService discountUsageService;
     private final UserDiscountRepository userDiscountRepository;
@@ -555,14 +557,20 @@ public class BookingServiceImpl implements BookingService {
                     && latestPayment.getPaymentMethod() == PaymentMethod.BANK;
 
             if (isBank) {
-                refundService.issueRefundCredit(
-                        booking.getUser(),
-                        RefundSourceType.BOOKING,
-                        booking.getBookingId().toString(),
-                        booking.getTotalPrice(),
-                        reason != null && !reason.isBlank()
-                                ? reason
-                                : "User cancel booking ≥60m before start");
+                String refundReason = reason != null && !reason.isBlank()
+                        ? reason
+                        : "User cancel booking ≥60m before start";
+                // Có TK ngân hàng ⇒ hoàn tiền mặt (PayOS payout); chưa có ⇒ voucher
+                bankAccountService.getDefault(booking.getUser().getUserId())
+                        .ifPresentOrElse(
+                                bank -> refundService.issueCashRefund(
+                                        booking.getUser(), RefundSourceType.BOOKING,
+                                        booking.getBookingId().toString(),
+                                        booking.getTotalPrice(), refundReason, bank),
+                                () -> refundService.issueRefundCredit(
+                                        booking.getUser(), RefundSourceType.BOOKING,
+                                        booking.getBookingId().toString(),
+                                        booking.getTotalPrice(), refundReason));
 
                 latestPayment.setPaymentStatus(PaymentStatus.REFUNDED);
                 latestPayment.setProcessedAt(LocalDateTime.now());
@@ -596,6 +604,21 @@ public class BookingServiceImpl implements BookingService {
                 }
             }
         });
+    }
+
+    /** Ghi nợ chủ sân số tiền hệ thống đã ứng để hoàn cho khách (idempotent theo booking). */
+    private void recordProviderDebt(com.example.FieldFinder.entity.Provider provider,
+                                    String bookingId, java.math.BigDecimal amount, String reason) {
+        if (provider == null || amount == null || amount.signum() <= 0) return;
+        if (providerDebtRepository.existsBySourceBookingId(bookingId)) return;
+        providerDebtRepository.save(com.example.FieldFinder.entity.ProviderDebt.builder()
+                .provider(provider)
+                .sourceBookingId(bookingId)
+                .amount(amount)
+                .status(com.example.FieldFinder.Enum.ProviderDebtStatus.OUTSTANDING)
+                .reason("Hệ thống ứng hoàn tiền khi chủ sân hủy: " + reason)
+                .createdAt(java.time.LocalDateTime.now())
+                .build());
     }
 
     @Override
@@ -668,13 +691,21 @@ public class BookingServiceImpl implements BookingService {
             BigDecimal refundAmount = booking.getTotalPrice().multiply(multiplier)
                     .setScale(0, java.math.RoundingMode.HALF_UP);
 
-            refundService.issueRefundCredit(
-                    booking.getUser(),
-                    RefundSourceType.BOOKING,
-                    booking.getBookingId().toString(),
-                    refundAmount,
-                    reason,
-                    provider.getProviderId());
+            // Chủ sân hủy: hệ thống ỨNG tiền hoàn cho user.
+            // Có TK ngân hàng ⇒ payout tiền mặt 110% từ TK chi chung + GHI NỢ chủ sân;
+            // chưa có ⇒ voucher (giới hạn sân chủ này), không phát sinh nợ tiền mặt.
+            var defaultBank = bankAccountService.getDefault(booking.getUser().getUserId());
+            if (defaultBank.isPresent()) {
+                refundService.issueCashRefund(
+                        booking.getUser(), RefundSourceType.BOOKING,
+                        booking.getBookingId().toString(), refundAmount, reason, defaultBank.get());
+                recordProviderDebt(provider, booking.getBookingId().toString(), refundAmount, reason);
+            } else {
+                refundService.issueRefundCredit(
+                        booking.getUser(), RefundSourceType.BOOKING,
+                        booking.getBookingId().toString(), refundAmount, reason,
+                        provider.getProviderId());
+            }
 
             latestPayment.setPaymentStatus(PaymentStatus.REFUNDED);
             latestPayment.setProcessedAt(LocalDateTime.now());

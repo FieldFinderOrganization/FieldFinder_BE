@@ -1,5 +1,6 @@
 package com.example.FieldFinder.entity;
 
+import com.example.FieldFinder.Enum.RefundMethod;
 import com.example.FieldFinder.Enum.RefundSourceType;
 import com.example.FieldFinder.Enum.RefundStatus;
 import jakarta.persistence.*;
@@ -54,6 +55,50 @@ public class RefundRequest {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "IssuedDiscountId")
     private Discount issuedDiscount;
+
+    /** VOUCHER (mặc định, luồng cũ) hoặc CASH (hoàn về TK ngân hàng qua PayOS payout). */
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "RefundMethod", nullable = false, length = 16)
+    private RefundMethod refundMethod = RefundMethod.VOUCHER;
+
+    // ----- Thông tin payout (chỉ dùng khi refundMethod = CASH) -----
+
+    /** Snapshot TK nhận tại thời điểm hoàn (user có thể đổi TK sau). */
+    @Column(name = "BankBin", length = 12)
+    private String bankBin;
+
+    @Column(name = "BankAccountNumber", length = 32)
+    private String bankAccountNumber;
+
+    @Column(name = "BankAccountName", length = 120)
+    private String bankAccountName;
+
+    /** referenceId duy nhất ta gửi PayOS — khóa idempotency phía PayOS. */
+    @Column(name = "PayosReferenceId", length = 64)
+    private String payosReferenceId;
+
+    /** id lệnh chi PayOS trả về — dùng để poll trạng thái. */
+    @Column(name = "PayosPayoutId", length = 64)
+    private String payosPayoutId;
+
+    /** Trạng thái giao dịch PayOS gần nhất (PROCESSING/SUCCEEDED/FAILED...). */
+    @Column(name = "PayosTxnState", length = 32)
+    private String payosTxnState;
+
+    /** Hạn chót phải hoàn xong; quá hạn mà chưa SUCCEEDED ⇒ job cảnh báo admin. */
+    @Column(name = "DeadlineAt")
+    private LocalDateTime deadlineAt;
+
+    @Builder.Default
+    @Column(name = "AttemptCount", nullable = false)
+    private int attemptCount = 0;
+
+    @Column(name = "LastAttemptAt")
+    private LocalDateTime lastAttemptAt;
+
+    @Column(name = "FailureReason", length = 500)
+    private String failureReason;
 
     @Builder.Default
     @Column(name = "CreatedAt", updatable = false)
