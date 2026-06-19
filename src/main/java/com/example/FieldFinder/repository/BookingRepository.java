@@ -62,16 +62,16 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
     long countByStatus(BookingStatus status);
 
-    @Query("SELECT COALESCE(SUM(b.totalPrice), 0) FROM Booking b WHERE b.paymentStatus = :status")
+    @Query("SELECT COALESCE(SUM(b.totalPrice), 0) FROM Booking b WHERE b.paymentStatus = :status AND b.user.role <> com.example.FieldFinder.entity.User.Role.PROVIDER")
     BigDecimal sumTotalPriceByPaymentStatus(@Param("status") PaymentStatus status);
 
-    @Query("SELECT COALESCE(SUM(b.totalPrice), 0) FROM Booking b WHERE b.paymentStatus = :status AND b.bookingDate BETWEEN :startDate AND :endDate")
+    @Query("SELECT COALESCE(SUM(b.totalPrice), 0) FROM Booking b WHERE b.paymentStatus = :status AND b.bookingDate BETWEEN :startDate AND :endDate AND b.user.role <> com.example.FieldFinder.entity.User.Role.PROVIDER")
     BigDecimal sumTotalPriceByPaymentStatusAndDateRange(@Param("status") PaymentStatus status, @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
 
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.user LEFT JOIN FETCH b.bookingDetails bd LEFT JOIN FETCH bd.pitch ORDER BY b.createdAt DESC")
     List<Booking> findTopRecentBookings(org.springframework.data.domain.Pageable pageable);
 
-    @Query("SELECT b.bookingDate, COALESCE(SUM(b.totalPrice), 0) FROM Booking b WHERE b.paymentStatus = com.example.FieldFinder.Enum.PaymentStatus.PAID AND b.bookingDate BETWEEN :startDate AND :endDate GROUP BY b.bookingDate ORDER BY b.bookingDate")
+    @Query("SELECT b.bookingDate, COALESCE(SUM(b.totalPrice), 0) FROM Booking b WHERE b.paymentStatus = com.example.FieldFinder.Enum.PaymentStatus.PAID AND b.bookingDate BETWEEN :startDate AND :endDate AND b.user.role <> com.example.FieldFinder.entity.User.Role.PROVIDER GROUP BY b.bookingDate ORDER BY b.bookingDate")
     List<Object[]> findRevenueByDateRange(@Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
 
     @Query("SELECT DAYOFWEEK(b.bookingDate), COUNT(b) FROM Booking b WHERE b.bookingDate BETWEEN :startDate AND :endDate GROUP BY DAYOFWEEK(b.bookingDate)")
@@ -83,11 +83,13 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     @Query("SELECT bd.pitch.pitchId, COUNT(DISTINCT bd.booking), " +
             "COALESCE(SUM(CASE WHEN bd.booking.status = com.example.FieldFinder.Enum.BookingStatus.CONFIRMED " +
             "  AND bd.booking.paymentStatus = com.example.FieldFinder.Enum.PaymentStatus.PAID " +
+            "  AND bd.booking.user.role <> com.example.FieldFinder.entity.User.Role.PROVIDER " +
             "  THEN bd.priceDetail ELSE 0 END), 0) " +
             "FROM BookingDetail bd " +
             "WHERE bd.pitch.providerAddress.provider.providerId = :providerId " +
             "GROUP BY bd.pitch.pitchId")
     List<Object[]> findPitchBookingStatsByProvider(@Param("providerId") UUID providerId);
+
 
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.user LEFT JOIN FETCH b.bookingDetails bd LEFT JOIN FETCH bd.pitch ORDER BY b.createdAt DESC")
     Page<Booking> findAllWithDetails(Pageable pageable);

@@ -115,4 +115,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
                                                @Param("vip") long vip,
                                                @Param("gold") long gold,
                                                @Param("diamond") long diamond);
-}
+
+    @Transactional
+    @Modifying
+    @Query("UPDATE User u SET u.monthlyLateCancels = 0")
+    void resetMonthlyLateCancels();
+}

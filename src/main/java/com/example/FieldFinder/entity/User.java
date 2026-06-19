@@ -127,6 +127,14 @@ public class User {
     @Column(name = "VehiclePlate")
     private String vehiclePlate;
 
+    @Column(name = "monthly_late_cancels")
+    @Builder.Default
+    private Integer monthlyLateCancels = 0;
+
+    public int getEffectiveMonthlyLateCancels() {
+        return monthlyLateCancels != null ? monthlyLateCancels : 0;
+    }
+
     /** Row cũ trước khi có cột Tier sẽ NULL — coi như MEMBER. */
     public UserTier getEffectiveTier() {
         return tier != null ? tier : UserTier.MEMBER;
@@ -136,3 +144,4 @@ public class User {
         return points != null ? points : 0;
     }
 }
+

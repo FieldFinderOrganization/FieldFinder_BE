@@ -68,4 +68,10 @@ public class Booking {
 
     @Column(name = "cancel_reason", columnDefinition = "TEXT")
     private String cancelReason;
-}
+
+    @Column(name = "block_type", length = 32)
+    private String blockType;
+
+    @Column(name = "provider_notes", columnDefinition = "TEXT")
+    private String providerNotes;
+}
