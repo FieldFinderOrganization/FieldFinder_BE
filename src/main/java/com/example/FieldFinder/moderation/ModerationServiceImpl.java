@@ -18,17 +18,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/**
- * Kiểm duyệt tự động bằng luật (rule-based), không phụ thuộc dịch vụ ngoài.
- *
- * Hai nhóm luật:
- *  1) Từ cấm: danh sách nạp từ classpath {@code moderation/banned-words.txt}.
- *     So khớp trên văn bản đã "chuẩn hoá" (bỏ dấu tiếng Việt, gộp ký tự lặp,
- *     loại ký tự chèn) để bắt cả các biến thể né bộ lọc (vd: "đ.c.m", "ddmm").
- *  2) Heuristic: liên kết/quảng cáo, số điện thoại/thông tin liên hệ, spam ký tự lặp.
- *
- * Bình luận rỗng (chỉ chấm sao) luôn được cho qua.
- */
 @Service
 public class ModerationServiceImpl implements ModerationService {
 
@@ -101,10 +90,6 @@ public class ModerationServiceImpl implements ModerationService {
             return ModerationResult.reject("Bình luận chứa ký tự lặp lại bất thường (spam).");
         }
 
-        // Từ cấm. Tránh false-positive với từ tiếng Việt phổ biến (sau khi bỏ dấu
-        // "ngủ" -> "ngu", "các" -> "cac"...): từ ĐƠN khớp NGUYÊN token; cụm NHIỀU TỪ
-        // khớp NGUYÊN DÃY token liền kề (n-gram) — KHÔNG dùng chuỗi con để tránh chặn
-        // nhầm qua ranh giới từ (vd "Đỗ Nguyên" -> "do nguyen" không chứa cụm "do ngu").
         List<String> tokens = Arrays.stream(normalize(comment).split("[^a-z0-9]+"))
                 .filter(s -> !s.isEmpty())
                 .toList();
@@ -123,7 +108,6 @@ public class ModerationServiceImpl implements ModerationService {
         return ModerationResult.pass();
     }
 
-    /** Cụm từ cấm khớp khi {@code phrase} xuất hiện như một dãy token liền kề trong {@code tokens}. */
     private static boolean containsSubsequence(List<String> tokens, String[] phrase) {
         if (phrase.length == 0 || phrase.length > tokens.size()) return false;
         for (int i = 0; i + phrase.length <= tokens.size(); i++) {
@@ -139,10 +123,6 @@ public class ModerationServiceImpl implements ModerationService {
         return false;
     }
 
-    /**
-     * Chuẩn hoá tiếng Việt: lowercase, bỏ dấu thanh/dấu mũ, đ -> d,
-     * gộp ký tự lặp liên tiếp về 1 (eee -> e) để chống né bộ lọc.
-     */
     static String normalize(String input) {
         String lower = input.toLowerCase();
         String noMark = Normalizer.normalize(lower, Normalizer.Form.NFD)

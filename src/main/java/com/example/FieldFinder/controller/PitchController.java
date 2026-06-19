@@ -75,10 +75,20 @@ public class PitchController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<PitchResponseDTO>> getAllPitches(Pageable pageable,
-                                                                @RequestParam(required = false) String district,
-                                                                @RequestParam(required = false) String type,
-                                                                @RequestParam(required = false) String name) {
+    public ResponseEntity<?> getAllPitches(Pageable pageable,
+                                           @RequestParam(required = false) String district,
+                                           @RequestParam(required = false) String type,
+                                           @RequestParam(required = false) String name) {
+        // Từ chối type không hợp lệ thay vì âm thầm bỏ lọc (gây lẫn loại sân).
+        if (type != null && !type.isEmpty()) {
+            try {
+                com.example.FieldFinder.entity.Pitch.PitchType.valueOf(type);
+            } catch (IllegalArgumentException ex) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "message", "Loại sân không hợp lệ: " + type,
+                        "allowed", List.of("FIVE_A_SIDE", "SEVEN_A_SIDE", "ELEVEN_A_SIDE")));
+            }
+        }
         Pageable safePageable = sanitizePageable(pageable);
         Page<PitchResponseDTO> pitches = pitchService.getAllPitches(safePageable, district, type, name);
         return ResponseEntity.ok(pitches);
