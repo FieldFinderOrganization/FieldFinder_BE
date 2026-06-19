@@ -24,6 +24,9 @@ public class PitchResponseDTO {
     private Double longitude;
     private String providerUserId;
     private String providerName;
+    private String providerPhone;
+    private BigDecimal providerRating;      // điểm TB mọi sân của chủ; null = service chưa inject
+    private Long providerReviewCount;       // tổng lượt đánh giá mọi sân của chủ
     private String status; // ACTIVE | INACTIVE
 
     public static PitchResponseDTO fromEntity(Pitch pitch) {
@@ -44,6 +47,8 @@ public class PitchResponseDTO {
         var providerUser = pa.getProvider().getUser();
         dto.setProviderUserId(providerUser.getUserId().toString());
         dto.setProviderName(providerUser.getName());
+        dto.setProviderPhone(providerUser.getPhone());
+        // providerRating / providerReviewCount: fromEntity static không có repo → service inject (getPitchById).
         dto.setStatus(pitch.getStatus() != null ? pitch.getStatus().name() : "ACTIVE");
         return dto;
     }

@@ -16,8 +16,8 @@ public class SwaggerConfig {
         final String securitySchemeName = "bearerAuth";
 
         return new OpenAPI()
-                .info(new Info().title("FieldFinder API")
-                        .description("Tài liệu API cho dự án E-commerce FieldFinder")
+                .info(new Info().title("SportsHub API")
+                        .description("Tài liệu API cho dự án E-commerce SportsHub")
                         .version("v1.0.0"))
 
                 .addSecurityItem(new SecurityRequirement().addList(securitySchemeName))

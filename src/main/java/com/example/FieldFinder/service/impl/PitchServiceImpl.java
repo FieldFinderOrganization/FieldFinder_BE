@@ -15,6 +15,7 @@ import com.example.FieldFinder.repository.BookingRepository;
 import com.example.FieldFinder.repository.PitchRepository;
 import com.example.FieldFinder.repository.ProviderAddressRepository;
 import com.example.FieldFinder.repository.ProviderRepository;
+import com.example.FieldFinder.repository.ReviewRepository;
 import com.example.FieldFinder.service.DiscountUsageService;
 import com.example.FieldFinder.service.GeocodingService;
 import com.example.FieldFinder.service.NotificationService;
@@ -34,6 +35,8 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -50,6 +53,7 @@ public class PitchServiceImpl implements PitchService {
     private final BookingDetailRepository bookingDetailRepository;
     private final BookingRepository bookingRepository;
     private final ProviderRepository providerRepository;
+    private final ReviewRepository reviewRepository;
     private final DiscountUsageService discountUsageService;
     private final NotificationService notificationService;
     private final CacheManager cacheManager;
@@ -62,6 +66,7 @@ public class PitchServiceImpl implements PitchService {
             BookingDetailRepository bookingDetailRepository,
             BookingRepository bookingRepository,
             ProviderRepository providerRepository,
+            ReviewRepository reviewRepository,
             DiscountUsageService discountUsageService,
             NotificationService notificationService,
             CacheManager cacheManager,
@@ -72,6 +77,7 @@ public class PitchServiceImpl implements PitchService {
         this.bookingDetailRepository = bookingDetailRepository;
         this.bookingRepository = bookingRepository;
         this.providerRepository = providerRepository;
+        this.reviewRepository = reviewRepository;
         this.discountUsageService = discountUsageService;
         this.notificationService = notificationService;
         this.cacheManager = cacheManager;
@@ -173,7 +179,21 @@ public class PitchServiceImpl implements PitchService {
         Pitch pitch = pitchRepository.findById(pitchId)
                 .orElseThrow(() -> new RuntimeException("Cannot find pitch with id: " + pitchId));
 
-        return PitchResponseDTO.fromEntity(pitch);
+        PitchResponseDTO dto = PitchResponseDTO.fromEntity(pitch);
+
+        // Điểm đánh giá chủ sân = TB mọi sân của chủ (review đã duyệt). fromEntity static không query được.
+        UUID providerId = pitch.getProviderAddress().getProvider().getProviderId();
+        List<Object[]> summary = reviewRepository.findRatingSummaryByProvider(providerId);
+        if (!summary.isEmpty() && summary.get(0)[0] != null) {
+            Object[] row = summary.get(0);
+            dto.setProviderRating(BigDecimal.valueOf(((Number) row[0]).doubleValue())
+                    .setScale(1, RoundingMode.HALF_UP));
+            dto.setProviderReviewCount(((Number) row[1]).longValue());
+        } else {
+            dto.setProviderReviewCount(0L);
+        }
+
+        return dto;
     }
 
     @Override

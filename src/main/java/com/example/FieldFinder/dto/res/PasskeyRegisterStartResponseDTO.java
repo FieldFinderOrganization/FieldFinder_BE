@@ -16,7 +16,7 @@ public class PasskeyRegisterStartResponseDTO {
     /** Relying Party ID — phải match với domain của app (VD: "localhost", "yourdomain.com") */
     private String rpId;
 
-    /** Tên hiển thị của RP (VD: "FieldFinder") */
+    /** Tên hiển thị của RP (VD: "SportsHub") */
     private String rpName;
 
     /** User ID base64url — dùng cho WebAuthn user entity */

@@ -1,4 +1,4 @@
-name: CI/CD FieldFinder
+name: CI/CD SportsHub
 
 on:
   push:

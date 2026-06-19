@@ -11,7 +11,7 @@
 	<groupId>com.example</groupId>
 	<artifactId>FieldFinder</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>FieldFinder</name>
+	<name>SportsHub</name>
 	<description>Demo project for Spring Boot</description>
 	<url/>
 	<licenses>

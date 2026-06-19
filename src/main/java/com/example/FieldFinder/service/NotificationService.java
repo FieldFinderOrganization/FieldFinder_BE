@@ -20,6 +20,10 @@ public interface NotificationService {
     /** Báo chủ sân khi khách hủy lịch đặt (PROVIDER_BOOKING_CANCELED). */
     void notifyProviderBookingCanceled(Booking booking);
 
+    /** Báo khách khi lịch đặt bị chủ sân / hệ thống hủy (BOOKING_CANCELED) — kèm lý do.
+     *  Đọc cancelledBy + cancelReason đã set sẵn trên booking. */
+    void notifyUserBookingCanceled(Booking booking);
+
     /** Báo chủ sân khi đánh giá sân được duyệt (PROVIDER_REVIEW_NEW). */
     void notifyProviderReviewApproved(UUID pitchId, String pitchName, Integer rating);
 }

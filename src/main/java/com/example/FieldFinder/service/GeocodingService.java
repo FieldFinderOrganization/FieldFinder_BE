@@ -22,7 +22,7 @@ public class GeocodingService {
     private final String userAgent;
 
     public GeocodingService(WebClient webClient,
-                            @Value("${geocoding.user-agent:FieldFinder/1.0 (admin@fieldfinder.local)}") String userAgent) {
+                            @Value("${geocoding.user-agent:SportsHub/1.0 (admin@fieldfinder.local)}") String userAgent) {
         this.webClient = webClient;
         this.userAgent = userAgent;
     }

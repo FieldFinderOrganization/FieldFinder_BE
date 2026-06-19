@@ -857,6 +857,13 @@ public class BookingServiceImpl implements BookingService {
             } catch (Exception e) {
                 System.err.println("Lỗi báo chủ sân khi khách hủy booking: " + e.getMessage());
             }
+        } else {
+            // Chủ sân / hệ thống hủy → báo khách in-app (kèm lý do)
+            try {
+                notificationService.notifyUserBookingCanceled(booking);
+            } catch (Exception e) {
+                System.err.println("Lỗi báo khách khi booking bị hủy: " + e.getMessage());
+            }
         }
     }
 }

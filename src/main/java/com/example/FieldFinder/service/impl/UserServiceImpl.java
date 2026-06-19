@@ -100,7 +100,7 @@ public class UserServiceImpl implements UserService {
 
             emailService.send(
                     userRequestDTO.getEmail(),
-                    "Verify your FieldFinder account",
+                    "Verify your SportsHub account",
                     "Click this link to verify your account: " + link);
 
             String encodedPassword = passwordEncoder.encode(userRequestDTO.getPassword());
@@ -256,7 +256,7 @@ public class UserServiceImpl implements UserService {
 
         emailService.send(
                 email,
-                "FieldFinder - Yêu cầu đặt lại mật khẩu",
+                "SportsHub - Yêu cầu đặt lại mật khẩu",
                 String.format("""
                         Xin chào,
 
@@ -362,7 +362,7 @@ public class UserServiceImpl implements UserService {
 
         emailService.send(
                 email,
-                "[FieldFinder] Thay đổi mật khẩu thành công",
+                "[SportsHub] Thay đổi mật khẩu thành công",
                 String.format("""
                         Xin chào,
                         

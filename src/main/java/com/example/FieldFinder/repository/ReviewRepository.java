@@ -47,6 +47,13 @@ public interface ReviewRepository extends JpaRepository<Review, UUID> {
             "GROUP BY r.pitch.pitchId")
     List<Object[]> findRatingStatsByProvider(@Param("providerId") UUID providerId);
 
+    // Điểm TB + tổng lượt đánh giá trên TẤT CẢ sân của 1 provider (chỉ review đã duyệt).
+    // Mỗi dòng: [avgRating, reviewCount]. Dùng cho khối "Thông tin chủ sân".
+    @Query("SELECT AVG(r.rating), COUNT(r) FROM Review r " +
+            "WHERE r.pitch.providerAddress.provider.providerId = :providerId " +
+            "AND r.status = com.example.FieldFinder.Enum.ReviewStatus.APPROVED")
+    List<Object[]> findRatingSummaryByProvider(@Param("providerId") UUID providerId);
+
     @Query("SELECT r.rating, COUNT(r) FROM Review r " +
             "WHERE r.status = com.example.FieldFinder.Enum.ReviewStatus.APPROVED " +
             "GROUP BY r.rating ORDER BY r.rating DESC")

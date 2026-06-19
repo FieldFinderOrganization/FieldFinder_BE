@@ -26,7 +26,7 @@ from .personalized_rag import get_rag
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="FieldFinder ML API", version="1.0.0")
+app = FastAPI(title="SportsHub ML API", version="1.0.0")
 
 
 # ============== Image retrieve LRU cache ==============

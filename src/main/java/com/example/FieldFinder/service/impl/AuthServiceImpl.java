@@ -25,11 +25,11 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void sendLoginOtp(String email) {
-        generateAndSendOtp(email, LOGIN_OTP_PREFIX, "FieldFinder - Mã xác thực đăng nhập FieldFinder", "Mã OTP đăng nhập");
+        generateAndSendOtp(email, LOGIN_OTP_PREFIX, "SportsHub - Mã xác thực đăng nhập SportsHub", "Mã OTP đăng nhập");
     }
 
     public void sendResetPasswordOtp(String email) {
-        generateAndSendOtp(email, RESET_PASSWORD_OTP_PREFIX, "FieldFinder - Mã đặt lại mật khẩu", "Mã OTP để đặt lại mật khẩu");
+        generateAndSendOtp(email, RESET_PASSWORD_OTP_PREFIX, "SportsHub - Mã đặt lại mật khẩu", "Mã OTP để đặt lại mật khẩu");
     }
 
     private void generateAndSendOtp(String email, String prefix, String subject, String purpose) {
@@ -47,7 +47,7 @@ public class AuthServiceImpl implements AuthService {
         Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email này.
 
         Trân trọng,
-        Đội ngũ FieldFinder
+        Đội ngũ SportsHub
         """, purpose, otp);
 
         emailService.send(email, subject, body);
@@ -73,7 +73,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void sendActivationEmail(String email) {
-        String subject = "FieldFinder - Chào mừng đến với chúng tôi!";
+        String subject = "SportsHub - Chào mừng đến với chúng tôi!";
         String body = getBody();
         emailService.send(email, subject, body);
     }
@@ -86,7 +86,7 @@ public class AuthServiceImpl implements AuthService {
                 Bạn có thể đăng nhập ngay bây giờ và bắt đầu khám phá.
                 
                 Trân trọng,
-                Đội ngũ FieldFinder
+                Đội ngũ SportsHub
                 """;
     }
 }

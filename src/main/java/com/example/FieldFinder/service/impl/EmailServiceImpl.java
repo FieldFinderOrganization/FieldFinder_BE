@@ -1,6 +1,7 @@
 package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.Enum.BookingStatus;
+import com.example.FieldFinder.Enum.CancelActor;
 import com.example.FieldFinder.Enum.PaymentMethod;
 import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.entity.*;
@@ -67,7 +68,7 @@ public class EmailServiceImpl implements EmailService {
         }
 
         String to = liveOrder.getUser().getEmail();
-        String subject = "FieldFinder - Xác nhận đơn hàng #" + liveOrder.getOrderId() + " - Thanh toán thành công";
+        String subject = "SportsHub - Xác nhận đơn hàng #" + liveOrder.getOrderId() + " - Thanh toán thành công";
         String content = buildOrderHtml(liveOrder);
 
         try {
@@ -91,7 +92,7 @@ public class EmailServiceImpl implements EmailService {
         }
 
         String to = liveOrder.getUser().getEmail();
-        String subject = "FieldFinder - Thông báo hủy đơn hàng #" + liveOrder.getOrderId();
+        String subject = "SportsHub - Thông báo hủy đơn hàng #" + liveOrder.getOrderId();
         String content = buildOrderCancellationHtml(liveOrder);
 
         try {
@@ -114,9 +115,18 @@ public class EmailServiceImpl implements EmailService {
             return;
         }
 
+        // cancelledBy/cancelReason ưu tiên lấy từ object truyền vào (đã set đồng bộ trước khi
+        // @Async chạy) — bản reload có thể là dòng cũ chưa commit của transaction hủy → mất lý do.
+        // KHÔNG mutate liveBooking (managed entity) để tránh dirty-flush ghi đè status.
+        CancelActor effectiveActor = detachedBooking.getCancelledBy() != null
+                ? detachedBooking.getCancelledBy() : liveBooking.getCancelledBy();
+        String effectiveReason = detachedBooking.getCancelReason() != null
+                && !detachedBooking.getCancelReason().isBlank()
+                ? detachedBooking.getCancelReason() : liveBooking.getCancelReason();
+
         String to = liveBooking.getUser().getEmail();
-        String subject = "FieldFinder - Thông báo hủy đặt sân #" + liveBooking.getBookingId().toString().substring(0, 8);
-        String content = buildBookingCancellationHtml(liveBooking);
+        String subject = "SportsHub - Thông báo hủy đặt sân #" + liveBooking.getBookingId().toString().substring(0, 8);
+        String content = buildBookingCancellationHtml(liveBooking, effectiveActor, effectiveReason);
 
         try {
             sendHtmlEmail(to, subject, content);
@@ -150,14 +160,14 @@ public class EmailServiceImpl implements EmailService {
                 .orElse(PaymentMethod.BANK);
 
         if (liveBooking.getPaymentStatus() == PaymentStatus.PAID) {
-            subject = "FieldFinder - Xác nhận thanh toán & đặt sân thành công #" + bookingIdShort;
+            subject = "SportsHub - Xác nhận thanh toán & đặt sân thành công #" + bookingIdShort;
         } else if (liveBooking.getStatus() == BookingStatus.CANCELED) {
-            subject = "FieldFinder - Thông báo hủy đặt sân #" + bookingIdShort;
+            subject = "SportsHub - Thông báo hủy đặt sân #" + bookingIdShort;
         } else {
             if (method == PaymentMethod.CASH) {
-                subject = "FieldFinder - Xác nhận đặt sân thành công #" + bookingIdShort;
+                subject = "SportsHub - Xác nhận đặt sân thành công #" + bookingIdShort;
             } else {
-                subject = "FieldFinder - Thông báo đã nhận đơn đặt sân #" + bookingIdShort;
+                subject = "SportsHub - Thông báo đã nhận đơn đặt sân #" + bookingIdShort;
             }
         }
 
@@ -184,7 +194,7 @@ public class EmailServiceImpl implements EmailService {
         }
 
         String to = liveBooking.getUser().getEmail();
-        String subject = "FieldFinder - Nhắc nhở thanh toán đơn đặt sân #" + liveBooking.getBookingId().toString().substring(0, 8);
+        String subject = "SportsHub - Nhắc nhở thanh toán đơn đặt sân #" + liveBooking.getBookingId().toString().substring(0, 8);
         String content = buildBookingReminderHtml(liveBooking);
 
         try {
@@ -208,7 +218,7 @@ public class EmailServiceImpl implements EmailService {
             return;
         }
         String to = req.getUser().getEmail();
-        String subject = "FieldFinder - Mã hoàn tiền " + req.getIssuedDiscount().getCode();
+        String subject = "SportsHub - Mã hoàn tiền " + req.getIssuedDiscount().getCode();
         NumberFormat fmt = NumberFormat.getCurrencyInstance(Locale.of("vi", "VN"));
         String content = "<div style='font-family:Arial,sans-serif;max-width:560px;margin:auto;'>"
                 + "<h2 style='color:#0a7d3a;'>Hoàn tiền thành công</h2>"
@@ -250,14 +260,14 @@ public class EmailServiceImpl implements EmailService {
             default -> "#6b7280";
         };
         String to = user.getEmail();
-        String subject = "FieldFinder - Chúc mừng bạn lên hạng " + tierLabel + "!";
+        String subject = "SportsHub - Chúc mừng bạn lên hạng " + tierLabel + "!";
         String content = "<div style='font-family:Arial,sans-serif;max-width:560px;margin:auto;'>"
                 + "<h2 style='color:" + tierColor + ";'>Chúc mừng " + user.getName() + "!</h2>"
                 + "<p>Bạn vừa đạt hạng thành viên <b style='color:" + tierColor + ";font-size:18px;'>"
                 + tierLabel + "</b> nhờ tổng chi tiêu trong 12 tháng gần nhất.</p>"
                 + "<p>Các voucher ưu đãi dành riêng cho hạng " + tierLabel
                 + " đã được tự động thêm vào ví của bạn. Mở mục <b>Ví voucher</b> trong ứng dụng để xem.</p>"
-                + "<p>Cảm ơn bạn đã đồng hành cùng FieldFinder!</p>"
+                + "<p>Cảm ơn bạn đã đồng hành cùng SportsHub!</p>"
                 + "</div>";
         try {
             sendHtmlEmail(to, subject, content);
@@ -283,7 +293,7 @@ public class EmailServiceImpl implements EmailService {
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
         // Determine Header and Instruction based on status
-        String headerTitle = "FieldFinder - Đặt sân thành công!";
+        String headerTitle = "SportsHub - Đặt sân thành công!";
         String instruction = "Chúc bạn có một trận đấu vui vẻ.";
         String headerColor = "#188862";
 
@@ -363,7 +373,7 @@ public class EmailServiceImpl implements EmailService {
         html.append("</table>");
 
         html.append("<p style='margin-top: 20px;'>").append(instruction).append("</p>");
-        html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
+        html.append("<p>Trân trọng,<br/>SportsHub Team</p>");
         html.append("</div>");
         html.append("</body></html>");
 
@@ -433,14 +443,14 @@ public class EmailServiceImpl implements EmailService {
         html.append("</table>");
 
         html.append("<p style='margin-top: 20px;'>Mọi thắc mắc xin vui lòng liên hệ bộ phận hỗ trợ.</p>");
-        html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
+        html.append("<p>Trân trọng,<br/>SportsHub Team</p>");
         html.append("</div>");
         html.append("</body></html>");
 
         return html.toString();
     }
 
-    private String buildBookingCancellationHtml(Booking booking) {
+    private String buildBookingCancellationHtml(Booking booking, CancelActor cancelledBy, String cancelReason) {
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
         StringBuilder html = new StringBuilder();
         html.append("<html><body style='font-family: Arial, sans-serif; color: #333;'>");
@@ -453,16 +463,16 @@ public class EmailServiceImpl implements EmailService {
         html.append("<p>Chúng tôi rất tiếc phải thông báo rằng đơn đặt sân của bạn vào ngày <strong>")
                 .append(booking.getBookingDate().format(dateFormatter))
                 .append("</strong> đã bị hủy.</p>");
-        if (booking.getCancelledBy() != null) {
-            String actorLabel = switch (booking.getCancelledBy()) {
+        if (cancelledBy != null) {
+            String actorLabel = switch (cancelledBy) {
                 case USER -> "Bạn";
                 case PROVIDER -> "Chủ sân";
                 case SYSTEM -> "Hệ thống";
             };
             html.append("<p><strong>Người hủy:</strong> ").append(actorLabel).append("</p>");
         }
-        if (booking.getCancelReason() != null && !booking.getCancelReason().isBlank()) {
-            html.append("<p><strong>Lý do:</strong> ").append(booking.getCancelReason()).append("</p>");
+        if (cancelReason != null && !cancelReason.isBlank()) {
+            html.append("<p><strong>Lý do:</strong> ").append(cancelReason).append("</p>");
         }
         if (booking.getPaymentStatus() == PaymentStatus.REFUNDED) {
             html.append("<p>Tiền của bạn được hoàn qua <strong>mã hoàn tiền</strong> — kiểm tra email "
@@ -470,7 +480,7 @@ public class EmailServiceImpl implements EmailService {
         } else {
             html.append("<p>Nếu bạn đã thanh toán, vui lòng liên hệ bộ phận hỗ trợ để được xử lý.</p>");
         }
-        html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
+        html.append("<p>Trân trọng,<br/>SportsHub Team</p>");
         html.append("</div></body></html>");
         return html.toString();
     }
@@ -487,7 +497,7 @@ public class EmailServiceImpl implements EmailService {
         html.append("<p>Đơn đặt hàng sản phẩm của bạn đã bị hủy tự động do chưa hoàn tất thanh toán trong vòng 24 giờ hoặc do yêu cầu từ bạn.</p>");
         html.append("<p>Các sản phẩm trong đơn hàng đã được trả lại kho cho các khách hàng khác.</p>");
         html.append("<p>Cảm ơn bạn đã quan tâm.</p>");
-        html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
+        html.append("<p>Trân trọng,<br/>SportsHub Team</p>");
         html.append("</div></body></html>");
         return html.toString();
     }
@@ -558,7 +568,7 @@ public class EmailServiceImpl implements EmailService {
         html.append("</table>");
 
         html.append("<p style='margin-top: 20px;'>Vui lòng truy cập ứng dụng để thực hiện thanh toán ngay.</p>");
-        html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
+        html.append("<p>Trân trọng,<br/>SportsHub Team</p>");
         html.append("</div>");
         html.append("</body></html>");
 
@@ -582,7 +592,7 @@ public class EmailServiceImpl implements EmailService {
         }
 
         String to = liveOrder.getUser().getEmail();
-        String subject = "FieldFinder - Vui lòng thanh toán đơn hàng #" + liveOrder.getOrderId() + " trong 24 giờ";
+        String subject = "SportsHub - Vui lòng thanh toán đơn hàng #" + liveOrder.getOrderId() + " trong 24 giờ";
         String content = buildOrderReminderHtml(liveOrder);
 
         try {
@@ -644,7 +654,7 @@ public class EmailServiceImpl implements EmailService {
         html.append("</table>");
 
         html.append("<p style='margin-top: 20px;'>Vui lòng truy cập ứng dụng để hoàn tất thanh toán.</p>");
-        html.append("<p>Trân trọng,<br/>FieldFinder Team</p>");
+        html.append("<p>Trân trọng,<br/>SportsHub Team</p>");
         html.append("</div>");
         html.append("</body></html>");
 

@@ -80,6 +80,27 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    public void notifyUserBookingCanceled(Booking booking) {
+        if (booking == null || booking.getUser() == null) return;
+        String pitchName = pitchNameOf(booking);
+        String actorLabel = switch (booking.getCancelledBy() != null
+                ? booking.getCancelledBy() : com.example.FieldFinder.Enum.CancelActor.SYSTEM) {
+            case PROVIDER -> "chủ sân";
+            case SYSTEM -> "hệ thống";
+            case USER -> "bạn";
+        };
+        StringBuilder body = new StringBuilder()
+                .append("Lịch đặt sân \"").append(pitchName).append("\" ngày ")
+                .append(booking.getBookingDate()).append(" đã bị ").append(actorLabel).append(" hủy.");
+        if (booking.getCancelReason() != null && !booking.getCancelReason().isBlank()) {
+            body.append(" Lý do: ").append(booking.getCancelReason());
+        }
+        notify(booking.getUser().getUserId(), "BOOKING_CANCELED",
+                "Lịch đặt sân bị hủy", body.toString(),
+                "BOOKING", booking.getBookingId().toString());
+    }
+
+    @Override
     public void notifyProviderReviewApproved(UUID pitchId, String pitchName, Integer rating) {
         if (pitchId == null) return;
         UUID providerUserId = pitchRepository.findProviderUserIdByPitchId(pitchId);

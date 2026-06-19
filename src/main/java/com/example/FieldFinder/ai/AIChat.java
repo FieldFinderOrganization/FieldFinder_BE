@@ -255,7 +255,7 @@ public class AIChat {
             boolean cityExplicit = explicitCity != null && !explicitCity.isBlank();
             if (cityExplicit && !isCityServed(city, allCached)) {
                 query.message = String.format(
-                        "Thời tiết ở %s hiện là %s 🌤️\nRất tiếc, hiện FieldFinder chưa có sân nào ở %s — các sân đang hoạt động đều ở khu vực TP. Hồ Chí Minh. Mong bạn thông cảm nhé!",
+                        "Thời tiết ở %s hiện là %s 🌤️\nRất tiếc, hiện SportsHub chưa có sân nào ở %s — các sân đang hoạt động đều ở khu vực TP. Hồ Chí Minh. Mong bạn thông cảm nhé!",
                         city, weather, city);
                 query.data.clear();
                 query.data.put("action", "weather_pitch_suggestion");
