@@ -19,9 +19,16 @@ public class PitchListCacheKeyGenerator implements KeyGenerator {
         String type = (String) params[2];
         String name = (String) params[3];
 
+        // PHẢI gồm sort: nếu không, đổi sort giá (asc/desc/none) cho ra cùng key
+        // → cache trả lại list theo thứ tự đã cache đầu tiên → "lọc/sắp xếp giá bị sai".
+        String sort = pageable.getSort().isSorted()
+                ? pageable.getSort().toString()
+                : "unsorted";
+
         return pageable.getPageNumber() + ":" + pageable.getPageSize() + ":"
                 + (district == null ? "n" : district) + ":"
                 + (type == null ? "n" : type) + ":"
-                + (name == null ? "n" : name);
+                + (name == null ? "n" : name) + ":"
+                + sort;
     }
 }
