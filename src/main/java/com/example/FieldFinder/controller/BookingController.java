@@ -1,6 +1,8 @@
 package com.example.FieldFinder.controller;
 
+import com.example.FieldFinder.dto.req.BlockSlotRequestDTO;
 import com.example.FieldFinder.ai.AIChat;
+
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
 import com.example.FieldFinder.dto.res.BookingResponseDTO;
@@ -74,6 +76,27 @@ public class BookingController {
 
         return ResponseEntity.ok(response);
     }
+
+    @PostMapping("/block")
+    @PreAuthorize("hasRole('PROVIDER')")
+    public ResponseEntity<Map<String, Object>> blockSlots(
+            @RequestBody BlockSlotRequestDTO request,
+            Authentication authentication) {
+        UUID providerUserId = getUserIdFromAuth(authentication);
+        if (providerUserId == null) {
+            return ResponseEntity.status(401).body(Map.of("message", "Không xác định được người dùng!"));
+        }
+
+        Booking booking = bookingService.blockSlots(request, providerUserId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("bookingId", booking.getBookingId());
+        response.put("status", booking.getStatus());
+        response.put("message", "Khóa lịch sân thành công!");
+
+        return ResponseEntity.ok(response);
+    }
+
 
     @PutMapping("/{bookingId}/payment-status")
     @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")

@@ -39,9 +39,19 @@ public class ReviewServiceImpl implements ReviewService {
         Pitch pitch = pitchRepository.findById(requestDTO.getPitchId()).orElseThrow(() -> new RuntimeException("Pitch not found!"));
         User user = userRepository.findById(requestDTO.getUserId()).orElseThrow(() -> new RuntimeException("User not found!"));
 
+        if (pitch.getProviderAddress() != null
+                && pitch.getProviderAddress().getProvider() != null
+                && pitch.getProviderAddress().getProvider().getUser() != null) {
+            java.util.UUID providerUserId = pitch.getProviderAddress().getProvider().getUser().getUserId();
+            if (providerUserId.equals(user.getUserId())) {
+                throw new RuntimeException("Chủ sân không thể tự bình luận hoặc đánh giá sân của chính mình!");
+            }
+        }
+
         // Đã có đánh giá: chặn nếu bản cũ chưa bị từ chối; nếu đã bị từ chối thì cho gửi lại (xoá bản cũ).
         reviewRepository.findByPitch_PitchIdAndUser_UserId(requestDTO.getPitchId(), requestDTO.getUserId())
                 .ifPresent(existing -> {
+
                     if (existing.getStatus() == ReviewStatus.REJECTED) {
                         reviewRepository.delete(existing);
                     } else {

@@ -62,3 +62,15 @@ ml/scripts/eval_text_query.py
 ml/scripts/gen_textquery_report.py
 ml/scripts/bench_text_query.py
 ml/data/eval/perf_text_query.json
+.gitnexus
+.claude/skills/gitnexus/gitnexus-cli/SKILL.md
+.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md
+.gitignore
+.claude/skills/gitnexus/gitnexus-guide/SKILL.md
+.claude/skills/gitnexus/gitnexus-debugging/SKILL.md
+.gitignore
+.claude/skills/gitnexus/gitnexus-exploring/SKILL.md
+CLAUDE.md
+.gitignore
+.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md
+AGENTS.md

@@ -8,12 +8,14 @@ import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.Enum.RefundSourceType;
 import com.example.FieldFinder.config.RabbitMQConfig;
 import com.example.FieldFinder.service.RefundService;
+import com.example.FieldFinder.dto.req.BlockSlotRequestDTO;
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
 import com.example.FieldFinder.dto.res.BookingResponseDTO;
 import com.example.FieldFinder.dto.res.ProviderBookingResponseDTO;
 import com.example.FieldFinder.entity.*;
 import com.example.FieldFinder.repository.*;
+
 import com.example.FieldFinder.service.BookingService;
 import com.example.FieldFinder.service.DiscountUsageService;
 import com.example.FieldFinder.service.EmailService;
@@ -61,6 +63,8 @@ public class BookingServiceImpl implements BookingService {
     private final DiscountUsageService discountUsageService;
     private final UserDiscountRepository userDiscountRepository;
     private final NotificationService notificationService;
+    private final TimeSlotRepository timeSlotRepository;
+
 
     /** Khoảng thời gian tối thiểu trước slot đầu mới được hủy + hoàn tiền. */
     private static final long BOOKING_REFUND_MIN_MINUTES_BEFORE = 60;
@@ -131,6 +135,10 @@ public class BookingServiceImpl implements BookingService {
         Pitch pitch = pitchRepository.findById(bookingRequest.getPitchId())
                 .orElseThrow(() -> new RuntimeException("Pitch not found!"));
 
+        if (user.getRole() == User.Role.PROVIDER) {
+            throw new RuntimeException("Chủ sân không được phép tạo đơn đặt sân thông thường. Vui lòng sử dụng chức năng Khóa lịch / Bảo trì!");
+        }
+
         // Chặn nhận booking nếu chủ sân đang có khoản nợ QUÁ HẠN chưa trả
         if (pitch.getProviderAddress() != null
                 && pitch.getProviderAddress().getProvider() != null) {
@@ -153,6 +161,21 @@ public class BookingServiceImpl implements BookingService {
         List<Integer> requestedSlots = bookingRequest.getBookingDetails().stream()
                 .map(BookingRequestDTO.BookingDetailDTO::getSlot)
                 .collect(Collectors.toList());
+
+        List<TimeSlot> slots = timeSlotRepository.findAllById(requestedSlots);
+        if (slots.isEmpty()) {
+            throw new RuntimeException("Không tìm thấy khung giờ đã chọn!");
+        }
+        LocalTime earliestTime = slots.stream()
+                .map(TimeSlot::getStartTime)
+                .min(LocalTime::compareTo)
+                .orElseThrow(() -> new RuntimeException("Không xác định được giờ bắt đầu!"));
+        LocalDateTime earliestStart = LocalDateTime.of(bookingDate, earliestTime);
+        long minsUntilStart = ChronoUnit.MINUTES.between(LocalDateTime.now(), earliestStart);
+        if (minsUntilStart < 120) {
+            throw new RuntimeException("Chỉ được phép đặt sân trước giờ bắt đầu của trận đấu ít nhất 2 tiếng!");
+        }
+
 
         boolean isLocked = pitchRedisLockService.lockSlots(pitchId, bookingDate, requestedSlots, userId);
 
@@ -322,6 +345,79 @@ public class BookingServiceImpl implements BookingService {
             throw e;
         }
     }
+
+    @Override
+    @Transactional
+    public Booking blockSlots(BlockSlotRequestDTO request, UUID providerUserId) {
+        User user = userRepository.findById(providerUserId)
+                .orElseThrow(() -> new RuntimeException("User not found!"));
+        Pitch pitch = pitchRepository.findById(request.getPitchId())
+                .orElseThrow(() -> new RuntimeException("Pitch not found!"));
+
+        if (pitch.getProviderAddress() == null
+                || pitch.getProviderAddress().getProvider() == null
+                || pitch.getProviderAddress().getProvider().getUser() == null
+                || !pitch.getProviderAddress().getProvider().getUser().getUserId().equals(providerUserId)) {
+            throw new RuntimeException("Bạn không có quyền khóa lịch trên sân này!");
+        }
+
+        LocalDate bookingDate = request.getBookingDate();
+        UUID pitchId = request.getPitchId();
+        String userIdStr = providerUserId.toString();
+        List<Integer> requestedSlots = request.getSlots();
+
+        boolean isLocked = pitchRedisLockService.lockSlots(pitchId, bookingDate, requestedSlots, userIdStr);
+        if (!isLocked) {
+            throw new RuntimeException("Không thể khóa lịch: Một trong những khung giờ này đang được xử lý hoặc đã bị đặt!");
+        }
+
+        try {
+            Booking booking = Booking.builder()
+                    .user(user)
+                    .bookingDate(bookingDate)
+                    .createdAt(LocalDateTime.now())
+                    .status(BookingStatus.CONFIRMED)
+                    .paymentStatus(PaymentStatus.PAID)
+                    .totalPrice(BigDecimal.ZERO)
+                    .blockType(request.getBlockType())
+                    .providerNotes(request.getProviderNotes())
+                    .build();
+
+            List<BookingDetail> details = requestedSlots.stream().map(slotId -> {
+                BookingDetail detail = new BookingDetail();
+                detail.setBooking(booking);
+                detail.setPitch(pitch);
+                TimeSlot timeSlot = entityManager.getReference(TimeSlot.class, slotId);
+                detail.setTimeSlot(timeSlot);
+                detail.setName("Khóa lịch (" + request.getBlockType() + ")");
+                detail.setPriceDetail(BigDecimal.ZERO);
+                return detail;
+            }).collect(Collectors.toList());
+
+            booking.setBookingDetails(details);
+
+            Booking savedBooking = bookingRepository.save(booking);
+
+            Payment payment = Payment.builder()
+                    .booking(savedBooking)
+                    .user(user)
+                    .amount(BigDecimal.ZERO)
+                    .paymentMethod(PaymentMethod.CASH)
+                    .paymentStatus(PaymentStatus.PAID)
+                    .createdAt(LocalDateTime.now())
+                    .paidAt(LocalDateTime.now())
+                    .build();
+            paymentRepository.save(payment);
+
+            return savedBooking;
+        } catch (Exception e) {
+            for (Integer slotId : requestedSlots) {
+                pitchRedisLockService.unlockSlot(pitchId, bookingDate, slotId, userIdStr);
+            }
+            throw e;
+        }
+    }
+
 
     @Transactional
     public ResponseEntity<String> updatePaymentStatus(UUID bookingId, String status) {
@@ -545,57 +641,109 @@ public class BookingServiceImpl implements BookingService {
             throw new RuntimeException("Trạng thái đặt sân không cho phép hủy!");
         }
 
-        // Validate cửa sổ ≥10p trước slot đầu (chỉ áp với booking đã thanh toán)
         if (isPaidConfirmed) {
             LocalDateTime earliestStart = earliestSlotStart(booking);
             if (earliestStart == null) {
                 throw new RuntimeException("Không xác định được giờ bắt đầu của slot!");
             }
+            if (!LocalDateTime.now().isBefore(earliestStart)) {
+                throw new RuntimeException("Trận đấu đã bắt đầu hoặc kết thúc, không thể hủy!");
+            }
             long minutesUntil = ChronoUnit.MINUTES.between(LocalDateTime.now(), earliestStart);
-            if (minutesUntil < BOOKING_REFUND_MIN_MINUTES_BEFORE) {
-                throw new RuntimeException(
-                        "Phải hủy trước ít nhất " + BOOKING_REFUND_MIN_MINUTES_BEFORE
-                                + " phút so với giờ bắt đầu để được hoàn tiền!");
+            boolean isLateCancel = minutesUntil < BOOKING_REFUND_MIN_MINUTES_BEFORE;
+
+            BigDecimal refundRate = BigDecimal.ONE;
+            BigDecimal hostRate = BigDecimal.ZERO;
+            int cancelCount = 0;
+
+            if (isLateCancel) {
+                User user = booking.getUser();
+                cancelCount = user.getEffectiveMonthlyLateCancels() + 1;
+                user.setMonthlyLateCancels(cancelCount);
+                userRepository.save(user);
+
+                if (cancelCount <= 2) {
+                    refundRate = new BigDecimal("0.70");
+                    hostRate = new BigDecimal("0.30");
+                } else if (cancelCount <= 5) {
+                    refundRate = new BigDecimal("0.50");
+                    hostRate = new BigDecimal("0.50");
+                } else {
+                    refundRate = BigDecimal.ZERO;
+                    hostRate = BigDecimal.ONE;
+                }
             }
+
+            // Save DB first (within transaction), unlock Redis AFTER commit
+            cancelBooking(booking, CancelActor.USER,
+                    reason != null && !reason.isBlank() ? reason : "User requested cancellation");
+
+            // Chỉ phát hành mã hoàn tiền cho booking thanh toán BANK (đã trả tiền thật).
+            // CASH (trả tại sân) hủy là hủy, không tạo mã khuyến mãi.
+            if (booking.getTotalPrice() != null && booking.getTotalPrice().signum() > 0) {
+                Payment latestPayment = paymentRepository
+                        .findFirstByBooking_BookingIdOrderByCreatedAtDesc(booking.getBookingId())
+                        .orElse(null);
+                boolean isBank = latestPayment != null
+                        && latestPayment.getPaymentMethod() == PaymentMethod.BANK;
+
+                if (isBank) {
+                    String refundReason = reason != null && !reason.isBlank()
+                            ? reason
+                            : (isLateCancel ? "User cancel booking <60m (Late Cancel Tier " + cancelCount + ")" : "User cancel booking >=60m before start");
+                    
+                    BigDecimal refundAmount = booking.getTotalPrice().multiply(refundRate).setScale(0, java.math.RoundingMode.HALF_UP);
+                    BigDecimal hostCompensation = booking.getTotalPrice().multiply(hostRate).setScale(0, java.math.RoundingMode.HALF_UP);
+
+                    if (refundAmount.signum() > 0) {
+                        if (isLateCancel) {
+                            refundService.issueRefundCredit(
+                                    booking.getUser(), RefundSourceType.BOOKING,
+                                    booking.getBookingId().toString(),
+                                    refundAmount, refundReason);
+                        } else {
+                            bankAccountService.getDefault(booking.getUser().getUserId())
+                                    .ifPresentOrElse(
+                                            bank -> refundService.issueCashRefund(
+                                                    booking.getUser(), RefundSourceType.BOOKING,
+                                                    booking.getBookingId().toString(),
+                                                    refundAmount, refundReason, bank),
+                                            () -> refundService.issueRefundCredit(
+                                                    booking.getUser(), RefundSourceType.BOOKING,
+                                                    booking.getBookingId().toString(),
+                                                    refundAmount, refundReason));
+                        }
+                    }
+
+                    if (hostCompensation.signum() > 0 && booking.getBookingDetails() != null && !booking.getBookingDetails().isEmpty()) {
+                        Pitch firstPitch = booking.getBookingDetails().get(0).getPitch();
+                        if (firstPitch != null && firstPitch.getProviderAddress() != null && firstPitch.getProviderAddress().getProvider() != null) {
+                            Provider provider = firstPitch.getProviderAddress().getProvider();
+                            providerDebtRepository.save(com.example.FieldFinder.entity.ProviderDebt.builder()
+                                    .provider(provider)
+                                    .sourceBookingId(booking.getBookingId().toString())
+                                    .amount(hostCompensation.negate()) // Negative amount represents credit/compensation
+                                    .status(com.example.FieldFinder.Enum.ProviderDebtStatus.OUTSTANDING)
+                                    .reason("Hệ thống bù tiền bồi thường khi khách hủy sát giờ: " + refundReason)
+                                    .deadlineAt(LocalDateTime.now().plusDays(providerDebtSettleDays))
+                                    .createdAt(LocalDateTime.now())
+                                    .build());
+                        }
+                    }
+
+                    latestPayment.setPaymentStatus(PaymentStatus.REFUNDED);
+                    latestPayment.setProcessedAt(LocalDateTime.now());
+                    paymentRepository.save(latestPayment);
+                    booking.setPaymentStatus(PaymentStatus.REFUNDED);
+                    bookingRepository.save(booking);
+                }
+            }
+        } else {
+            // Đơn PENDING chưa thanh toán hủy bình thường
+            cancelBooking(booking, CancelActor.USER,
+                    reason != null && !reason.isBlank() ? reason : "User requested cancellation");
         }
 
-        // Save DB first (within transaction), unlock Redis AFTER commit
-        cancelBooking(booking, CancelActor.USER,
-                reason != null && !reason.isBlank() ? reason : "User requested cancellation");
-
-        // Chỉ phát hành mã hoàn tiền cho booking thanh toán BANK (đã trả tiền thật).
-        // CASH (trả tại sân) hủy là hủy, không tạo mã khuyến mãi.
-        if (isPaidConfirmed && booking.getTotalPrice() != null
-                && booking.getTotalPrice().signum() > 0) {
-            Payment latestPayment = paymentRepository
-                    .findFirstByBooking_BookingIdOrderByCreatedAtDesc(booking.getBookingId())
-                    .orElse(null);
-            boolean isBank = latestPayment != null
-                    && latestPayment.getPaymentMethod() == PaymentMethod.BANK;
-
-            if (isBank) {
-                String refundReason = reason != null && !reason.isBlank()
-                        ? reason
-                        : "User cancel booking ≥60m before start";
-                // Có TK ngân hàng ⇒ hoàn tiền mặt (PayOS payout); chưa có ⇒ voucher
-                bankAccountService.getDefault(booking.getUser().getUserId())
-                        .ifPresentOrElse(
-                                bank -> refundService.issueCashRefund(
-                                        booking.getUser(), RefundSourceType.BOOKING,
-                                        booking.getBookingId().toString(),
-                                        booking.getTotalPrice(), refundReason, bank),
-                                () -> refundService.issueRefundCredit(
-                                        booking.getUser(), RefundSourceType.BOOKING,
-                                        booking.getBookingId().toString(),
-                                        booking.getTotalPrice(), refundReason));
-
-                latestPayment.setPaymentStatus(PaymentStatus.REFUNDED);
-                latestPayment.setProcessedAt(LocalDateTime.now());
-                paymentRepository.save(latestPayment);
-                booking.setPaymentStatus(PaymentStatus.REFUNDED);
-                bookingRepository.save(booking);
-            }
-        }
 
         // Unlock Redis slots only after the transaction commits successfully
         unlockSlotsAfterCommit(booking);
@@ -754,11 +902,11 @@ public class BookingServiceImpl implements BookingService {
         return List.of();
     }
 
-    @Scheduled(fixedRate = 300000)
+    @Scheduled(fixedRate = 60000)
     @Transactional
     public void processAutomatedBookingManagement() {
         LocalDate today = LocalDate.now();
-        LocalTime currentTime = LocalTime.now();
+        LocalDateTime now = LocalDateTime.now();
 
         List<Booking> pendingBookings = bookingRepository.findAllByStatus(BookingStatus.PENDING);
 
@@ -770,45 +918,67 @@ public class BookingServiceImpl implements BookingService {
                 continue;
             }
 
-            // 1b. Payment hold timeout: đơn chưa trả quá 15p từ lúc tạo → thả slot ngay,
-            // không chờ tới T-5 (lúc đó đã qua mốc đặt 30p, không ai rebook được).
-            if (booking.getCreatedAt() != null
-                    && ChronoUnit.MINUTES.between(booking.getCreatedAt(), LocalDateTime.now())
-                            >= PENDING_HOLD_TIMEOUT_MINUTES) {
-                unlockRedisSlots(booking);
-                cancelBooking(booking, "Auto-Cancel: Unpaid hold timeout (15m since creation)");
-                continue;
-            }
-
             // Find earliest slot start time
             Optional<LocalTime> earliestSlotStart = booking.getBookingDetails().stream()
                     .map(bd -> bd.getTimeSlot() != null ? bd.getTimeSlot().getStartTime() : null)
                     .filter(Objects::nonNull)
                     .min(LocalTime::compareTo);
 
-            if (earliestSlotStart.isPresent() && booking.getBookingDate().equals(today)) {
-                LocalTime startTime = earliestSlotStart.get();
-                long minutesUntilStart = ChronoUnit.MINUTES.between(currentTime, startTime);
+            if (!earliestSlotStart.isPresent()) {
+                unlockRedisSlots(booking);
+                cancelBooking(booking, "Data Cleanup: No slots in booking");
+                continue;
+            }
 
-                // 2. Reminder Email at T-10m
-                if (!Boolean.TRUE.equals(booking.getIsReminderSent()) && minutesUntilStart <= 10
-                        && minutesUntilStart > 5) {
-                    System.out.println("Sending reminder for Booking #" + booking.getBookingId());
-                    rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
-                            RabbitMQConfig.BOOKING_REMINDER_EMAIL_ROUTING_KEY,
-                            booking.getBookingId().toString());
-                    booking.setIsReminderSent(true);
-                    bookingRepository.save(booking);
-                }
+            LocalDateTime earliestStart = LocalDateTime.of(booking.getBookingDate(), earliestSlotStart.get());
+            
+            // Check absolute payment deadline: T_start - 90 minutes.
+            long minutesUntilStart = ChronoUnit.MINUTES.between(now, earliestStart);
+            if (minutesUntilStart <= 90) {
+                unlockRedisSlots(booking);
+                cancelBooking(booking, "Auto-Cancel: Absolute payment deadline passed (90m before start)");
+                continue;
+            }
 
-                // 3. Auto-Cancellation at T-5m
-                if (minutesUntilStart <= 5) {
-                    unlockRedisSlots(booking);
-                    cancelBooking(booking, "Auto-Cancel: Unpaid 5m before start or time passed");
-                }
+            // Calculate dynamic hold timeout based on gap at booking creation: earliestStart - createdAt
+            long gapHours = ChronoUnit.HOURS.between(
+                    booking.getCreatedAt() != null ? booking.getCreatedAt() : now, earliestStart);
+
+            long holdTimeoutMinutes;
+            long reminderTimeMinutes;
+
+            if (gapHours >= 12) {
+                holdTimeoutMinutes = 30;
+                reminderTimeMinutes = 20;
+            } else if (gapHours >= 3) {
+                holdTimeoutMinutes = 15;
+                reminderTimeMinutes = 10;
+            } else {
+                holdTimeoutMinutes = 5;
+                reminderTimeMinutes = -1; // No reminder
+            }
+
+            long minutesSinceCreation = ChronoUnit.MINUTES.between(
+                    booking.getCreatedAt() != null ? booking.getCreatedAt() : now, now);
+
+            if (minutesSinceCreation >= holdTimeoutMinutes) {
+                unlockRedisSlots(booking);
+                cancelBooking(booking, "Auto-Cancel: Unpaid hold timeout (" + holdTimeoutMinutes + "m since creation)");
+                continue;
+            }
+
+            if (reminderTimeMinutes > 0 && !Boolean.TRUE.equals(booking.getIsReminderSent())
+                    && minutesSinceCreation >= reminderTimeMinutes) {
+                System.out.println("Sending reminder for Booking #" + booking.getBookingId());
+                rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
+                        RabbitMQConfig.BOOKING_REMINDER_EMAIL_ROUTING_KEY,
+                        booking.getBookingId().toString());
+                booking.setIsReminderSent(true);
+                bookingRepository.save(booking);
             }
         }
     }
+
 
     /** Nhắc trước giờ đá: booking CONFIRMED hôm nay, slot đầu bắt đầu trong vòng 60 phút. */
     @Scheduled(fixedRate = 300000)
@@ -916,4 +1086,12 @@ public class BookingServiceImpl implements BookingService {
             }
         }
     }
-}
+
+    /** Reset số lần hủy sát giờ của tất cả User về 0 vào lúc 00:00 ngày đầu tiên của mỗi tháng Dương lịch. */
+    @Scheduled(cron = "0 0 0 1 * ?")
+    @Transactional
+    public void resetMonthlyLateCancellationCounts() {
+        System.out.println("🔄 Resetting monthly late cancellation counts for all users...");
+        userRepository.resetMonthlyLateCancels();
+    }
+}

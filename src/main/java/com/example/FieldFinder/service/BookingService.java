@@ -5,8 +5,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import com.example.FieldFinder.dto.req.BlockSlotRequestDTO;
 import com.example.FieldFinder.dto.req.BookingRequestDTO;
 import com.example.FieldFinder.dto.req.PitchBookedSlotsDTO;
+
 import com.example.FieldFinder.dto.res.BookingResponseDTO;
 import com.example.FieldFinder.dto.res.ProviderBookingResponseDTO;
 import com.example.FieldFinder.entity.Booking;
@@ -30,5 +32,5 @@ public interface BookingService {
     ResponseEntity<String> updatePaymentStatus(UUID bookingId, String paymentStatus);
     List<ProviderBookingResponseDTO> getBookingsByProviderId(UUID providerId);
     List<BookingResponseDTO> getBookingsByProvider(UUID providerId);
-
-}
+    Booking blockSlots(BlockSlotRequestDTO request, java.util.UUID providerUserId);
+}
