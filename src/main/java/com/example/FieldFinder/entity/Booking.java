@@ -69,6 +69,10 @@ public class Booking {
     @Column(name = "cancel_reason", columnDefinition = "TEXT")
     private String cancelReason;
 
+    /** Thời điểm booking bị hủy; null nếu chưa hủy. */
+    @Column(name = "cancelled_at")
+    private java.time.LocalDateTime cancelledAt;
+
     @Column(name = "block_type", length = 32)
     private String blockType;
 

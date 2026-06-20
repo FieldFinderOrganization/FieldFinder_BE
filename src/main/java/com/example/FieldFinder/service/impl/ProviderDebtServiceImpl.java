@@ -20,7 +20,7 @@ public class ProviderDebtServiceImpl implements ProviderDebtService {
 
     @Override
     public List<ProviderDebt> listOutstanding() {
-        return providerDebtRepository.findByStatusOrderByDeadlineAtAsc(ProviderDebtStatus.OUTSTANDING);
+        return providerDebtRepository.findByStatusWithProvider(ProviderDebtStatus.OUTSTANDING);
     }
 
     @Override

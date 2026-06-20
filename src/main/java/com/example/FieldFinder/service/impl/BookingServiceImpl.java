@@ -667,6 +667,7 @@ public class BookingServiceImpl implements BookingService {
                     .paymentDeadline(paymentDeadline)
                     .cancelledBy(booking.getCancelledBy() != null ? booking.getCancelledBy().name() : null)
                     .cancelReason(booking.getCancelReason())
+                    .cancelledAt(booking.getCancelledAt())
                     .build();
 
         }).collect(Collectors.toList());
@@ -1124,6 +1125,7 @@ public class BookingServiceImpl implements BookingService {
         booking.setStatus(BookingStatus.CANCELED);
         booking.setCancelledBy(actor);
         booking.setCancelReason(reason);
+        booking.setCancelledAt(LocalDateTime.now());
         bookingRepository.save(booking);
 
         // Hoàn voucher đã dùng cho booking này (mọi đường hủy đều qua đây)

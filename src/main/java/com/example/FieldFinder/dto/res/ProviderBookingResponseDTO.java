@@ -47,6 +47,7 @@ public class ProviderBookingResponseDTO {
     /** USER / PROVIDER / SYSTEM — null nếu đơn chưa hủy. */
     private String cancelledBy;
     private String cancelReason;
+    private LocalDateTime cancelledAt;
 
     /** Khóa lịch thủ công: MAINTENANCE / OFFLINE_BOOKING. Null = đơn đặt thường. */
     private String blockType;
