@@ -89,6 +89,7 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<com.example.FieldFinder.dto.res.SlotStatusDTO> getSlotStatuses(UUID pitchId, LocalDate bookingDate) {
         List<BookingDetail> details = bookingDetailRepository.findByPitchAndDateExcludingStatuses(
                 pitchId, bookingDate, List.of(BookingStatus.CANCELED));
