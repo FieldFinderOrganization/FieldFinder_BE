@@ -4,6 +4,7 @@ import com.example.FieldFinder.Enum.BookingStatus;
 import com.example.FieldFinder.Enum.OrderStatus;
 import com.example.FieldFinder.Enum.PaymentMethod;
 import com.example.FieldFinder.Enum.PaymentStatus;
+import com.example.FieldFinder.Enum.RefundSourceType;
 import com.example.FieldFinder.config.RabbitMQConfig;
 import com.example.FieldFinder.dto.req.PaymentRequestDTO;
 import com.example.FieldFinder.dto.req.ShopPaymentRequestDTO;
@@ -23,8 +24,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,6 +51,10 @@ public class PaymentServiceImpl implements PaymentService {
     private final UserTierService userTierService;
     private final com.example.FieldFinder.service.DiscountUsageService discountUsageService;
     private final com.example.FieldFinder.service.NotificationService notificationService;
+    private final BookingDetailRepository bookingDetailRepository;
+    private final com.example.FieldFinder.service.RefundService refundService;
+    private final com.example.FieldFinder.service.BankAccountService bankAccountService;
+    private final com.example.FieldFinder.service.PitchRedisLockService pitchRedisLockService;
 
     @Value("${front_end_url}")
     private String frontEndUrl;
@@ -255,12 +264,18 @@ public class PaymentServiceImpl implements PaymentService {
 
                     // A. Update Booking
                     if (booking != null) {
-                        booking.setPaymentStatus(PaymentStatus.PAID);
-                        booking.setStatus(BookingStatus.CONFIRMED);
+                        if (booking.getStatus() == BookingStatus.CANCELED) {
+                            // Giao dịch trễ (Transaction Lag): đơn đã tự hủy do hết hạn giữ slot
+                            // TRƯỚC khi tiền về. Khôi phục nếu slot còn trống, ngược lại hoàn 100%.
+                            handleLateBookingWebhook(booking, payment, paidTime);
+                        } else {
+                            booking.setPaymentStatus(PaymentStatus.PAID);
+                            booking.setStatus(BookingStatus.CONFIRMED);
 
-                        rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
-                                RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY, booking.getBookingId().toString());
-                        notificationService.notifyBookingConfirmed(booking);
+                            rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
+                                    RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY, booking.getBookingId().toString());
+                            notificationService.notifyBookingConfirmed(booking);
+                        }
                     }
 
 
@@ -333,6 +348,100 @@ public class PaymentServiceImpl implements PaymentService {
         } else {
             System.out.println("❌ Payment not found in DB for transactionId: " + transactionId);
         }
+    }
+
+    /**
+     * Xử lý webhook báo thanh toán THÀNH CÔNG cho một booking đã bị tự hủy
+     * (CANCELED do hết hạn giữ slot) — tiền về trễ hơn lúc auto-cancel.
+     * - Slot còn trống  → khôi phục CONFIRMED + PAID, khóa lại slot, báo thành công.
+     * - Slot đã có người → hoàn 100% (tiền mặt về TK mặc định, fallback voucher) + xin lỗi.
+     */
+    private void handleLateBookingWebhook(Booking booking, Payment payment, LocalDateTime paidTime) {
+        User user = booking.getUser();
+        String userIdStr = user.getUserId().toString();
+        LocalDate date = booking.getBookingDate();
+
+        // Gom slot của booking này theo từng sân
+        Map<UUID, List<Integer>> slotsByPitch = new HashMap<>();
+        for (BookingDetail d : booking.getBookingDetails()) {
+            if (d.getPitch() == null || d.getTimeSlot() == null) continue;
+            slotsByPitch.computeIfAbsent(d.getPitch().getPitchId(), k -> new ArrayList<>())
+                    .add(d.getTimeSlot().getSlotId());
+        }
+
+        // Slot đã bị booking khác (non-canceled) chiếm chưa? (DB là nguồn chính xác)
+        boolean slotTaken = false;
+        for (Map.Entry<UUID, List<Integer>> e : slotsByPitch.entrySet()) {
+            List<BookingDetail> active = bookingDetailRepository.findByPitchAndDateExcludingStatuses(
+                    e.getKey(), date, List.of(BookingStatus.CANCELED));
+            for (BookingDetail bd : active) {
+                if (bd.getBooking() == null
+                        || bd.getBooking().getBookingId().equals(booking.getBookingId())) continue;
+                if (bd.getTimeSlot() != null && e.getValue().contains(bd.getTimeSlot().getSlotId())) {
+                    slotTaken = true;
+                    break;
+                }
+            }
+            if (slotTaken) break;
+        }
+
+        // Slot trống → thử khóa lại Redis (chặn create đang chạy). Thua khóa = coi như đã bị giữ.
+        if (!slotTaken) {
+            List<UUID> lockedPitches = new ArrayList<>();
+            for (Map.Entry<UUID, List<Integer>> e : slotsByPitch.entrySet()) {
+                if (pitchRedisLockService.lockSlots(e.getKey(), date, e.getValue(), userIdStr)) {
+                    lockedPitches.add(e.getKey());
+                } else {
+                    slotTaken = true;
+                    break;
+                }
+            }
+            if (slotTaken) {
+                // Dọn các khóa đã giữ được trước khi rơi xuống nhánh hoàn tiền
+                for (UUID pitchId : lockedPitches) {
+                    for (Integer slot : slotsByPitch.get(pitchId)) {
+                        pitchRedisLockService.unlockSlot(pitchId, date, slot, userIdStr);
+                    }
+                }
+            }
+        }
+
+        if (!slotTaken) {
+            // Khôi phục đơn
+            payment.setPaymentStatus(PaymentStatus.PAID);
+            payment.setPaidAt(paidTime);
+            booking.setPaymentStatus(PaymentStatus.PAID);
+            booking.setStatus(BookingStatus.CONFIRMED);
+
+            rabbitTemplate.convertAndSend(RabbitMQConfig.EMAIL_EXCHANGE,
+                    RabbitMQConfig.BOOKING_EMAIL_ROUTING_KEY, booking.getBookingId().toString());
+            notificationService.notifyBookingConfirmed(booking);
+            System.out.println("♻️ Late webhook: khôi phục booking #" + booking.getBookingId()
+                    + " (slot còn trống)");
+            return;
+        }
+
+        // Slot đã có người khác đặt → hoàn 100% số tiền đã trả, đơn giữ nguyên CANCELED
+        BigDecimal amount = payment.getAmount() != null ? payment.getAmount() : booking.getTotalPrice();
+        String reason = "Hoàn 100%: khung giờ đã có người đặt khi thanh toán về trễ (giao dịch trễ)";
+        if (amount != null && amount.signum() > 0) {
+            bankAccountService.getDefault(user.getUserId()).ifPresentOrElse(
+                    bank -> refundService.issueCashRefund(user, RefundSourceType.BOOKING,
+                            booking.getBookingId().toString(), amount, reason, bank),
+                    () -> refundService.issueRefundCredit(user, RefundSourceType.BOOKING,
+                            booking.getBookingId().toString(), amount, reason));
+        }
+        payment.setPaymentStatus(PaymentStatus.REFUNDED);
+        payment.setPaidAt(paidTime);
+        payment.setProcessedAt(LocalDateTime.now());
+
+        notificationService.notify(user.getUserId(), "BOOKING_REFUND",
+                "Đã hoàn tiền đặt sân",
+                "Rất tiếc, khung giờ bạn chọn đã có người đặt khi thanh toán của bạn về trễ. "
+                        + "Chúng tôi đã hoàn 100% số tiền cho bạn.",
+                "BOOKING", booking.getBookingId().toString());
+        System.out.println("💸 Late webhook: slot đã bị giữ, hoàn 100% cho booking #"
+                + booking.getBookingId());
     }
 
     @Override
