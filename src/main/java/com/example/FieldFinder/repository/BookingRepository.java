@@ -82,7 +82,7 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     // LOẠI booking khóa lịch (blockType != null) khỏi lượt đặt — không buff số liệu ảo.
     // doanh thu chỉ tính booking CONFIRMED + PAID. Mỗi dòng: [pitchId, bookingCount, totalRevenue].
     @Query("SELECT bd.pitch.pitchId, " +
-            "COUNT(DISTINCT CASE WHEN bd.booking.blockType IS NULL THEN bd.booking END), " +
+            "COUNT(DISTINCT CASE WHEN bd.booking.blockType IS NULL THEN bd.booking.bookingId END), " +
             "COALESCE(SUM(CASE WHEN bd.booking.status = com.example.FieldFinder.Enum.BookingStatus.CONFIRMED " +
             "  AND bd.booking.paymentStatus = com.example.FieldFinder.Enum.PaymentStatus.PAID " +
             "  AND bd.booking.user.role <> com.example.FieldFinder.entity.User.Role.PROVIDER " +
