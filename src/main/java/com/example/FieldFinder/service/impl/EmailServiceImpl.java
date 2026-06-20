@@ -507,12 +507,27 @@ public class EmailServiceImpl implements EmailService {
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
         // Find earliest slot start time
-        String startTimeStr = booking.getBookingDetails().stream()
+        LocalTime earliestTime = booking.getBookingDetails().stream()
                 .map(bd -> bd.getTimeSlot() != null ? bd.getTimeSlot().getStartTime() : null)
                 .filter(Objects::nonNull)
                 .min(LocalTime::compareTo)
-                .map(LocalTime::toString)
-                .orElse("N/A");
+                .orElse(null);
+        String startTimeStr = earliestTime != null ? earliestTime.toString() : "N/A";
+
+        // Thời gian còn lại để thanh toán = hạn thanh toán động (Dynamic Hold) - hiện tại.
+        // Linh hoạt theo nhóm: nhóm 1 còn ~10p, nhóm 2 còn ~5p.
+        long remainingMinutes = 0;
+        if (earliestTime != null && booking.getCreatedAt() != null) {
+            java.time.LocalDateTime earliestStart =
+                    java.time.LocalDateTime.of(booking.getBookingDate(), earliestTime);
+            java.time.LocalDateTime deadline =
+                    com.example.FieldFinder.util.BookingHoldPolicy.paymentDeadline(
+                            booking.getCreatedAt(), earliestStart);
+            if (deadline != null) {
+                remainingMinutes = Math.max(0, java.time.temporal.ChronoUnit.MINUTES.between(
+                        java.time.LocalDateTime.now(), deadline));
+            }
+        }
 
         StringBuilder html = new StringBuilder();
         html.append("<html><body style='font-family: Arial, sans-serif; color: #333;'>");
@@ -528,7 +543,9 @@ public class EmailServiceImpl implements EmailService {
         html.append("<p>Chào <strong>").append(booking.getUser().getName()).append("</strong>,</p>");
         html.append("<p>Bạn có đơn đặt sân vào lúc <strong>").append(startTimeStr).append("</strong> ngày <strong>")
                 .append(booking.getBookingDate().format(dateFormatter)).append("</strong>.</p>");
-        html.append("<p style='color: #d32f2f; font-weight: bold;'>Lưu ý: Chỉ còn 120 phút để hoàn tất thanh toán nếu không muốn lịch đặt bị tự động hủy.</p>");
+        html.append("<p style='color: #d32f2f; font-weight: bold;'>Lưu ý: Chỉ còn ")
+                .append(remainingMinutes)
+                .append(" phút để hoàn tất thanh toán nếu không muốn lịch đặt bị tự động hủy.</p>");
 
         html.append("<h3 style='margin-top: 20px;'>Thông tin đơn đặt:</h3>");
         html.append("<table style='width: 100%; border-collapse: collapse;'>");
