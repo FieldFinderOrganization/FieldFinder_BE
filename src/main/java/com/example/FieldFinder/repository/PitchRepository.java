@@ -33,6 +33,10 @@ public interface PitchRepository extends JpaRepository<Pitch, UUID>, JpaSpecific
 
     Optional<Pitch> findById(UUID uuid);
 
+    /** Sân ACTIVE đã tới/quá ngày ngưng theo lịch → job chuyển sang INACTIVE. */
+    List<Pitch> findByStatusAndDeactivationDateLessThanEqual(
+            Pitch.PitchStatus status, java.time.LocalDate date);
+
     @Query("SELECT p.type, COUNT(p) FROM Pitch p GROUP BY p.type")
     List<Object[]> countByType();
 

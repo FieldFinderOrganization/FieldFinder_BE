@@ -6,6 +6,7 @@ import com.example.FieldFinder.entity.Pitch.PitchType;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,6 +29,7 @@ public class PitchResponseDTO {
     private BigDecimal providerRating;      // điểm TB mọi sân của chủ; null = service chưa inject
     private Long providerReviewCount;       // tổng lượt đánh giá mọi sân của chủ
     private String status; // ACTIVE | INACTIVE
+    private LocalDate deactivationDate; // ngày ngưng theo lịch (null = không có); chặn đặt từ ngày này
 
     public static PitchResponseDTO fromEntity(Pitch pitch) {
         PitchResponseDTO dto = new PitchResponseDTO();
@@ -50,6 +52,7 @@ public class PitchResponseDTO {
         dto.setProviderPhone(providerUser.getPhone());
         // providerRating / providerReviewCount: fromEntity static không có repo → service inject (getPitchById).
         dto.setStatus(pitch.getStatus() != null ? pitch.getStatus().name() : "ACTIVE");
+        dto.setDeactivationDate(pitch.getDeactivationDate());
         return dto;
     }
 }

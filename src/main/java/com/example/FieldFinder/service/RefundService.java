@@ -29,6 +29,15 @@ public interface RefundService {
                                     String reason,
                                     UUID restrictProviderId);
 
+    /** Như trên nhưng tự đặt hạn dùng voucher = {@code expiryDays} ngày. */
+    RefundRequest issueRefundCredit(User user,
+                                    RefundSourceType sourceType,
+                                    String sourceId,
+                                    BigDecimal amount,
+                                    String reason,
+                                    UUID restrictProviderId,
+                                    int expiryDays);
+
     /**
      * Hoàn TIỀN MẶT về TK ngân hàng (PayOS payout). Tạo bản ghi PAYOUT_PENDING,
      * job nền sẽ đẩy lệnh chi + poll trạng thái. Idempotent theo (sourceType, sourceId).
@@ -51,9 +60,14 @@ public interface RefundService {
 
     int DEFAULT_EXPIRY_DAYS = 90;
 
+    /** Hạn voucher hoàn tiền khi khách hủy SÁT GIỜ (penalty) — ngắn hơn mặc định. */
+    int LATE_CANCEL_EXPIRY_DAYS = 30;
+
     String CODE_PREFIX = "RF-";
 
     Discount generateRefundDiscount(BigDecimal amount);
+
+    Discount generateRefundDiscount(BigDecimal amount, int expiryDays);
 
     Optional<RefundRequest> findBySource(RefundSourceType type, String sourceId);
 }

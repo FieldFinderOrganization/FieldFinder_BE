@@ -89,6 +89,31 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
+    public List<com.example.FieldFinder.dto.res.SlotStatusDTO> getSlotStatuses(UUID pitchId, LocalDate bookingDate) {
+        List<BookingDetail> details = bookingDetailRepository.findByPitchAndDateExcludingStatuses(
+                pitchId, bookingDate, List.of(BookingStatus.CANCELED));
+        Map<Integer, String> typeBySlot = new LinkedHashMap<>();
+        for (BookingDetail bd : details) {
+            if (bd.getTimeSlot() == null || bd.getBooking() == null) continue;
+            Integer slot = bd.getTimeSlot().getSlotId();
+            String blockType = bd.getBooking().getBlockType();
+            String type;
+            if (blockType == null) {
+                type = "BOOKED";
+            } else if ("MAINTENANCE".equals(blockType)) {
+                type = "MAINTENANCE";
+            } else {
+                type = "OFFLINE"; // OFFLINE_BOOKING
+            }
+            // Slot trùng (hiếm): ưu tiên giữ giá trị đầu, không ghi đè
+            typeBySlot.putIfAbsent(slot, type);
+        }
+        return typeBySlot.entrySet().stream()
+                .map(e -> new com.example.FieldFinder.dto.res.SlotStatusDTO(e.getKey(), e.getValue()))
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public List<PitchBookedSlotsDTO> getAllBookedTimeSlots(LocalDate bookingDate) {
         List<BookingDetail> bookingDetails = bookingDetailRepository.findByBookingDateExcludingStatuses(
                 bookingDate, List.of(BookingStatus.CANCELED));
@@ -157,6 +182,16 @@ public class BookingServiceImpl implements BookingService {
         LocalDate bookingDate = bookingRequest.getBookingDate();
         UUID pitchId = (bookingRequest.getPitchId());
         String userId = bookingRequest.getUserId().toString();
+
+        // Sân đã ngưng / tới lịch ngưng → chặn đặt từ ngày ngưng trở đi
+        if (pitch.getStatus() == Pitch.PitchStatus.INACTIVE) {
+            throw new RuntimeException("Sân đã ngưng hoạt động, không thể đặt!");
+        }
+        if (pitch.getDeactivationDate() != null
+                && !bookingDate.isBefore(pitch.getDeactivationDate())) {
+            throw new RuntimeException("Sân ngưng hoạt động từ ngày "
+                    + pitch.getDeactivationDate() + ", không thể đặt vào ngày này!");
+        }
 
         List<Integer> requestedSlots = bookingRequest.getBookingDetails().stream()
                 .map(BookingRequestDTO.BookingDetailDTO::getSlot)
@@ -365,6 +400,22 @@ public class BookingServiceImpl implements BookingService {
         UUID pitchId = request.getPitchId();
         String userIdStr = providerUserId.toString();
         List<Integer> requestedSlots = request.getSlots();
+
+        // Bảo vệ khách: chặn khóa lịch đè lên slot đã có đơn (DB, không chỉ Redis vì
+        // lock đơn cũ đã hết TTL). Slot đã đặt → chủ sân phải HỦY đơn của khách trước.
+        Set<Integer> takenSlots = bookingDetailRepository
+                .findByPitchAndDateExcludingStatuses(pitchId, bookingDate, List.of(BookingStatus.CANCELED))
+                .stream()
+                .filter(bd -> bd.getTimeSlot() != null)
+                .map(bd -> bd.getTimeSlot().getSlotId())
+                .collect(Collectors.toSet());
+        List<Integer> conflict = requestedSlots.stream()
+                .filter(takenSlots::contains)
+                .toList();
+        if (!conflict.isEmpty()) {
+            throw new RuntimeException(
+                    "Khung giờ " + conflict + " đã có đơn đặt/khóa. Vui lòng hủy đơn của khách trước khi khóa lịch.");
+        }
 
         boolean isLocked = pitchRedisLockService.lockSlots(pitchId, bookingDate, requestedSlots, userIdStr);
         if (!isLocked) {
@@ -682,8 +733,15 @@ public class BookingServiceImpl implements BookingService {
             }
 
             // Save DB first (within transaction), unlock Redis AFTER commit
-            cancelBooking(booking, CancelActor.USER,
-                    reason != null && !reason.isBlank() ? reason : "User requested cancellation");
+            String cancelReason = reason != null && !reason.isBlank()
+                    ? reason : "User requested cancellation";
+            if (isLateCancel) {
+                // Hủy sát giờ: voucher KM (PROMOTION) bị hủy hoàn toàn (forfeit), không trả về ví.
+                cancelBooking(booking, CancelActor.USER, cancelReason, false);
+                discountUsageService.revertForBookingExceptPromotion(booking.getBookingId());
+            } else {
+                cancelBooking(booking, CancelActor.USER, cancelReason);
+            }
 
             // Chỉ phát hành mã hoàn tiền cho booking thanh toán BANK (đã trả tiền thật).
             // CASH (trả tại sân) hủy là hủy, không tạo mã khuyến mãi.
@@ -703,23 +761,22 @@ public class BookingServiceImpl implements BookingService {
                     BigDecimal hostCompensation = booking.getTotalPrice().multiply(hostRate).setScale(0, java.math.RoundingMode.HALF_UP);
 
                     if (refundAmount.signum() > 0) {
-                        if (isLateCancel) {
-                            refundService.issueRefundCredit(
-                                    booking.getUser(), RefundSourceType.BOOKING,
-                                    booking.getBookingId().toString(),
-                                    refundAmount, refundReason);
-                        } else {
-                            bankAccountService.getDefault(booking.getUser().getUserId())
-                                    .ifPresentOrElse(
-                                            bank -> refundService.issueCashRefund(
-                                                    booking.getUser(), RefundSourceType.BOOKING,
-                                                    booking.getBookingId().toString(),
-                                                    refundAmount, refundReason, bank),
-                                            () -> refundService.issueRefundCredit(
-                                                    booking.getUser(), RefundSourceType.BOOKING,
-                                                    booking.getBookingId().toString(),
-                                                    refundAmount, refundReason));
-                        }
+                        // Hoàn TIỀN MẶT về TK ngân hàng (cả hủy hợp lệ lẫn sát giờ);
+                        // chưa liên kết TK → fallback voucher hoàn tiền. % đã phạt sẵn ở refundRate.
+                        // Voucher fallback: hủy sát giờ hạn 30 ngày (penalty), hủy hợp lệ 90 ngày.
+                        int voucherExpiry = isLateCancel
+                                ? com.example.FieldFinder.service.RefundService.LATE_CANCEL_EXPIRY_DAYS
+                                : com.example.FieldFinder.service.RefundService.DEFAULT_EXPIRY_DAYS;
+                        bankAccountService.getDefault(booking.getUser().getUserId())
+                                .ifPresentOrElse(
+                                        bank -> refundService.issueCashRefund(
+                                                booking.getUser(), RefundSourceType.BOOKING,
+                                                booking.getBookingId().toString(),
+                                                refundAmount, refundReason, bank),
+                                        () -> refundService.issueRefundCredit(
+                                                booking.getUser(), RefundSourceType.BOOKING,
+                                                booking.getBookingId().toString(),
+                                                refundAmount, refundReason, null, voucherExpiry));
                     }
 
                     if (hostCompensation.signum() > 0 && booking.getBookingDetails() != null && !booking.getBookingDetails().isEmpty()) {
@@ -1051,6 +1108,14 @@ public class BookingServiceImpl implements BookingService {
     }
 
     private void cancelBooking(Booking booking, CancelActor actor, String reason) {
+        cancelBooking(booking, actor, reason, true);
+    }
+
+    /**
+     * @param revertDiscounts true = hoàn mọi voucher về ví (mặc định). false = caller tự
+     *        xử lý voucher (vd hủy sát giờ: forfeit voucher KM qua revertForBookingExceptPromotion).
+     */
+    private void cancelBooking(Booking booking, CancelActor actor, String reason, boolean revertDiscounts) {
         System.out.println("🚫 " + reason + " for Booking #" + booking.getBookingId());
         booking.setStatus(BookingStatus.CANCELED);
         booking.setCancelledBy(actor);
@@ -1058,7 +1123,9 @@ public class BookingServiceImpl implements BookingService {
         bookingRepository.save(booking);
 
         // Hoàn voucher đã dùng cho booking này (mọi đường hủy đều qua đây)
-        discountUsageService.revertForBooking(booking.getBookingId());
+        if (revertDiscounts) {
+            discountUsageService.revertForBooking(booking.getBookingId());
+        }
 
         List<Payment> payments = paymentRepository
                 .findAllByBookingIds(Collections.singletonList(booking.getBookingId()));

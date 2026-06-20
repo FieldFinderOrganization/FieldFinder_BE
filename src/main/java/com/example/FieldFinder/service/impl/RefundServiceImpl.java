@@ -62,6 +62,19 @@ public class RefundServiceImpl implements RefundService {
                                            BigDecimal amount,
                                            String reason,
                                            java.util.UUID restrictProviderId) {
+        return issueRefundCredit(user, sourceType, sourceId, amount, reason,
+                restrictProviderId, DEFAULT_EXPIRY_DAYS);
+    }
+
+    @Override
+    @Transactional
+    public RefundRequest issueRefundCredit(User user,
+                                           RefundSourceType sourceType,
+                                           String sourceId,
+                                           BigDecimal amount,
+                                           String reason,
+                                           java.util.UUID restrictProviderId,
+                                           int expiryDays) {
         if (user == null) throw new IllegalArgumentException("User required");
         if (amount == null || amount.signum() <= 0) {
             throw new IllegalArgumentException("Refund amount must be positive");
@@ -84,7 +97,7 @@ public class RefundServiceImpl implements RefundService {
                 .build();
         req = refundRequestRepository.save(req);
 
-        Discount discount = generateRefundDiscount(amount);
+        Discount discount = generateRefundDiscount(amount, expiryDays);
         if (restrictProviderId != null) {
             discount.setRestrictProviderId(restrictProviderId);
             discount.setDescription("Mã hoàn tiền — chỉ áp dụng cho sân của chủ sân đã phát hành");
@@ -217,6 +230,11 @@ public class RefundServiceImpl implements RefundService {
 
     @Override
     public Discount generateRefundDiscount(BigDecimal amount) {
+        return generateRefundDiscount(amount, DEFAULT_EXPIRY_DAYS);
+    }
+
+    @Override
+    public Discount generateRefundDiscount(BigDecimal amount, int expiryDays) {
         String code = generateUniqueCode();
         LocalDate today = LocalDate.now();
         return Discount.builder()
@@ -227,7 +245,7 @@ public class RefundServiceImpl implements RefundService {
                 .scope(Discount.DiscountScope.GLOBAL)
                 .quantity(1)
                 .startDate(today)
-                .endDate(today.plusDays(DEFAULT_EXPIRY_DAYS))
+                .endDate(today.plusDays(expiryDays))
                 .status(Discount.DiscountStatus.ACTIVE)
                 .kind(DiscountKind.REFUND_CREDIT)
                 .build();

@@ -54,30 +54,53 @@ public class DiscountUsageService {
         revert(usageRepository.findActiveByBookingId(bookingId));
     }
 
+    /**
+     * Hoàn voucher cho booking nhưng FORFEIT (không trả về ví) các voucher KM
+     * (PROMOTION) — dùng khi khách hủy SÁT GIỜ: voucher khuyến mãi đã áp dụng bị
+     * hủy hoàn toàn ở mọi mốc phạt. Mã hoàn tiền (REFUND_CREDIT) vẫn được hoàn lại số dư.
+     */
+    @Transactional
+    public void revertForBookingExceptPromotion(UUID bookingId) {
+        for (DiscountUsage usage : usageRepository.findActiveByBookingId(bookingId)) {
+            Discount d = usage.getUserDiscount().getDiscount();
+            if (d.getKind() == DiscountKind.PROMOTION) {
+                // Forfeit: giữ nguyên đã dùng, không cộng lại lượt, không trả về ví.
+                usage.setReverted(true);
+                usageRepository.save(usage);
+            } else {
+                revertOne(usage); // REFUND_CREDIT: hoàn lại số dư như bình thường
+            }
+        }
+    }
+
     private void revert(List<DiscountUsage> usages) {
         for (DiscountUsage usage : usages) {
-            UserDiscount ud = usage.getUserDiscount();
-            Discount d = ud.getDiscount();
+            revertOne(usage);
+        }
+    }
 
-            if (d.getKind() == DiscountKind.REFUND_CREDIT) {
-                BigDecimal restored = usage.getAmountDeducted() != null
-                        ? usage.getAmountDeducted() : BigDecimal.ZERO;
-                BigDecimal current = ud.getRemainingValue() != null
-                        ? ud.getRemainingValue() : BigDecimal.ZERO;
-                ud.setRemainingValue(current.add(restored));
-                if (ud.getRemainingValue().signum() > 0) {
-                    ud.setUsed(false);
-                    ud.setUsedAt(null);
-                }
-            } else {
+    private void revertOne(DiscountUsage usage) {
+        UserDiscount ud = usage.getUserDiscount();
+        Discount d = ud.getDiscount();
+
+        if (d.getKind() == DiscountKind.REFUND_CREDIT) {
+            BigDecimal restored = usage.getAmountDeducted() != null
+                    ? usage.getAmountDeducted() : BigDecimal.ZERO;
+            BigDecimal current = ud.getRemainingValue() != null
+                    ? ud.getRemainingValue() : BigDecimal.ZERO;
+            ud.setRemainingValue(current.add(restored));
+            if (ud.getRemainingValue().signum() > 0) {
                 ud.setUsed(false);
                 ud.setUsedAt(null);
-                discountRepository.incrementQuantity(d.getDiscountId());
             }
-            userDiscountRepository.save(ud);
-
-            usage.setReverted(true);
-            usageRepository.save(usage);
+        } else {
+            ud.setUsed(false);
+            ud.setUsedAt(null);
+            discountRepository.incrementQuantity(d.getDiscountId());
         }
+        userDiscountRepository.save(ud);
+
+        usage.setReverted(true);
+        usageRepository.save(usage);
     }
 }

@@ -73,6 +73,14 @@ public class Pitch {
     @Builder.Default
     private PitchStatus status = PitchStatus.ACTIVE;
 
+    /**
+     * Ngày sân bắt đầu ngưng hoạt động (ngưng theo lịch). Trước ngày này sân vẫn
+     * ACTIVE + hiển thị; từ ngày này job tự chuyển INACTIVE và chặn đặt slot.
+     * Null = không có lịch ngưng.
+     */
+    @Column(name = "deactivation_date")
+    private LocalDate deactivationDate;
+
     public enum PitchType {
         FIVE_A_SIDE, SEVEN_A_SIDE, ELEVEN_A_SIDE
     }

@@ -32,6 +32,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -304,9 +305,15 @@ public class PitchServiceImpl implements PitchService {
             }
         }
 
-        pitch.setStatus(Pitch.PitchStatus.INACTIVE);
+        // Ngưng THEO LỊCH: lưu ngày ngưng. Trước ngày đó sân vẫn ACTIVE + hiển thị,
+        // nhưng đặt slot >= ngày ngưng bị chặn (xem createBooking). Đúng/quá ngày → INACTIVE ngay.
+        pitch.setDeactivationDate(targetDate);
+        if (!targetDate.isAfter(LocalDate.now())) {
+            pitch.setStatus(Pitch.PitchStatus.INACTIVE);
+        }
         pitchRepository.save(pitch);
-        log.info("[PITCH] Đã ngưng sân {} từ {} (hủy {} PENDING)", pitch.getName(), targetDate, pendingToCancel.size());
+        log.info("[PITCH] Lên lịch ngưng sân {} từ {} (status={}, hủy {} PENDING)",
+                pitch.getName(), targetDate, pitch.getStatus(), pendingToCancel.size());
     }
 
     @Override
@@ -332,7 +339,24 @@ public class PitchServiceImpl implements PitchService {
         }
 
         pitch.setStatus(Pitch.PitchStatus.ACTIVE);
+        pitch.setDeactivationDate(null); // huỷ lịch ngưng nếu có
         pitchRepository.save(pitch);
         log.info("[PITCH] Đã kích hoạt lại sân {}", pitch.getName());
+    }
+
+    /** Mỗi ngày: chuyển các sân ACTIVE đã tới ngày ngưng theo lịch sang INACTIVE. */
+    @Scheduled(cron = "0 1 0 * * ?") // 00:01 mỗi ngày
+    @Transactional
+    public void applyScheduledDeactivations() {
+        List<Pitch> due = pitchRepository.findByStatusAndDeactivationDateLessThanEqual(
+                Pitch.PitchStatus.ACTIVE, LocalDate.now());
+        if (due.isEmpty()) return;
+        for (Pitch p : due) {
+            p.setStatus(Pitch.PitchStatus.INACTIVE);
+            pitchRepository.save(p);
+            log.info("[PITCH] Tự ngưng sân {} đúng lịch ({})", p.getName(), p.getDeactivationDate());
+        }
+        Cache list = cacheManager.getCache("pitches_list");
+        if (list != null) list.clear();
     }
 }

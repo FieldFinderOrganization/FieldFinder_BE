@@ -114,6 +114,14 @@ public class BookingController {
         return ResponseEntity.ok(bookedSlots);
     }
 
+    /** Trạng thái slot kèm loại (BOOKED / MAINTENANCE / OFFLINE) cho màn đặt sân của khách. */
+    @GetMapping("/slots/{pitchId}/status")
+    public ResponseEntity<List<com.example.FieldFinder.dto.res.SlotStatusDTO>> getSlotStatuses(
+            @PathVariable UUID pitchId,
+            @RequestParam LocalDate date) {
+        return ResponseEntity.ok(bookingService.getSlotStatuses(pitchId, date));
+    }
+
     @GetMapping("/slots/all")
     @PreAuthorize("hasAnyRole('ADMIN', 'PROVIDER')")
     public ResponseEntity<List<PitchBookedSlotsDTO>> getAllBookedSlots(@RequestParam LocalDate date) {

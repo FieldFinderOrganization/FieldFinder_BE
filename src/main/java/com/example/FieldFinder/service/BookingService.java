@@ -25,6 +25,7 @@ public interface BookingService {
     void cancelBookingByProvider(UUID bookingId, UUID providerUserId, String reason);
     BigDecimal calculateTotalPrice(UUID bookingId);
     List<Integer> getBookedTimeSlots(UUID pitchId, LocalDate bookingDate);
+    List<com.example.FieldFinder.dto.res.SlotStatusDTO> getSlotStatuses(UUID pitchId, LocalDate bookingDate);
     List<BookingResponseDTO> getAllBookings();
     List<PitchBookedSlotsDTO> getAllBookedTimeSlots(LocalDate date);
 
