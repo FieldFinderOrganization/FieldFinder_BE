@@ -46,16 +46,12 @@ class ProviderServiceImplTest {
         provider = Provider.builder()
                 .providerId(providerId)
                 .user(user)
-                .cardNumber("9876543210")
-                .bank("VCB")
                 .build();
     }
 
     private ProviderRequestDTO buildRequest() {
         ProviderRequestDTO dto = new ProviderRequestDTO();
         dto.setUserId(userId);
-        dto.setCardNumber("9876543210");
-        dto.setBank("VCB");
         return dto;
     }
 
@@ -69,8 +65,7 @@ class ProviderServiceImplTest {
             ProviderResponseDTO result = service.createProvider(buildRequest());
 
             assertNotNull(result);
-            assertEquals("VCB", result.getBank());
-            assertEquals("9876543210", result.getCardNumber());
+            assertEquals(userId, result.getUserId());
             verify(providerRepository).save(any(Provider.class));
         }
 
@@ -88,19 +83,14 @@ class ProviderServiceImplTest {
     @Nested
     class updateProvider {
         @Test
-        void existing_updatesAndReturnsDTO() {
+        void existing_returnsDTO() {
             when(providerRepository.findById(providerId)).thenReturn(Optional.of(provider));
-            when(providerRepository.save(any(Provider.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            ProviderRequestDTO req = buildRequest();
-            req.setCardNumber("1111222233334444");
-            req.setBank("TCB");
-
-            ProviderResponseDTO result = service.updateProvider(providerId, req);
+            ProviderResponseDTO result = service.updateProvider(providerId, buildRequest());
 
             assertNotNull(result);
-            assertEquals("1111222233334444", provider.getCardNumber());
-            assertEquals("TCB", provider.getBank());
+            assertEquals(providerId, result.getProviderId());
+            assertEquals(userId, result.getUserId());
         }
 
         @Test

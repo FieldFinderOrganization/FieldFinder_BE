@@ -27,8 +27,6 @@ public class ProviderServiceImpl implements ProviderService {
 
         Provider provider = Provider.builder()
                 .user(user)
-                .cardNumber(dto.getCardNumber())
-                .bank(dto.getBank())
                 .build();
         provider = providerRepository.save(provider);
         return mapToDto(provider);
@@ -36,11 +34,10 @@ public class ProviderServiceImpl implements ProviderService {
 
     @Override
     public ProviderResponseDTO updateProvider(UUID providerId, ProviderRequestDTO dto) {
+        // Provider không còn field TK ngân hàng (chuyển sang BankAccount theo userId).
+        // Giữ endpoint để xác thực tồn tại provider; không còn gì để cập nhật trực tiếp.
         Provider provider = providerRepository.findById(providerId)
                 .orElseThrow(() -> new RuntimeException("Provider not found!"));
-        provider.setCardNumber(dto.getCardNumber());
-        provider.setBank(dto.getBank());
-        provider = providerRepository.save(provider);
         return mapToDto(provider);
     }
 
@@ -77,9 +74,6 @@ public class ProviderServiceImpl implements ProviderService {
         if (provider.getUser() != null) {
             dto.setUserId(provider.getUser().getUserId());
         }
-
-        dto.setCardNumber(provider.getCardNumber());
-        dto.setBank(provider.getBank());
         return dto;
     }
 }

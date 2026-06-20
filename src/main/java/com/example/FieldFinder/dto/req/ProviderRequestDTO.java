@@ -13,6 +13,4 @@ import java.util.UUID;
 @NoArgsConstructor
 public class ProviderRequestDTO {
     private UUID userId;
-    private String cardNumber;
-    private String bank;
 }
