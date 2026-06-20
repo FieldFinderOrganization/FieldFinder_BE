@@ -535,6 +535,8 @@ public class BookingServiceImpl implements BookingService {
                     .slotsName(slotsName)
                     .cancelledBy(booking.getCancelledBy() != null ? booking.getCancelledBy().name() : null)
                     .cancelReason(booking.getCancelReason())
+                    .blockType(booking.getBlockType())
+                    .providerNotes(booking.getProviderNotes())
                     .build();
         }).collect(Collectors.toList());
     }
