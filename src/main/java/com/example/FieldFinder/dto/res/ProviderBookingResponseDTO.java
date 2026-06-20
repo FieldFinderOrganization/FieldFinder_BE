@@ -41,6 +41,9 @@ public class ProviderBookingResponseDTO {
     private LocalDateTime createdAt;
     private LocalDateTime paidAt;
 
+    /** Hạn thanh toán của đơn PENDING (Dynamic Hold). Null nếu đơn không còn chờ thanh toán. */
+    private LocalDateTime paymentDeadline;
+
     /** USER / PROVIDER / SYSTEM — null nếu đơn chưa hủy. */
     private String cancelledBy;
     private String cancelReason;

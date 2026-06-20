@@ -576,6 +576,12 @@ public class BookingServiceImpl implements BookingService {
 
             String paymentMethod = paymentMap.getOrDefault(booking.getBookingId(), "PENDING");
 
+            // Hạn thanh toán (Dynamic Hold) — chỉ có nghĩa với đơn còn chờ thanh toán
+            LocalDateTime paymentDeadline = booking.getStatus() == BookingStatus.PENDING
+                    ? com.example.FieldFinder.util.BookingHoldPolicy.paymentDeadline(
+                            booking.getCreatedAt(), earliestSlotStart(booking))
+                    : null;
+
             LocalDateTime paidAt = allPayments.stream()
                     .filter(p -> p.getBooking() != null && p.getBooking().getBookingId().equals(booking.getBookingId()))
                     .filter(p -> p.getPaymentStatus() == PaymentStatus.PAID)
@@ -603,6 +609,7 @@ public class BookingServiceImpl implements BookingService {
                     .slotsName(slotsName)
                     .createdAt(booking.getCreatedAt())
                     .paidAt(paidAt)
+                    .paymentDeadline(paymentDeadline)
                     .cancelledBy(booking.getCancelledBy() != null ? booking.getCancelledBy().name() : null)
                     .cancelReason(booking.getCancelReason())
                     .build();
