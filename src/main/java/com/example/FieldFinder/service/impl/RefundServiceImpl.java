@@ -49,6 +49,10 @@ public class RefundServiceImpl implements RefundService {
     @Value("${refund.payout.deadline-hours:24}")
     private long payoutDeadlineHours;
 
+    /** Bật gate xác thực TK trước khi chi. Tắt ⇒ chi cash, để PayOS validate (xem application.properties). */
+    @Value("${bank.lookup.enabled:false}")
+    private boolean lookupEnabled;
+
     @Override
     @Transactional
     public RefundRequest issueRefundCredit(User user,
@@ -168,7 +172,8 @@ public class RefundServiceImpl implements RefundService {
 
         // GATE: chỉ chi tiền mặt khi TK đã xác thực là THẬT. TK chưa verify ⇒
         // tra cứu lại 1 lần; vẫn không xác thực được ⇒ KHÔNG chi tiền mặt, phát voucher.
-        boolean canCash = bankAccount.isVerified();
+        // Khi tắt lookup (chưa có provider sống) ⇒ bỏ gate, chi cash để PayOS validate.
+        boolean canCash = bankAccount.isVerified() || !lookupEnabled;
         String gateNote = null;
         if (!canCash) {
             BankLookupResult lk = bankLookupService.lookup(

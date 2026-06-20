@@ -23,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -185,6 +186,7 @@ class RefundServiceImplTest {
 
     @Test
     void issueCashRefund_fallsBackToVoucher_whenAccountUnverifiedAndLookupFails() {
+        ReflectionTestUtils.setField(service, "lookupEnabled", true);
         when(refundRequestRepository.findBySourceTypeAndSourceId(any(), any()))
                 .thenReturn(Optional.empty());
         when(bankLookupService.lookup("970422", "0123456789"))
@@ -210,6 +212,7 @@ class RefundServiceImplTest {
 
     @Test
     void issueCashRefund_verifiesThenPaysCash_whenLookupConfirmsAccount() {
+        ReflectionTestUtils.setField(service, "lookupEnabled", true);
         when(refundRequestRepository.findBySourceTypeAndSourceId(any(), any()))
                 .thenReturn(Optional.empty());
         when(bankLookupService.lookup("970422", "0123456789"))
@@ -227,6 +230,25 @@ class RefundServiceImplTest {
         verify(bankAccountRepository).save(acc);
         assertThat(result.getRefundMethod()).isEqualTo(RefundMethod.CASH);
         assertThat(result.getStatus()).isEqualTo(RefundStatus.PAYOUT_PENDING);
+        verify(userDiscountRepository, never()).save(any());
+    }
+
+    @Test
+    void issueCashRefund_paysCash_whenLookupDisabled_evenIfUnverified() {
+        // lookupEnabled=false (mặc định) ⇒ bỏ gate, chi cash, để PayOS validate
+        when(refundRequestRepository.findBySourceTypeAndSourceId(any(), any()))
+                .thenReturn(Optional.empty());
+        when(refundRequestRepository.save(any(RefundRequest.class)))
+                .thenAnswer(RefundServiceImplTest::saveWithId);
+
+        RefundRequest result = service.issueCashRefund(
+                user, RefundSourceType.BOOKING, "B4", new BigDecimal("100000"),
+                "huy don", bankAccount(false));
+
+        assertThat(result.getRefundMethod()).isEqualTo(RefundMethod.CASH);
+        assertThat(result.getStatus()).isEqualTo(RefundStatus.PAYOUT_PENDING);
+        // Tắt lookup ⇒ không gọi tra cứu, không phát voucher
+        verifyNoInteractions(bankLookupService);
         verify(userDiscountRepository, never()).save(any());
     }
 

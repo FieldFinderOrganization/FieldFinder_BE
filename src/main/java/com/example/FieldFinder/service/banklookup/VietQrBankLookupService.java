@@ -10,24 +10,27 @@ import java.time.Duration;
 import java.util.Map;
 
 /**
- * Tra cứu tên chủ TK qua VietQR.io (CASSO / NAPAS).
- * {@code POST https://api.vietqr.io/v2/lookup}, headers x-client-id + x-api-key,
- * body {@code {"bin": <int>, "accountNumber": "<str>"}}.
- * Thành công: {@code {"code":"00","data":{"accountName":"..."}}}.
+ * [DEPRECATED] Tra cứu tên chủ TK qua VietQR.io — đã dừng từ 2024-08-20.
+ * Thay thế bởi {@link BankLookupNetService} (BankLookup.net).
+ * Giữ lại để tham khảo; không còn được Spring inject.
  */
-@Service
+@Deprecated
+// @Service  — đã thay bằng BankLookupNetService
 public class VietQrBankLookupService implements BankLookupService {
 
     private final WebClient webClient;
+    private final boolean enabled;
     private final String url;
     private final String clientId;
     private final String apiKey;
 
     public VietQrBankLookupService(WebClient webClient,
+                                   @Value("${bank.lookup.enabled:false}") boolean enabled,
                                    @Value("${bank.lookup.vietqr.url:https://api.vietqr.io/v2/lookup}") String url,
                                    @Value("${bank.lookup.vietqr.client-id:}") String clientId,
                                    @Value("${bank.lookup.vietqr.api-key:}") String apiKey) {
         this.webClient = webClient;
+        this.enabled = enabled;
         this.url = url;
         this.clientId = clientId;
         this.apiKey = apiKey;
@@ -35,6 +38,10 @@ public class VietQrBankLookupService implements BankLookupService {
 
     @Override
     public BankLookupResult lookup(String bankBin, String accountNumber) {
+        // Tắt tra cứu (VietQR Free Plan dừng / Cas Pay Out chưa GA) ⇒ không gọi API, không treo
+        if (!enabled) {
+            return BankLookupResult.unavailable("Tạm chưa hỗ trợ tra cứu tự động — nhập tên thủ công.");
+        }
         if (bankBin == null || accountNumber == null) {
             return BankLookupResult.invalid("Thiếu mã ngân hàng hoặc số tài khoản!");
         }
@@ -77,9 +84,12 @@ public class VietQrBankLookupService implements BankLookupService {
                 // code 00 mà thiếu tên — coi như lỗi tạm thời, không kết luận TK ảo
                 return BankLookupResult.unavailable("VietQR thiếu tên chủ tài khoản");
             }
-            // code != 00 ⇒ ngân hàng kết luận TK/BIN không hợp lệ
+            // code != 00: chỉ kết luận TK ẢO khi rõ ràng là lỗi tài khoản; còn lại
+            // (hết hạn plan code"47", thiếu key, rate limit, provider busy...) ⇒ tạm thời.
             String desc = str(res.get("desc"));
-            return BankLookupResult.invalid(desc != null ? desc : "Số tài khoản không hợp lệ");
+            return isAccountInvalid(desc)
+                    ? BankLookupResult.invalid(desc)
+                    : BankLookupResult.unavailable(desc != null ? desc : "Không tra cứu được");
 
         } catch (WebClientResponseException e) {
             // 429 (rate limit) / 4xx / 5xx ⇒ lỗi tạm thời, không chặn user
@@ -88,6 +98,18 @@ public class VietQrBankLookupService implements BankLookupService {
             // timeout / mạng
             return BankLookupResult.unavailable("Lỗi gọi VietQR: " + e.getMessage());
         }
+    }
+
+    /** Chỉ những desc rõ ràng "tài khoản/BIN không hợp lệ" mới coi là TK ảo (hard reject). */
+    private static boolean isAccountInvalid(String desc) {
+        if (desc == null) return false;
+        String d = desc.toLowerCase();
+        return d.contains("account number invalid")
+                || d.contains("invalid account")
+                || d.contains("invalid bin")
+                || d.contains("bank not support")
+                || d.contains("không tồn tại")
+                || d.contains("không hợp lệ");
     }
 
     private static String str(Object o) {
