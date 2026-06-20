@@ -6,6 +6,8 @@ import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.repository.BankAccountRepository;
 import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.BankAccountService;
+import com.example.FieldFinder.service.banklookup.BankLookupService;
+import com.example.FieldFinder.service.banklookup.BankLookupService.BankLookupResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +24,7 @@ public class BankAccountServiceImpl implements BankAccountService {
 
     private final BankAccountRepository bankAccountRepository;
     private final UserRepository userRepository;
+    private final BankLookupService bankLookupService;
 
     @Override
     public List<BankAccount> listMine(UUID userId) {
@@ -46,6 +49,19 @@ public class BankAccountServiceImpl implements BankAccountService {
         }
         if (accName == null || accName.isBlank()) {
             throw new IllegalArgumentException("Thiếu tên chủ tài khoản!");
+        }
+
+        // Xác thực TK là THẬT qua tra cứu tên chủ TK (VietQR/NAPAS).
+        // - TK ảo ⇒ từ chối. - Lỗi tạm thời ⇒ vẫn lưu nhưng verified=false (gate lại lúc chi).
+        BankLookupResult lk = bankLookupService.lookup(bin, accNo);
+        if (!lk.ok() && !lk.transientError()) {
+            throw new IllegalArgumentException("Số tài khoản không tồn tại hoặc không khớp ngân hàng!"
+                    + (lk.message() != null ? " (" + lk.message() + ")" : ""));
+        }
+        boolean verified = lk.ok();
+        if (lk.ok() && lk.accountName() != null && !lk.accountName().isBlank()) {
+            // Lấy tên ngân hàng trả về làm CHUẨN, không tin tên user gõ
+            accName = normalizeName(lk.accountName());
         }
 
         User user = userRepository.findById(userId)
@@ -73,11 +89,9 @@ public class BankAccountServiceImpl implements BankAccountService {
         acc.setBankBin(bin);
         acc.setBankName(trimToNull(dto.bankName()));
         acc.setAccountNumber(accNo);
-        // Đổi tên/đổi TK ⇒ phải verify lại
-        if (!accName.equals(acc.getAccountName())) {
-            acc.setVerified(false);
-        }
         acc.setAccountName(accName);
+        // Trạng thái xác thực theo kết quả tra cứu lần này (verified nếu lookup ok)
+        acc.setVerified(verified);
         acc.setDefault(true);
         acc.setUpdatedAt(LocalDateTime.now());
         return bankAccountRepository.save(acc);

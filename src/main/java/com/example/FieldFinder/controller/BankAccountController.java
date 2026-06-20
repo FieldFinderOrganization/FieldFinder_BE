@@ -1,9 +1,13 @@
 package com.example.FieldFinder.controller;
 
+import com.example.FieldFinder.dto.req.BankAccountLookupRequestDTO;
 import com.example.FieldFinder.dto.req.BankAccountRequestDTO;
+import com.example.FieldFinder.dto.res.BankAccountLookupResponseDTO;
 import com.example.FieldFinder.dto.res.BankAccountResponseDTO;
 import com.example.FieldFinder.repository.UserRepository;
 import com.example.FieldFinder.service.BankAccountService;
+import com.example.FieldFinder.service.banklookup.BankLookupService;
+import com.example.FieldFinder.service.banklookup.BankLookupService.BankLookupResult;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -22,11 +26,14 @@ public class BankAccountController {
 
     private final BankAccountService bankAccountService;
     private final UserRepository userRepository;
+    private final BankLookupService bankLookupService;
 
     public BankAccountController(BankAccountService bankAccountService,
-                                 UserRepository userRepository) {
+                                 UserRepository userRepository,
+                                 BankLookupService bankLookupService) {
         this.bankAccountService = bankAccountService;
         this.userRepository = userRepository;
+        this.bankLookupService = bankLookupService;
     }
 
     private UUID getUserIdFromAuth(Authentication authentication) {
@@ -62,6 +69,15 @@ public class BankAccountController {
         return bankAccountService.getDefault(userId)
                 .<ResponseEntity<?>>map(b -> ResponseEntity.ok(BankAccountResponseDTO.from(b)))
                 .orElseGet(() -> ResponseEntity.ok(Map.of("hasAccount", false)));
+    }
+
+    /** Tra cứu tên chủ TK trước khi lưu (preview). FE hiện tên cho user xác nhận. */
+    @PostMapping("/lookup")
+    public ResponseEntity<?> lookup(@RequestBody BankAccountLookupRequestDTO dto, Authentication authentication) {
+        UUID userId = getUserIdFromAuth(authentication);
+        if (userId == null) return unauthorized();
+        BankLookupResult r = bankLookupService.lookup(dto.bankBin(), dto.accountNumber());
+        return ResponseEntity.ok(new BankAccountLookupResponseDTO(r.ok(), r.accountName(), r.message()));
     }
 
     @PostMapping

@@ -9,11 +9,14 @@ import com.example.FieldFinder.entity.Discount;
 import com.example.FieldFinder.entity.RefundRequest;
 import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.entity.UserDiscount;
+import com.example.FieldFinder.repository.BankAccountRepository;
 import com.example.FieldFinder.repository.DiscountRepository;
 import com.example.FieldFinder.repository.RefundRequestRepository;
 import com.example.FieldFinder.repository.UserDiscountRepository;
 import com.example.FieldFinder.service.EmailService;
 import com.example.FieldFinder.service.RefundService;
+import com.example.FieldFinder.service.banklookup.BankLookupService;
+import com.example.FieldFinder.service.banklookup.BankLookupService.BankLookupResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -39,6 +42,8 @@ public class RefundServiceImpl implements RefundService {
     private final DiscountRepository discountRepository;
     private final UserDiscountRepository userDiscountRepository;
     private final RefundRequestRepository refundRequestRepository;
+    private final BankAccountRepository bankAccountRepository;
+    private final BankLookupService bankLookupService;
     private final EmailService emailService;
 
     @Value("${refund.payout.deadline-hours:24}")
@@ -161,6 +166,24 @@ public class RefundServiceImpl implements RefundService {
                     throw new RuntimeException("Refund đã tồn tại cho " + sourceType + " #" + sourceId);
                 });
 
+        // GATE: chỉ chi tiền mặt khi TK đã xác thực là THẬT. TK chưa verify ⇒
+        // tra cứu lại 1 lần; vẫn không xác thực được ⇒ KHÔNG chi tiền mặt, phát voucher.
+        boolean canCash = bankAccount.isVerified();
+        String gateNote = null;
+        if (!canCash) {
+            BankLookupResult lk = bankLookupService.lookup(
+                    bankAccount.getBankBin(), bankAccount.getAccountNumber());
+            if (lk.ok()) {
+                bankAccount.setVerified(true);
+                bankAccountRepository.save(bankAccount);
+                canCash = true;
+            } else {
+                gateNote = "TK ngân hàng chưa xác thực được"
+                        + (lk.message() != null ? " (" + lk.message() + ")" : "")
+                        + " — đã phát voucher thay tiền mặt.";
+            }
+        }
+
         RefundRequest req = RefundRequest.builder()
                 .user(user)
                 .sourceType(sourceType)
@@ -180,7 +203,13 @@ public class RefundServiceImpl implements RefundService {
 
         // referenceId PayOS ổn định, duy nhất, ≤64 ký tự — dùng làm khóa idempotency phía PayOS
         req.setPayosReferenceId("RF" + req.getRefundId().toString().replace("-", ""));
-        return refundRequestRepository.save(req);
+        req = refundRequestRepository.save(req);
+
+        // TK không xác thực được ⇒ chuyển sang voucher ngay, không bao giờ chi tới TK chưa verify
+        if (!canCash) {
+            return fallbackToVoucher(req, gateNote);
+        }
+        return req;
     }
 
     @Override

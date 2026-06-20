@@ -1,16 +1,21 @@
 package com.example.FieldFinder.service.impl;
 
 import com.example.FieldFinder.Enum.DiscountKind;
+import com.example.FieldFinder.Enum.RefundMethod;
 import com.example.FieldFinder.Enum.RefundSourceType;
 import com.example.FieldFinder.Enum.RefundStatus;
+import com.example.FieldFinder.entity.BankAccount;
 import com.example.FieldFinder.entity.Discount;
 import com.example.FieldFinder.entity.RefundRequest;
 import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.entity.UserDiscount;
+import com.example.FieldFinder.repository.BankAccountRepository;
 import com.example.FieldFinder.repository.DiscountRepository;
 import com.example.FieldFinder.repository.RefundRequestRepository;
 import com.example.FieldFinder.repository.UserDiscountRepository;
 import com.example.FieldFinder.service.EmailService;
+import com.example.FieldFinder.service.banklookup.BankLookupService;
+import com.example.FieldFinder.service.banklookup.BankLookupService.BankLookupResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +41,8 @@ class RefundServiceImplTest {
     @Mock DiscountRepository discountRepository;
     @Mock UserDiscountRepository userDiscountRepository;
     @Mock RefundRequestRepository refundRequestRepository;
+    @Mock BankAccountRepository bankAccountRepository;
+    @Mock BankLookupService bankLookupService;
     @Mock EmailService emailService;
 
     @InjectMocks RefundServiceImpl service;
@@ -138,6 +145,89 @@ class RefundServiceImplTest {
         assertThatThrownBy(() -> service.generateRefundDiscount(BigDecimal.ONE))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Không sinh được mã");
+    }
+
+    /** Mô phỏng JPA gán @GeneratedValue id khi save. */
+    private static RefundRequest saveWithId(org.mockito.invocation.InvocationOnMock inv) {
+        RefundRequest r = inv.getArgument(0);
+        if (r.getRefundId() == null) r.setRefundId(UUID.randomUUID());
+        return r;
+    }
+
+    private BankAccount bankAccount(boolean verified) {
+        return BankAccount.builder()
+                .user(user)
+                .bankBin("970422")
+                .accountNumber("0123456789")
+                .accountName("NGUYEN VAN A")
+                .verified(verified)
+                .build();
+    }
+
+    @Test
+    void issueCashRefund_paysCash_whenAccountAlreadyVerified() {
+        when(refundRequestRepository.findBySourceTypeAndSourceId(any(), any()))
+                .thenReturn(Optional.empty());
+        when(refundRequestRepository.save(any(RefundRequest.class)))
+                .thenAnswer(RefundServiceImplTest::saveWithId);
+
+        RefundRequest result = service.issueCashRefund(
+                user, RefundSourceType.BOOKING, "B1", new BigDecimal("100000"),
+                "huy don", bankAccount(true));
+
+        assertThat(result.getRefundMethod()).isEqualTo(RefundMethod.CASH);
+        assertThat(result.getStatus()).isEqualTo(RefundStatus.PAYOUT_PENDING);
+        assertThat(result.getPayosReferenceId()).startsWith("RF");
+        // TK đã verify ⇒ không cần tra cứu lại, không phát voucher
+        verifyNoInteractions(bankLookupService);
+        verify(userDiscountRepository, never()).save(any());
+    }
+
+    @Test
+    void issueCashRefund_fallsBackToVoucher_whenAccountUnverifiedAndLookupFails() {
+        when(refundRequestRepository.findBySourceTypeAndSourceId(any(), any()))
+                .thenReturn(Optional.empty());
+        when(bankLookupService.lookup("970422", "0123456789"))
+                .thenReturn(BankLookupResult.invalid("Account number invalid"));
+        when(refundRequestRepository.save(any(RefundRequest.class)))
+                .thenAnswer(RefundServiceImplTest::saveWithId);
+        when(discountRepository.existsByCode(anyString())).thenReturn(false);
+        when(discountRepository.save(any(Discount.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        RefundRequest result = service.issueCashRefund(
+                user, RefundSourceType.BOOKING, "B2", new BigDecimal("100000"),
+                "huy don", bankAccount(false));
+
+        // TK chưa xác thực được ⇒ KHÔNG chi tiền mặt, phát voucher thay
+        assertThat(result.getRefundMethod()).isEqualTo(RefundMethod.VOUCHER);
+        assertThat(result.getStatus()).isEqualTo(RefundStatus.ISSUED);
+        assertThat(result.getIssuedDiscount()).isNotNull();
+        verify(userDiscountRepository).save(any(UserDiscount.class));
+        // Không đánh dấu TK verified vì lookup không ok
+        verify(bankAccountRepository, never()).save(any());
+    }
+
+    @Test
+    void issueCashRefund_verifiesThenPaysCash_whenLookupConfirmsAccount() {
+        when(refundRequestRepository.findBySourceTypeAndSourceId(any(), any()))
+                .thenReturn(Optional.empty());
+        when(bankLookupService.lookup("970422", "0123456789"))
+                .thenReturn(BankLookupResult.ok("NGUYEN VAN A"));
+        when(refundRequestRepository.save(any(RefundRequest.class)))
+                .thenAnswer(RefundServiceImplTest::saveWithId);
+
+        BankAccount acc = bankAccount(false);
+        RefundRequest result = service.issueCashRefund(
+                user, RefundSourceType.BOOKING, "B3", new BigDecimal("100000"),
+                "huy don", acc);
+
+        // Lookup xác nhận ⇒ verify TK rồi chi tiền mặt
+        assertThat(acc.isVerified()).isTrue();
+        verify(bankAccountRepository).save(acc);
+        assertThat(result.getRefundMethod()).isEqualTo(RefundMethod.CASH);
+        assertThat(result.getStatus()).isEqualTo(RefundStatus.PAYOUT_PENDING);
+        verify(userDiscountRepository, never()).save(any());
     }
 
     @Test
