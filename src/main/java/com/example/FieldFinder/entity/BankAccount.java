@@ -65,6 +65,20 @@ public class BankAccount {
     @Column(name = "Verified", nullable = false)
     private boolean verified = false;
 
+    /**
+     * Duyệt theo khớp tên với hồ sơ chủ tài khoản app. Khớp ⇒ APPROVED (auto, được nhận tiền);
+     * lệch / chưa tra được ⇒ PENDING_REVIEW (admin xét). Chỉ TK APPROVED mới được payout.
+     */
+    @Builder.Default
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(name = "ReviewStatus", nullable = false, length = 16)
+    private com.example.FieldFinder.Enum.BankReviewStatus reviewStatus =
+            com.example.FieldFinder.Enum.BankReviewStatus.APPROVED;
+
+    /** Lý do/note khi PENDING/REJECTED (vd "tên lệch hồ sơ"). */
+    @Column(name = "ReviewNote", length = 300)
+    private String reviewNote;
+
     @Builder.Default
     @Column(name = "CreatedAt", updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

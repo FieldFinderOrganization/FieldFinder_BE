@@ -32,11 +32,23 @@ public class BookingController {
     private final AIChat aiChat;
     private final RedisService redisService;
 
+    @org.springframework.beans.factory.annotation.Value("${provider.payout.commission-rate:0.05}")
+    private java.math.BigDecimal payoutCommissionRate;
+
     public BookingController(BookingService bookingService, PitchService pitchService, AIChat aiChat, RedisService redisService) {
         this.bookingService = bookingService;
         this.pitchService = pitchService;
         this.aiChat = aiChat;
         this.redisService = redisService;
+    }
+
+    /** Tỷ lệ hoa hồng nền tảng trừ khi giải ngân doanh thu booking cho chủ sân — để FE hiển thị "thực nhận". */
+    @GetMapping("/commission-rate")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Map<String, Object>> getPayoutCommissionRate() {
+        java.math.BigDecimal rate = payoutCommissionRate == null
+                ? java.math.BigDecimal.ZERO : payoutCommissionRate;
+        return ResponseEntity.ok(Map.of("rate", rate));
     }
 
     private UUID getUserIdFromAuth(Authentication authentication) {

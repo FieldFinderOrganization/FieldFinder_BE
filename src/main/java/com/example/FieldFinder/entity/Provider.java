@@ -24,11 +24,8 @@ public class Provider {
     @JoinColumn(name = "user_id")
     private User user;
 
-    @Column(name = "card_number", nullable = true)
-    private String cardNumber;
-
-    @Column(name = "bank", nullable = true)
-    private String bank;
+    // TK ngân hàng nhận tiền của chủ sân lưu ở entity BankAccount (key theo userId) — nguồn DUY NHẤT,
+    // dùng cho cả hiển thị lúc thu tiền lẫn payout. Bỏ card_number/bank cũ (text rời, trùng lặp).
 
     @OneToMany(mappedBy = "provider", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default

@@ -15,15 +15,11 @@ import java.util.UUID;
 public class ProviderResponseDTO {
     private UUID providerId;
     private UUID userId;
-    private String Bank;
-    private String cardNumber;
 
     public static ProviderResponseDTO fromEntity(Provider provider) {
         return new ProviderResponseDTO(
                 provider.getProviderId(),
-                provider.getUser().getUserId(),
-                provider.getBank(),
-                provider.getCardNumber()
+                provider.getUser().getUserId()
         );
     }
 }

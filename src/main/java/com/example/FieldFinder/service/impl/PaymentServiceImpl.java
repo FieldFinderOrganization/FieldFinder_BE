@@ -10,7 +10,6 @@ import com.example.FieldFinder.dto.req.PaymentRequestDTO;
 import com.example.FieldFinder.dto.req.ShopPaymentRequestDTO;
 import com.example.FieldFinder.dto.res.PaymentResponseDTO;
 import com.example.FieldFinder.entity.*;
-import com.example.FieldFinder.mapper.BankBinMapper;
 import com.example.FieldFinder.repository.*;
 import com.example.FieldFinder.service.PaymentService;
 import com.example.FieldFinder.service.ProductService;
@@ -71,13 +70,12 @@ public class PaymentServiceImpl implements PaymentService {
 
         Provider provider = bookingDetail.getPitch().getProviderAddress().getProvider();
 
-        if (provider == null || provider.getBank() == null || provider.getCardNumber() == null)
-            throw new RuntimeException("Provider or bank info missing!");
+        if (provider == null || provider.getUser() == null)
+            throw new RuntimeException("Provider info missing!");
 
-        String bankName = provider.getBank();
-        String bankBin = BankBinMapper.getBankBin(bankName);
-        if (bankBin == null)
-            throw new RuntimeException("Không tìm thấy mã bankBin cho: " + bankName);
+        // TK nhận tiền của chủ sân lấy từ Tài khoản ngân hàng đã đăng ký (nguồn DUY NHẤT, đã verify).
+        BankAccount providerBank = bankAccountService.getDefault(provider.getUser().getUserId())
+                .orElseThrow(() -> new RuntimeException("Chủ sân chưa đăng ký tài khoản ngân hàng nhận tiền!"));
 
         int orderCode = generateOrderCode();
 
@@ -90,6 +88,10 @@ public class PaymentServiceImpl implements PaymentService {
 
         PaymentMethod paymentMethod = parsePaymentMethod(requestDTO.getPaymentMethod());
 
+        String ownerDisplayName = (providerBank.getAccountName() != null && !providerBank.getAccountName().isBlank())
+                ? providerBank.getAccountName()
+                : (provider.getUser().getName() != null ? provider.getUser().getName() : "Chủ sân");
+
         Payment payment = Payment.builder()
                 .booking(booking)
                 .user(booking.getUser())
@@ -99,9 +101,9 @@ public class PaymentServiceImpl implements PaymentService {
                 .checkoutUrl(result.checkoutUrl())
                 .transactionId(result.paymentLinkId())
                 .qrCode(result.qrCode())
-                .ownerName(provider.getUser() != null ? provider.getUser().getName() : "Chủ sân")
-                .ownerCardNumber(provider.getCardNumber())
-                .ownerBank(provider.getBank())
+                .ownerName(ownerDisplayName)
+                .ownerCardNumber(providerBank.getAccountNumber())
+                .ownerBank(providerBank.getBankName())
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -109,9 +111,9 @@ public class PaymentServiceImpl implements PaymentService {
         paymentRepository.save(payment);
         PaymentResponseDTO responseDTO = convertToDTO(payment);
         responseDTO.setQrCode(result.qrCode());
-        responseDTO.setOwnerName(provider.getUser() != null ? provider.getUser().getName() : "Chủ sân");
-        responseDTO.setOwnerCardNumber(provider.getCardNumber());
-        responseDTO.setOwnerBank(provider.getBank());
+        responseDTO.setOwnerName(ownerDisplayName);
+        responseDTO.setOwnerCardNumber(providerBank.getAccountNumber());
+        responseDTO.setOwnerBank(providerBank.getBankName());
 
         return responseDTO;
     }

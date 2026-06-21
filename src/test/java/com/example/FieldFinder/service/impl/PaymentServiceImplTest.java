@@ -6,6 +6,7 @@ import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.dto.req.PaymentRequestDTO;
 import com.example.FieldFinder.dto.req.ShopPaymentRequestDTO;
 import com.example.FieldFinder.dto.res.PaymentResponseDTO;
+import com.example.FieldFinder.entity.BankAccount;
 import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.entity.BookingDetail;
 import com.example.FieldFinder.entity.Order;
@@ -14,6 +15,7 @@ import com.example.FieldFinder.entity.Pitch;
 import com.example.FieldFinder.entity.Provider;
 import com.example.FieldFinder.entity.ProviderAddress;
 import com.example.FieldFinder.entity.User;
+import com.example.FieldFinder.service.BankAccountService;
 import com.example.FieldFinder.repository.BookingRepository;
 import com.example.FieldFinder.repository.OrderRepository;
 import com.example.FieldFinder.repository.PaymentRepository;
@@ -63,6 +65,7 @@ class PaymentServiceImplTest {
     @Mock DiscountUsageService discountUsageService;
     @Mock NotificationService notificationService;
     @Mock PaymentStrategy paymentStrategy;
+    @Mock BankAccountService bankAccountService;
 
     @InjectMocks PaymentServiceImpl service;
 
@@ -83,9 +86,8 @@ class PaymentServiceImplTest {
         void valid_returnsResponseDTO() {
             UUID bookingId = UUID.randomUUID();
             Provider provider = new Provider();
-            provider.setBank("VCB");
-            provider.setCardNumber("1234567890");
             User providerUser = new User();
+            providerUser.setUserId(UUID.randomUUID());
             providerUser.setName("Owner");
             provider.setUser(providerUser);
 
@@ -103,7 +105,13 @@ class PaymentServiceImplTest {
                     .build();
             bd.setBooking(booking);
 
+            BankAccount providerBank = BankAccount.builder()
+                    .bankBin("970436").bankName("VCB")
+                    .accountNumber("1234567890").accountName("OWNER")
+                    .build();
+
             when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(booking));
+            when(bankAccountService.getDefault(any())).thenReturn(Optional.of(providerBank));
             when(payOSService.createPayment(any(), anyInt(), anyString(), anyString(), anyString()))
                     .thenReturn(new PayOSService.PaymentResult("url", "linkId", "qr"));
 
@@ -136,9 +144,12 @@ class PaymentServiceImplTest {
         }
 
         @Test
-        void missingProviderBank_ThrowsException() {
+        void providerHasNoBankAccount_ThrowsException() {
             UUID bookingId = UUID.randomUUID();
-            Provider provider = new Provider(); // no bank/card
+            Provider provider = new Provider();
+            User providerUser = new User();
+            providerUser.setUserId(UUID.randomUUID());
+            provider.setUser(providerUser);
             ProviderAddress addr = new ProviderAddress();
             addr.setProvider(provider);
             Pitch pitch = new Pitch();
@@ -149,13 +160,14 @@ class PaymentServiceImplTest {
             Booking booking = Booking.builder()
                     .bookingId(bookingId).user(user).bookingDetails(List.of(bd)).build();
             when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(booking));
+            when(bankAccountService.getDefault(any())).thenReturn(Optional.empty());
 
             PaymentRequestDTO req = new PaymentRequestDTO();
             req.setBookingId(bookingId);
 
             RuntimeException ex = assertThrows(RuntimeException.class,
                     () -> service.createPaymentQRCode(req));
-            assertTrue(ex.getMessage().contains("Provider or bank info missing"));
+            assertTrue(ex.getMessage().contains("chưa đăng ký tài khoản ngân hàng"));
         }
     }
 

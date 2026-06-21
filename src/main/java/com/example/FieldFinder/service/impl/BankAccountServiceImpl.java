@@ -25,6 +25,8 @@ public class BankAccountServiceImpl implements BankAccountService {
     private final BankAccountRepository bankAccountRepository;
     private final UserRepository userRepository;
     private final BankLookupService bankLookupService;
+    private final com.example.FieldFinder.service.NotificationService notificationService;
+    private final com.example.FieldFinder.service.EmailService emailService;
 
     @Override
     public List<BankAccount> listMine(UUID userId) {
@@ -90,11 +92,105 @@ public class BankAccountServiceImpl implements BankAccountService {
         acc.setBankName(trimToNull(dto.bankName()));
         acc.setAccountNumber(accNo);
         acc.setAccountName(accName);
-        // Trạng thái xác thực theo kết quả tra cứu lần này (verified nếu lookup ok)
         acc.setVerified(verified);
         acc.setDefault(true);
         acc.setUpdatedAt(LocalDateTime.now());
-        return bankAccountRepository.save(acc);
+
+        // Khớp tên kiểu TOKEN-SET (tham chiếu Confirmation of Payee / penny-drop của fintech): khớp mạnh
+        // ⇒ AUTO-DUYỆT; khớp một phần / khác người / chưa tra được ⇒ CHỜ ADMIN (không từ chối thẳng).
+        String profileName = normalizeName(user.getName());
+        com.example.FieldFinder.Enum.BankReviewStatus status;
+        String note = null;
+        if (verified && nameMatchesStrong(profileName, accName)) {
+            status = com.example.FieldFinder.Enum.BankReviewStatus.APPROVED;
+        } else {
+            status = com.example.FieldFinder.Enum.BankReviewStatus.PENDING_REVIEW;
+            if (!verified) {
+                note = "Chưa tra cứu được tên chủ TK — chờ duyệt.";
+            } else if (tokenOverlap(profileName, accName) == 0) {
+                note = "Tên TK \"" + accName + "\" khác hoàn toàn tên hồ sơ \"" + profileName
+                        + "\" — nghi khác người, cần xét.";
+            } else {
+                note = "Tên TK \"" + accName + "\" khớp một phần tên hồ sơ \"" + profileName
+                        + "\" — cần xét.";
+            }
+        }
+        acc.setReviewStatus(status);
+        acc.setReviewNote(note);
+        BankAccount saved = bankAccountRepository.save(acc);
+
+        // Đổi TK luôn báo user (phát hiện đổi lén); lệch tên thì báo thêm admin.
+        notifyBankChanged(user, saved);
+        if (status == com.example.FieldFinder.Enum.BankReviewStatus.PENDING_REVIEW) {
+            notifyAdminsPendingReview(user, saved);
+        }
+        return saved;
+    }
+
+    @Override
+    public List<BankAccount> listPendingReview() {
+        return bankAccountRepository.findByReviewStatusOrderByUpdatedAtDesc(
+                com.example.FieldFinder.Enum.BankReviewStatus.PENDING_REVIEW);
+    }
+
+    @Override
+    @Transactional
+    public BankAccount review(UUID bankAccountId, boolean approve, String note) {
+        BankAccount acc = bankAccountRepository.findById(bankAccountId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tài khoản ngân hàng!"));
+        acc.setReviewStatus(approve
+                ? com.example.FieldFinder.Enum.BankReviewStatus.APPROVED
+                : com.example.FieldFinder.Enum.BankReviewStatus.REJECTED);
+        acc.setReviewNote(note);
+        acc.setUpdatedAt(LocalDateTime.now());
+        BankAccount saved = bankAccountRepository.save(acc);
+        if (saved.getUser() != null) {
+            try {
+                notificationService.notify(saved.getUser().getUserId(), "BANK_REVIEW_RESULT",
+                        approve ? "TK nhận tiền đã được duyệt" : "TK nhận tiền bị từ chối",
+                        approve ? "Tài khoản nhận tiền của bạn đã được duyệt, có thể nhận tiền."
+                                : ("Tài khoản nhận tiền bị từ chối" + (note != null ? ": " + note : "") + "."),
+                        "BANK", saved.getBankAccountId().toString());
+            } catch (Exception ignored) {}
+        }
+        return saved;
+    }
+
+    private void notifyBankChanged(User user, BankAccount acc) {
+        boolean pending = acc.getReviewStatus() == com.example.FieldFinder.Enum.BankReviewStatus.PENDING_REVIEW;
+        String masked = maskAcc(acc.getAccountNumber());
+        String label = (acc.getBankName() != null ? acc.getBankName() + " " : "") + masked;
+        try {
+            notificationService.notify(user.getUserId(), "BANK_ACCOUNT_CHANGED",
+                    "Tài khoản nhận tiền đã thay đổi",
+                    "TK nhận tiền vừa đổi thành " + label + (pending ? " (đang chờ duyệt)." : "."),
+                    "BANK", acc.getBankAccountId().toString());
+        } catch (Exception ignored) {}
+        try {
+            if (user.getEmail() != null) {
+                emailService.send(user.getEmail(), "Tài khoản nhận tiền đã thay đổi",
+                        "Bạn vừa đặt TK nhận tiền: " + label
+                                + (pending ? ". TK đang CHỜ DUYỆT do tên lệch hồ sơ; hệ thống sẽ xét sớm." : ".")
+                                + " Nếu KHÔNG phải bạn, hãy đổi mật khẩu/PIN ngay.");
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void notifyAdminsPendingReview(User user, BankAccount acc) {
+        try {
+            for (User admin : userRepository.findByRole(User.Role.ADMIN)) {
+                notificationService.notify(admin.getUserId(), "BANK_REVIEW_PENDING",
+                        "TK nhận tiền cần duyệt",
+                        "User " + (user.getName() != null ? user.getName() : user.getUserId())
+                                + " thêm TK " + maskAcc(acc.getAccountNumber()) + " — tên lệch hồ sơ, cần xét.",
+                        "BANK", acc.getBankAccountId().toString());
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private static String maskAcc(String acc) {
+        if (acc == null || acc.length() <= 4) return acc;
+        return "*".repeat(acc.length() - 4) + acc.substring(acc.length() - 4);
     }
 
     @Override
@@ -126,6 +222,41 @@ public class BankAccountServiceImpl implements BankAccountService {
         if (s == null) return null;
         String t = s.trim();
         return t.isEmpty() ? null : t;
+    }
+
+    /** Title phổ biến cần loại khỏi tên trước khi so token (đã chuẩn hóa: bỏ dấu, in hoa). */
+    private static final java.util.Set<String> NAME_TITLES =
+            java.util.Set.of("MR", "MRS", "MS", "ONG", "BA", "ANH", "CHI", "CO", "CHU", "BAC");
+
+    /** Tách tên (đã normalize) thành tập token, bỏ title. */
+    private static java.util.Set<String> nameTokens(String normalized) {
+        java.util.Set<String> set = new java.util.HashSet<>();
+        if (normalized == null) return set;
+        for (String t : normalized.split("\\s+")) {
+            if (!t.isBlank() && !NAME_TITLES.contains(t)) set.add(t);
+        }
+        return set;
+    }
+
+    /**
+     * Khớp mạnh (auto-duyệt): tập token nhỏ ⊆ tập token lớn VÀ tập nhỏ có ≥ 2 token.
+     * → "MINH TRIET" khớp "HUYNH MINH TRIET" (thiếu họ vẫn ok); chặn 1 token trùng tình cờ.
+     */
+    private static boolean nameMatchesStrong(String a, String b) {
+        java.util.Set<String> ta = nameTokens(a);
+        java.util.Set<String> tb = nameTokens(b);
+        if (ta.isEmpty() || tb.isEmpty()) return false;
+        java.util.Set<String> small = ta.size() <= tb.size() ? ta : tb;
+        java.util.Set<String> large = ta.size() <= tb.size() ? tb : ta;
+        if (small.size() < 2) return false;
+        return large.containsAll(small);
+    }
+
+    /** Số token chung giữa hai tên — 0 = nghi khác người, >0 = khớp một phần. */
+    private static int tokenOverlap(String a, String b) {
+        java.util.Set<String> ta = nameTokens(a);
+        ta.retainAll(nameTokens(b));
+        return ta.size();
     }
 
     /** Chuẩn hóa tên chủ TK: bỏ dấu, in hoa, gộp khoảng trắng — khớp định dạng ngân hàng. */

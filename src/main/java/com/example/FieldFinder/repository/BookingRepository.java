@@ -99,6 +99,16 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     @Query("SELECT b FROM Booking b LEFT JOIN FETCH b.user LEFT JOIN FETCH b.bookingDetails bd LEFT JOIN FETCH bd.pitch WHERE b.status = :status ORDER BY b.createdAt DESC")
     Page<Booking> findAllByStatusWithDetails(@Param("status") BookingStatus status, Pageable pageable);
 
+    /** Tổng giá các đơn CONFIRMED+PAID còn ở tương lai (chưa đá xong) của 1 chủ sân — để tính reserve ví. */
+    @Query("SELECT COALESCE(SUM(b.totalPrice), 0) FROM Booking b " +
+            "WHERE b.status = com.example.FieldFinder.Enum.BookingStatus.CONFIRMED " +
+            "AND b.paymentStatus = com.example.FieldFinder.Enum.PaymentStatus.PAID " +
+            "AND b.bookingDate >= :fromDate " +
+            "AND b.bookingId IN (SELECT bd.booking.bookingId FROM BookingDetail bd " +
+            "  WHERE bd.pitch.providerAddress.provider.providerId = :providerId)")
+    BigDecimal sumUpcomingConfirmedByProvider(@Param("providerId") UUID providerId,
+                                              @Param("fromDate") LocalDate fromDate);
+
     @Query("SELECT b FROM Booking b " +
             "WHERE (:status IS NULL OR b.status = :status) " +
             "AND (:startDate IS NULL OR b.bookingDate >= :startDate) " +

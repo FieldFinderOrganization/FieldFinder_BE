@@ -170,22 +170,28 @@ public class RefundServiceImpl implements RefundService {
                     throw new RuntimeException("Refund đã tồn tại cho " + sourceType + " #" + sourceId);
                 });
 
-        // GATE: chỉ chi tiền mặt khi TK đã xác thực là THẬT. TK chưa verify ⇒
-        // tra cứu lại 1 lần; vẫn không xác thực được ⇒ KHÔNG chi tiền mặt, phát voucher.
-        // Khi tắt lookup (chưa có provider sống) ⇒ bỏ gate, chi cash để PayOS validate.
-        boolean canCash = bankAccount.isVerified() || !lookupEnabled;
+        // GATE: chỉ chi tiền mặt khi TK đã DUYỆT (tên khớp hồ sơ / admin duyệt) VÀ xác thực là THẬT.
+        // Chưa duyệt ⇒ phát voucher (chống chuyển tiền sai danh tính). Chưa verify ⇒ tra cứu lại 1 lần.
+        // Khi tắt lookup (chưa có provider sống) ⇒ bỏ gate verify, chi cash để PayOS validate.
+        boolean approved = bankAccount.getReviewStatus()
+                == com.example.FieldFinder.Enum.BankReviewStatus.APPROVED;
+        boolean canCash = approved && (bankAccount.isVerified() || !lookupEnabled);
         String gateNote = null;
         if (!canCash) {
-            BankLookupResult lk = bankLookupService.lookup(
-                    bankAccount.getBankBin(), bankAccount.getAccountNumber());
-            if (lk.ok()) {
-                bankAccount.setVerified(true);
-                bankAccountRepository.save(bankAccount);
-                canCash = true;
+            if (!approved) {
+                gateNote = "TK nhận tiền chưa được duyệt — đã phát voucher thay tiền mặt.";
             } else {
-                gateNote = "TK ngân hàng chưa xác thực được"
-                        + (lk.message() != null ? " (" + lk.message() + ")" : "")
-                        + " — đã phát voucher thay tiền mặt.";
+                BankLookupResult lk = bankLookupService.lookup(
+                        bankAccount.getBankBin(), bankAccount.getAccountNumber());
+                if (lk.ok()) {
+                    bankAccount.setVerified(true);
+                    bankAccountRepository.save(bankAccount);
+                    canCash = true;
+                } else {
+                    gateNote = "TK ngân hàng chưa xác thực được"
+                            + (lk.message() != null ? " (" + lk.message() + ")" : "")
+                            + " — đã phát voucher thay tiền mặt.";
+                }
             }
         }
 

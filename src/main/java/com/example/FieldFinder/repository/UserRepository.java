@@ -24,6 +24,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByUserId(UUID userId);
 
+    /** Danh sách user theo vai trò — dùng để báo admin khi có TK chờ duyệt. */
+    List<User> findByRole(User.Role role);
+
     @Query("SELECT u.name FROM User u WHERE u.userId = :id")
     String findNameByProviderId(@Param("id") UUID providerId);
 

@@ -1,5 +1,6 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.Enum.RefundSourceType;
 import com.example.FieldFinder.Enum.RefundStatus;
 import com.example.FieldFinder.entity.RefundRequest;
 import com.example.FieldFinder.repository.BankAccountRepository;
@@ -32,6 +33,7 @@ public class RefundPayoutProcessor {
     private final BankAccountRepository bankAccountRepository;
     private final PayoutProvider payoutProvider;
     private final RefundService refundService;
+    private final com.example.FieldFinder.service.NotificationService notificationService;
 
     @Value("${refund.payout.max-attempts:5}")
     private int maxAttempts;
@@ -152,7 +154,44 @@ public class RefundPayoutProcessor {
                 });
         System.out.println("[Payout] Hoàn tiền thành công refund " + r.getRefundId()
                 + " amount=" + r.getAmount() + " -> " + r.getBankAccountNumber());
-        // TODO: gửi thông báo in-app + email cho user "đã hoàn tiền"
+        notifyPaidOut(r);
+    }
+
+    /** Báo in-app cho người nhận khi PayOS chi thành công (chủ sân nhận doanh thu/bồi thường, hoặc khách được hoàn). */
+    private void notifyPaidOut(RefundRequest r) {
+        if (r.getUser() == null || r.getSourceType() == null) return;
+        String amount = formatVnd(r.getAmount());
+        String type;
+        String title;
+        String body;
+        switch (r.getSourceType()) {
+            case BOOKING_PAYOUT -> {
+                type = "PROVIDER_PAYOUT";
+                title = "Đã nhận doanh thu sân";
+                body = "Bạn đã nhận " + amount + " doanh thu đặt sân.";
+            }
+            case BOOKING_HOST -> {
+                type = "PROVIDER_PAYOUT";
+                title = "Đã nhận tiền bồi thường";
+                body = "Bạn đã nhận " + amount + " tiền bồi thường khách hủy sát giờ.";
+            }
+            default -> {
+                type = "REFUND_PAID";
+                title = "Đã hoàn tiền";
+                body = "Đã hoàn " + amount + " về tài khoản ngân hàng của bạn.";
+            }
+        }
+        String refType = (r.getSourceType() == RefundSourceType.ORDER) ? "ORDER" : "BOOKING";
+        try {
+            notificationService.notify(r.getUser().getUserId(), type, title, body, refType, r.getSourceId());
+        } catch (Exception e) {
+            System.err.println("Lỗi gửi notify payout " + r.getRefundId() + ": " + e.getMessage());
+        }
+    }
+
+    private static String formatVnd(BigDecimal amount) {
+        if (amount == null) return "0đ";
+        return String.format("%,d", amount.longValue()) + "đ";
     }
 
     private void alertAdmin(RefundRequest r, String msg) {

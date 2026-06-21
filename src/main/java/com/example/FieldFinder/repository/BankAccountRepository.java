@@ -15,4 +15,8 @@ public interface BankAccountRepository extends JpaRepository<BankAccount, UUID> 
 
     Optional<BankAccount> findByUser_UserIdAndBankBinAndAccountNumber(
             UUID userId, String bankBin, String accountNumber);
+
+    /** TK đang chờ admin duyệt (tên lệch hồ sơ). */
+    List<BankAccount> findByReviewStatusOrderByUpdatedAtDesc(
+            com.example.FieldFinder.Enum.BankReviewStatus reviewStatus);
 }

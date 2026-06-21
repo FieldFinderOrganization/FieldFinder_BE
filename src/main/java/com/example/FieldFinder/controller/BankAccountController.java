@@ -27,13 +27,16 @@ public class BankAccountController {
     private final BankAccountService bankAccountService;
     private final UserRepository userRepository;
     private final BankLookupService bankLookupService;
+    private final com.example.FieldFinder.service.PaymentPinService pinService;
 
     public BankAccountController(BankAccountService bankAccountService,
                                  UserRepository userRepository,
-                                 BankLookupService bankLookupService) {
+                                 BankLookupService bankLookupService,
+                                 com.example.FieldFinder.service.PaymentPinService pinService) {
         this.bankAccountService = bankAccountService;
         this.userRepository = userRepository;
         this.bankLookupService = bankLookupService;
+        this.pinService = pinService;
     }
 
     private UUID getUserIdFromAuth(Authentication authentication) {
@@ -81,9 +84,12 @@ public class BankAccountController {
     }
 
     @PostMapping
-    public ResponseEntity<?> save(@RequestBody BankAccountRequestDTO dto, Authentication authentication) {
+    public ResponseEntity<?> save(@RequestBody BankAccountRequestDTO dto,
+                                  @RequestHeader(value = "X-Payment-Pin", required = false) String pin,
+                                  Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
         if (userId == null) return unauthorized();
+        pinService.requireVerified(userId, pin); // gác bằng PIN: chưa có ⇒ 428 PIN_REQUIRED; sai ⇒ 400/423
         try {
             return ResponseEntity.ok(BankAccountResponseDTO.from(
                     bankAccountService.saveOrUpdate(userId, dto)));
@@ -93,9 +99,12 @@ public class BankAccountController {
     }
 
     @PutMapping("/{bankAccountId}/default")
-    public ResponseEntity<?> setDefault(@PathVariable UUID bankAccountId, Authentication authentication) {
+    public ResponseEntity<?> setDefault(@PathVariable UUID bankAccountId,
+                                        @RequestHeader(value = "X-Payment-Pin", required = false) String pin,
+                                        Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
         if (userId == null) return unauthorized();
+        pinService.requireVerified(userId, pin);
         return ResponseEntity.ok(BankAccountResponseDTO.from(
                 bankAccountService.setDefault(userId, bankAccountId)));
     }
@@ -106,6 +115,25 @@ public class BankAccountController {
         if (userId == null) return unauthorized();
         bankAccountService.delete(userId, bankAccountId);
         return ResponseEntity.noContent().build();
+    }
+
+    // ----- Admin: duyệt TK tên lệch hồ sơ -----
+
+    @GetMapping("/admin/pending")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> pendingReview() {
+        List<BankAccountResponseDTO> out = bankAccountService.listPendingReview().stream()
+                .map(BankAccountResponseDTO::from).toList();
+        return ResponseEntity.ok(out);
+    }
+
+    @PostMapping("/admin/{bankAccountId}/review")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> review(@PathVariable UUID bankAccountId,
+                                    @RequestParam boolean approve,
+                                    @RequestParam(required = false) String note) {
+        return ResponseEntity.ok(BankAccountResponseDTO.from(
+                bankAccountService.review(bankAccountId, approve, note)));
     }
 
     private ResponseEntity<?> unauthorized() {

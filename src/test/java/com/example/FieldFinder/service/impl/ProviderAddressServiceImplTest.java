@@ -23,7 +23,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -82,8 +81,8 @@ class ProviderAddressServiceImplTest {
         void success_ReturnsResponseDTO() {
             when(providerRepository.findById(requestDTO.getProviderId())).thenReturn(Optional.of(provider));
             when(addressRepository.save(any(ProviderAddress.class))).thenReturn(address);
-            when(geocodingService.geocodeAsync(anyString()))
-                    .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+            when(geocodingService.geocode(anyString()))
+                    .thenReturn(Optional.of(new GeocodingService.LatLng(21.0, 105.8)));
 
             ProviderAddressResponseDTO result = addressService.addAddress(requestDTO);
 
@@ -120,8 +119,8 @@ class ProviderAddressServiceImplTest {
                                             .provider(provider)
                                                     .build();
             when(addressRepository.save(any(ProviderAddress.class))).thenReturn(updatedAddress);
-            when(geocodingService.geocodeAsync(anyString()))
-                    .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+            when(geocodingService.geocode(anyString()))
+                    .thenReturn(Optional.of(new GeocodingService.LatLng(21.0, 105.8)));
 
             ProviderAddressResponseDTO result = addressService.updateAddress(addressId, requestDTO);
 
