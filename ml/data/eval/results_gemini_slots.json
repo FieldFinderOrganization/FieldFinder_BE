@@ -1,0 +1,11 @@
+{
+  "total_test_cases": 15,
+  "accuracies": {
+    "action": 86.67,
+    "pitchType": 93.33,
+    "bookingDate": 100.0,
+    "slotList": 100.0,
+    "location": 100.0,
+    "strict_match": 80.0
+  }
+}

@@ -48,6 +48,7 @@ class WalletServiceImplTest {
         ReflectionTestUtils.setField(service, "reserveRate", new BigDecimal("0.10"));
         ReflectionTestUtils.setField(service, "blockGraceDays", 7L);
         ReflectionTestUtils.setField(service, "withdrawDeadlineHours", 24L);
+        ReflectionTestUtils.setField(service, "minWithdraw", new BigDecimal("10000"));
         pid = UUID.randomUUID();
         provider = new Provider();
         provider.setProviderId(pid);
@@ -130,6 +131,17 @@ class WalletServiceImplTest {
 
         assertThat(service.computeReserve(pid)).isEqualByComparingTo("100000");
         assertThat(service.computeWithdrawable(pid)).isEqualByComparingTo("400000"); // 500000 - 100000
+    }
+
+    @Test
+    void getMinWithdraw_returnsConfiguredFloor() {
+        assertThat(service.getMinWithdraw()).isEqualByComparingTo("10000");
+    }
+
+    @Test
+    void getMinWithdraw_nullConfig_fallsBackToZero() {
+        ReflectionTestUtils.setField(service, "minWithdraw", null);
+        assertThat(service.getMinWithdraw()).isEqualByComparingTo("0");
     }
 
     @Test

@@ -49,6 +49,11 @@ public class WalletController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(java.util.Map.of("message", "Số tiền không hợp lệ."));
         }
+        java.math.BigDecimal minWithdraw = walletService.getMinWithdraw();
+        if (amount.compareTo(minWithdraw) < 0) {
+            return ResponseEntity.badRequest().body(java.util.Map.of(
+                    "message", "Số tiền rút tối thiểu là " + minWithdraw + "đ."));
+        }
         java.math.BigDecimal withdrawable = walletService.computeWithdrawable(provider.getProviderId());
         if (amount.signum() <= 0 || amount.compareTo(withdrawable) > 0) {
             return ResponseEntity.badRequest().body(java.util.Map.of(
@@ -121,6 +126,7 @@ public class WalletController {
                 .balance(walletService.getBalance(pid))
                 .reserve(walletService.computeReserve(pid))
                 .withdrawable(walletService.computeWithdrawable(pid))
+                .minWithdraw(walletService.getMinWithdraw())
                 .blocked(walletService.isBlocked(pid))
                 .negativeSince(walletService.getNegativeSince(pid))
                 .blockGraceDays(walletService.getBlockGraceDays())

@@ -6,6 +6,15 @@
     "NDCG@10": 0.7688500665242443,
     "n_users": 301
   },
+  "sasrec_full": {
+    "HR@5": 0.8205980066445183,
+    "HR@10": 0.9069767441860465,
+    "NDCG@5": 0.6674672081900663,
+    "NDCG@10": 0.6956469169240309,
+    "n_users": 301,
+    "num_items": 206,
+    "protocol": "full-ranking (vs all items, exclude seen)"
+  },
   "deepfm": {
     "auc": 0.5497927207050411,
     "logloss": 0.5617146883069658,

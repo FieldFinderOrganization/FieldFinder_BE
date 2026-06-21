@@ -124,7 +124,8 @@ def main():
     log.info("Device: %s", device)
 
     results = {
-        "sasrec": eval_sasrec(device),
+        "sasrec": eval_sasrec(device),            # sampled-100 (giữ để so sánh, phụ thuộc seed)
+        "sasrec_full": eval_sasrec_full(device),  # full-ranking (TẤT ĐỊNH — số chuẩn để báo cáo)
         "deepfm": eval_deepfm(device),
     }
 

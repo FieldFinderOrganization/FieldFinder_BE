@@ -56,7 +56,8 @@ public class WalletPayoutProcessor {
                 continue;
             }
             BigDecimal withdrawable = walletService.computeWithdrawable(provider.getProviderId());
-            if (withdrawable.signum() <= 0) continue;
+            // Dưới sàn rút tối thiểu ⇒ giữ trong ví, gom đủ rồi rút (tránh phí payout > tiền lẻ).
+            if (withdrawable.compareTo(walletService.getMinWithdraw()) < 0) continue;
 
             Optional<BankAccount> bank = bankAccountService.getDefault(provider.getUser().getUserId());
             // Chưa liên kết TK / TK chưa được DUYỆT (tên lệch hồ sơ) ⇒ giữ trong ví, không chi.

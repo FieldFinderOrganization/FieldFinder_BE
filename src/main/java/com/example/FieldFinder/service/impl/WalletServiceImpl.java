@@ -50,6 +50,10 @@ public class WalletServiceImpl implements WalletService {
     @Value("${provider.wallet.withdraw-deadline-hours:24}")
     private long withdrawDeadlineHours;
 
+    /** Sàn rút tối thiểu mỗi lệnh (chống rút lẻ + phí payout). */
+    @Value("${provider.wallet.min-withdraw:10000}")
+    private BigDecimal minWithdraw;
+
     @Override
     @Transactional
     public ProviderWallet getOrCreate(Provider provider) {
@@ -158,6 +162,11 @@ public class WalletServiceImpl implements WalletService {
         BigDecimal balance = getBalance(providerId);
         BigDecimal w = balance.subtract(computeReserve(providerId));
         return w.signum() > 0 ? w : BigDecimal.ZERO;
+    }
+
+    @Override
+    public BigDecimal getMinWithdraw() {
+        return minWithdraw == null ? BigDecimal.ZERO : minWithdraw;
     }
 
     @Override

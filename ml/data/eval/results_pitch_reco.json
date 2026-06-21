@@ -1,0 +1,19 @@
+{
+  "total_users": 100,
+  "total_pitches": 34,
+  "weather_condition": "RAINY",
+  "baseline": {
+    "hr1": 68.0,
+    "hr5": 100.0,
+    "hr10": 100.0,
+    "mrr": 0.83,
+    "avg_latency_ms": 0.017
+  },
+  "ai": {
+    "hr1": 85.0,
+    "hr5": 100.0,
+    "hr10": 100.0,
+    "mrr": 0.9233,
+    "avg_latency_ms": 0.069
+  }
+}

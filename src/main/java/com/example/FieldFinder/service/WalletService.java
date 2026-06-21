@@ -31,6 +31,9 @@ public interface WalletService {
     /** Rút được = max(0, số dư − reserve). */
     BigDecimal computeWithdrawable(UUID providerId);
 
+    /** Số tiền tối thiểu mỗi lệnh rút (sàn chống rút lẻ + phí payout). */
+    BigDecimal getMinWithdraw();
+
     boolean isBlocked(UUID providerId);
 
     /** Thời điểm ví bắt đầu âm (null nếu ≥0) — để FE đếm ngược hạn trước khi bị chặn. */
