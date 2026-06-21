@@ -25,6 +25,11 @@ public interface ProviderWalletRepository extends JpaRepository<ProviderWallet, 
     @Query("SELECT w FROM ProviderWallet w WHERE w.balance > 0")
     List<ProviderWallet> findAllPositive();
 
+    /** Ví âm (nợ chủ sân) cho admin xem/xử lý. */
+    @Query("SELECT w FROM ProviderWallet w LEFT JOIN FETCH w.provider p LEFT JOIN FETCH p.user " +
+            "WHERE w.balance < 0 ORDER BY w.negativeSince ASC")
+    List<ProviderWallet> findAllNegative();
+
     /** Ví âm quá hạn (đánh dấu âm trước cutoff) ⇒ chặn booking. */
     boolean existsByProvider_ProviderIdAndBalanceLessThanAndNegativeSinceBefore(
             UUID providerId, java.math.BigDecimal zero, LocalDateTime cutoff);

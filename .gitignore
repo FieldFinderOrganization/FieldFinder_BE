@@ -74,3 +74,7 @@ CLAUDE.md
 .gitignore
 .claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md
 AGENTS.md
+ml/checkpoints/metrics.json
+ml/data/eval/BAOCAO_Recsys.md
+ml/scripts/gen_recsys_report.py
+ml/src/eval/evaluate.py
