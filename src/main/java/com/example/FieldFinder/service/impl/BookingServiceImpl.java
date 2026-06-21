@@ -56,9 +56,7 @@ public class BookingServiceImpl implements BookingService {
     private final EmailService emailService;
     private final RefundService refundService;
     private final com.example.FieldFinder.service.BankAccountService bankAccountService;
-    private final com.example.FieldFinder.repository.ProviderDebtRepository providerDebtRepository;
-    @org.springframework.beans.factory.annotation.Value("${provider.debt.settle-days:7}")
-    private long providerDebtSettleDays;
+    private final com.example.FieldFinder.service.WalletService walletService;
     /** Tỷ lệ hoa hồng nền tảng trừ khi giải ngân doanh thu booking cho chủ sân (0..1). Mặc định 5%. */
     @org.springframework.beans.factory.annotation.Value("${provider.payout.commission-rate:0.05}")
     private java.math.BigDecimal payoutCommissionRate;
@@ -172,11 +170,8 @@ public class BookingServiceImpl implements BookingService {
         if (pitch.getProviderAddress() != null
                 && pitch.getProviderAddress().getProvider() != null) {
             UUID pitchProviderId = pitch.getProviderAddress().getProvider().getProviderId();
-            boolean blocked = providerDebtRepository
-                    .existsByProvider_ProviderIdAndStatusAndDeadlineAtBefore(
-                            pitchProviderId,
-                            com.example.FieldFinder.Enum.ProviderDebtStatus.OUTSTANDING,
-                            LocalDateTime.now());
+            // Chặn nhận booking khi ví chủ sân âm (nợ) quá hạn grace.
+            boolean blocked = walletService.isBlocked(pitchProviderId);
             if (blocked) {
                 throw new RuntimeException(
                         "Sân này tạm thời không nhận đặt do chủ sân chưa hoàn tất nghĩa vụ thanh toán. Vui lòng chọn sân khác.");
@@ -790,20 +785,13 @@ public class BookingServiceImpl implements BookingService {
                     if (hostCompensation.signum() > 0 && booking.getBookingDetails() != null && !booking.getBookingDetails().isEmpty()) {
                         Pitch firstPitch = booking.getBookingDetails().get(0).getPitch();
                         if (firstPitch != null && firstPitch.getProviderAddress() != null
-                                && firstPitch.getProviderAddress().getProvider() != null
-                                && firstPitch.getProviderAddress().getProvider().getUser() != null) {
+                                && firstPitch.getProviderAddress().getProvider() != null) {
                             Provider provider = firstPitch.getProviderAddress().getProvider();
-                            User host = provider.getUser();
-                            String hostReason = "Bù tiền bồi thường khi khách hủy sát giờ: " + refundReason;
-                            // Chủ sân ĐÃ liên kết TK (mục Tài khoản ngân hàng ở profile) ⇒ chi TIỀN THẬT về TK đó qua PayOS.
-                            // CHƯA liên kết TK ⇒ ghi credit vào sổ ProviderDebt để đối soát kỳ sau (hành vi cũ).
-                            bankAccountService.getDefault(host.getUserId()).ifPresentOrElse(
-                                    bank -> refundService.issueCashRefund(
-                                            host, RefundSourceType.BOOKING_HOST,
-                                            booking.getBookingId().toString(),
-                                            hostCompensation, hostReason, bank),
-                                    () -> recordHostCompensationCredit(provider,
-                                            booking.getBookingId().toString(), hostCompensation, refundReason));
+                            // Bồi thường khách hủy sát giờ ⇒ CỘNG VÍ chủ sân (idempotent theo BOOKING).
+                            walletService.credit(provider,
+                                    com.example.FieldFinder.Enum.WalletTxnType.HOST_COMPENSATION,
+                                    hostCompensation, "BOOKING", booking.getBookingId().toString(),
+                                    "Bồi thường khi khách hủy sát giờ: " + refundReason);
                         }
                     }
 
@@ -845,64 +833,6 @@ public class BookingServiceImpl implements BookingService {
                 }
             }
         });
-    }
-
-    /**
-     * Ghi CREDIT (số âm) cho chủ sân khi khách hủy sát giờ MÀ chủ sân chưa liên kết TK để chi tiền thật.
-     * Khoản này đối soát/trừ vào kỳ sau (idempotent theo booking). Khi chủ sân đã có TK ⇒ không gọi hàm này,
-     * tiền được chi thẳng qua PayOS (xem cancelBookingByUser).
-     */
-    private void recordHostCompensationCredit(com.example.FieldFinder.entity.Provider provider,
-                                              String bookingId, java.math.BigDecimal amount, String reason) {
-        if (provider == null || amount == null || amount.signum() <= 0) return;
-        if (providerDebtRepository.existsBySourceBookingId(bookingId)) return;
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        providerDebtRepository.save(com.example.FieldFinder.entity.ProviderDebt.builder()
-                .provider(provider)
-                .sourceBookingId(bookingId)
-                .amount(amount.negate()) // âm = credit cho chủ sân
-                .status(com.example.FieldFinder.Enum.ProviderDebtStatus.OUTSTANDING)
-                .reason("Hệ thống bù tiền bồi thường khi khách hủy sát giờ: " + reason)
-                .deadlineAt(now.plusDays(providerDebtSettleDays))
-                .createdAt(now)
-                .build());
-    }
-
-    /**
-     * Ghi CREDIT (số âm) doanh thu booking cho chủ sân khi chưa liên kết TK để chi tiền thật.
-     * Đối soát/chi tay sau (idempotent theo booking).
-     */
-    private void recordProviderRevenueCredit(com.example.FieldFinder.entity.Provider provider,
-                                             String bookingId, java.math.BigDecimal amount, String reason) {
-        if (provider == null || amount == null || amount.signum() <= 0) return;
-        if (providerDebtRepository.existsBySourceBookingId(bookingId)) return;
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        providerDebtRepository.save(com.example.FieldFinder.entity.ProviderDebt.builder()
-                .provider(provider)
-                .sourceBookingId(bookingId)
-                .amount(amount.negate()) // âm = credit cho chủ sân
-                .status(com.example.FieldFinder.Enum.ProviderDebtStatus.OUTSTANDING)
-                .reason(reason)
-                .deadlineAt(now.plusDays(providerDebtSettleDays))
-                .createdAt(now)
-                .build());
-    }
-
-    /** Ghi nợ chủ sân số tiền hệ thống đã ứng để hoàn cho khách (idempotent theo booking). */
-    private void recordProviderDebt(com.example.FieldFinder.entity.Provider provider,
-                                    String bookingId, java.math.BigDecimal amount, String reason) {
-        if (provider == null || amount == null || amount.signum() <= 0) return;
-        if (providerDebtRepository.existsBySourceBookingId(bookingId)) return;
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        providerDebtRepository.save(com.example.FieldFinder.entity.ProviderDebt.builder()
-                .provider(provider)
-                .sourceBookingId(bookingId)
-                .amount(amount)
-                .status(com.example.FieldFinder.Enum.ProviderDebtStatus.OUTSTANDING)
-                .reason("Hệ thống ứng hoàn tiền khi chủ sân hủy: " + reason)
-                .deadlineAt(now.plusDays(providerDebtSettleDays))
-                .createdAt(now)
-                .build());
     }
 
     @Override
@@ -974,16 +904,33 @@ public class BookingServiceImpl implements BookingService {
                             : BigDecimal.ONE;
             BigDecimal refundAmount = booking.getTotalPrice().multiply(multiplier)
                     .setScale(0, java.math.RoundingMode.HALF_UP);
+            // Nợ chủ sân CHỈ là phần PHẠT (refund vượt giá gốc). Phần gốc do escrow của chính đơn này
+            // gánh — đơn hủy không bao giờ settle cho chủ sân nên tiền khách trả vẫn nằm escrow, dùng để
+            // hoàn gốc. Tính cả gốc vào nợ là đếm trùng (hệ thống không thực sự ứng phần gốc).
+            BigDecimal penalty = refundAmount.subtract(booking.getTotalPrice()).max(BigDecimal.ZERO);
 
-            // Chủ sân hủy: hệ thống ỨNG tiền hoàn cho user.
-            // Có TK ngân hàng ⇒ payout tiền mặt 110% từ TK chi chung + GHI NỢ chủ sân;
+            // Chủ sân hủy: hệ thống ỨNG phần phạt hoàn cho user.
+            // Có TK ngân hàng ⇒ payout tiền mặt từ TK chi chung + GHI NỢ phần phạt cho chủ sân;
             // chưa có ⇒ voucher (giới hạn sân chủ này), không phát sinh nợ tiền mặt.
             var defaultBank = bankAccountService.getDefault(booking.getUser().getUserId());
             if (defaultBank.isPresent()) {
                 refundService.issueCashRefund(
                         booking.getUser(), RefundSourceType.BOOKING,
                         booking.getBookingId().toString(), refundAmount, reason, defaultBank.get());
-                recordProviderDebt(provider, booking.getBookingId().toString(), refundAmount, reason);
+                // Phạt hủy ⇒ TRỪ VÍ chủ sân (ví có thể âm = nợ). Hủy thường penalty=0 ⇒ không trừ.
+                if (penalty.signum() > 0) {
+                    walletService.debit(provider, com.example.FieldFinder.Enum.WalletTxnType.CANCEL_PENALTY,
+                            penalty, "BOOKING", booking.getBookingId().toString(), "Phạt hủy đơn: " + reason);
+                    if (provider.getUser() != null) {
+                        try {
+                            notificationService.notify(provider.getUser().getUserId(), "WALLET_PENALTY",
+                                    "Bị trừ phí hủy đơn",
+                                    "Ví của bạn bị trừ " + String.format("%,d", penalty.longValue())
+                                            + "đ phí bồi thường do hủy đơn sát giờ.",
+                                    "WALLET", booking.getBookingId().toString());
+                        } catch (Exception ignored) {}
+                    }
+                }
             } else {
                 refundService.issueRefundCredit(
                         booking.getUser(), RefundSourceType.BOOKING,
@@ -1265,16 +1212,12 @@ public class BookingServiceImpl implements BookingService {
             if (latestPayment == null || latestPayment.getPaymentMethod() != PaymentMethod.BANK) continue;
 
             String bookingId = booking.getBookingId().toString();
-            if (refundService.findBySource(RefundSourceType.BOOKING_PAYOUT, bookingId).isPresent()) continue;
-            if (providerDebtRepository.existsBySourceBookingId(bookingId)) continue;
 
             if (booking.getBookingDetails() == null || booking.getBookingDetails().isEmpty()) continue;
             Pitch firstPitch = booking.getBookingDetails().get(0).getPitch();
             if (firstPitch == null || firstPitch.getProviderAddress() == null
-                    || firstPitch.getProviderAddress().getProvider() == null
-                    || firstPitch.getProviderAddress().getProvider().getUser() == null) continue;
+                    || firstPitch.getProviderAddress().getProvider() == null) continue;
             Provider provider = firstPitch.getProviderAddress().getProvider();
-            User host = provider.getUser();
 
             BigDecimal rate = (payoutCommissionRate == null) ? BigDecimal.ZERO : payoutCommissionRate;
             BigDecimal payout = booking.getTotalPrice()
@@ -1287,13 +1230,9 @@ public class BookingServiceImpl implements BookingService {
                         ? " (đã trừ hoa hồng " + rate.multiply(BigDecimal.valueOf(100)).stripTrailingZeros().toPlainString() + "%)"
                         : "");
 
-            final BigDecimal payoutAmount = payout;
-            bankAccountService.getDefault(host.getUserId()).ifPresentOrElse(
-                    bank -> refundService.issueCashRefund(
-                            host, RefundSourceType.BOOKING_PAYOUT, bookingId,
-                            payoutAmount, reason, bank),
-                    () -> recordProviderRevenueCredit(provider, bookingId, payoutAmount,
-                            "Doanh thu booking chờ chi (chủ sân chưa liên kết TK ngân hàng): #" + bookingId));
+            // Cộng vào VÍ chủ sân (idempotent theo BOOKING). Rút về bank do WalletPayoutProcessor lo.
+            walletService.credit(provider, com.example.FieldFinder.Enum.WalletTxnType.BOOKING_REVENUE,
+                    payout, "BOOKING", bookingId, reason);
         }
     }
 }

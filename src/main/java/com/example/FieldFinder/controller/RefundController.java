@@ -81,23 +81,6 @@ public class RefundController {
         return ResponseEntity.ok(out);
     }
 
-    /** Lịch sử NHẬN TIỀN của chủ sân: doanh thu booking (BOOKING_PAYOUT) + bồi thường (BOOKING_HOST). */
-    @GetMapping("/provider-earnings")
-    @PreAuthorize("hasAnyRole('PROVIDER','OWNER','ADMIN')")
-    public ResponseEntity<?> providerEarnings(Authentication authentication) {
-        UUID userId = getUserIdFromAuth(authentication);
-        if (userId == null) {
-            return ResponseEntity.status(401).build();
-        }
-        List<RefundRequestResponseDTO> out = refundRequestRepository
-                .findByUser_UserIdOrderByCreatedAtDesc(userId).stream()
-                .filter(r -> r.getSourceType() == RefundSourceType.BOOKING_PAYOUT
-                        || r.getSourceType() == RefundSourceType.BOOKING_HOST)
-                .map(r -> RefundRequestResponseDTO.fromEntity(r, null))
-                .toList();
-        return ResponseEntity.ok(out);
-    }
-
     private UUID getUserIdFromAuth(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) return null;
         try {

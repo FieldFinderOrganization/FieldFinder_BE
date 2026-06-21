@@ -3,22 +3,18 @@ package com.example.FieldFinder.service.impl;
 import com.example.FieldFinder.Enum.BookingStatus;
 import com.example.FieldFinder.Enum.PaymentMethod;
 import com.example.FieldFinder.Enum.PaymentStatus;
-import com.example.FieldFinder.Enum.RefundSourceType;
-import com.example.FieldFinder.entity.BankAccount;
+import com.example.FieldFinder.Enum.WalletTxnType;
 import com.example.FieldFinder.entity.Booking;
 import com.example.FieldFinder.entity.BookingDetail;
 import com.example.FieldFinder.entity.Payment;
 import com.example.FieldFinder.entity.Pitch;
 import com.example.FieldFinder.entity.Provider;
 import com.example.FieldFinder.entity.ProviderAddress;
-import com.example.FieldFinder.entity.ProviderDebt;
 import com.example.FieldFinder.entity.TimeSlot;
 import com.example.FieldFinder.entity.User;
 import com.example.FieldFinder.repository.BookingRepository;
 import com.example.FieldFinder.repository.PaymentRepository;
-import com.example.FieldFinder.repository.ProviderDebtRepository;
-import com.example.FieldFinder.service.BankAccountService;
-import com.example.FieldFinder.service.RefundService;
+import com.example.FieldFinder.service.WalletService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,28 +34,34 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
+/** Settlement giờ CỘNG VÍ chủ sân (BOOKING_REVENUE) đã trừ hoa hồng, không payout thẳng nữa. */
 @ExtendWith(MockitoExtension.class)
 class BookingServiceSettlementTest {
 
     @Mock BookingRepository bookingRepository;
     @Mock PaymentRepository paymentRepository;
-    @Mock RefundService refundService;
-    @Mock ProviderDebtRepository providerDebtRepository;
-    @Mock BankAccountService bankAccountService;
+    @Mock WalletService walletService;
 
     @InjectMocks BookingServiceImpl service;
+
+    private Provider provider;
 
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(service, "payoutCommissionRate", new BigDecimal("0.05"));
-        ReflectionTestUtils.setField(service, "providerDebtSettleDays", 7L);
+        provider = new Provider();
+        provider.setProviderId(UUID.randomUUID());
+        User host = new User();
+        host.setUserId(UUID.randomUUID());
+        provider.setUser(host);
     }
 
-    private Booking bankBooking(LocalTime slotEnd, LocalDate date, User host) {
-        Provider provider = new Provider();
-        provider.setUser(host);
+    private Booking bankBooking(LocalTime slotEnd, LocalDate date) {
         ProviderAddress addr = new ProviderAddress();
         addr.setProvider(provider);
         Pitch pitch = new Pitch();
@@ -83,90 +85,39 @@ class BookingServiceSettlementTest {
         return booking;
     }
 
-    private User host() {
-        User u = new User();
-        u.setUserId(UUID.randomUUID());
-        return u;
-    }
-
     @Test
-    void endedBankBooking_hasBank_issuesPayoutMinusCommission() {
-        User host = host();
-        Booking b = bankBooking(LocalTime.of(8, 0), LocalDate.now().minusDays(1), host); // hôm qua → đã đá xong
-
+    void endedBankBooking_creditsWalletMinusCommission() {
+        Booking b = bankBooking(LocalTime.of(8, 0), LocalDate.now().minusDays(1)); // hôm qua → đá xong
         when(bookingRepository.findAllByStatus(BookingStatus.CONFIRMED)).thenReturn(List.of(b));
         when(paymentRepository.findFirstByBooking_BookingIdOrderByCreatedAtDesc(b.getBookingId()))
                 .thenReturn(Optional.of(Payment.builder().paymentMethod(PaymentMethod.BANK).build()));
-        when(refundService.findBySource(RefundSourceType.BOOKING_PAYOUT, b.getBookingId().toString()))
-                .thenReturn(Optional.empty());
-        when(providerDebtRepository.existsBySourceBookingId(anyString())).thenReturn(false);
-        BankAccount bank = BankAccount.builder()
-                .bankBin("970436").accountNumber("1").accountName("HOST").build();
-        when(bankAccountService.getDefault(host.getUserId())).thenReturn(Optional.of(bank));
 
         service.settleBookingsToProvider();
 
-        // 200000 * (1 - 0.05) = 190000
-        verify(refundService).issueCashRefund(eq(host), eq(RefundSourceType.BOOKING_PAYOUT),
-                eq(b.getBookingId().toString()), eq(new BigDecimal("190000")), anyString(), eq(bank));
-        verify(providerDebtRepository, never()).save(any());
+        // 200000 × (1 − 0.05) = 190000 vào ví
+        verify(walletService).credit(eq(provider), eq(WalletTxnType.BOOKING_REVENUE),
+                eq(new BigDecimal("190000")), eq("BOOKING"), eq(b.getBookingId().toString()), anyString());
     }
 
     @Test
     void notEndedYet_skips() {
-        Booking b = bankBooking(LocalTime.of(23, 59), LocalDate.now().plusDays(1), host()); // tương lai
+        Booking b = bankBooking(LocalTime.of(23, 59), LocalDate.now().plusDays(1)); // tương lai
         when(bookingRepository.findAllByStatus(BookingStatus.CONFIRMED)).thenReturn(List.of(b));
 
         service.settleBookingsToProvider();
 
-        verifyNoInteractions(refundService);
-        verify(bankAccountService, never()).getDefault(any());
+        verifyNoInteractions(walletService);
     }
 
     @Test
     void cashBooking_skips() {
-        Booking b = bankBooking(LocalTime.of(8, 0), LocalDate.now().minusDays(1), host());
+        Booking b = bankBooking(LocalTime.of(8, 0), LocalDate.now().minusDays(1));
         when(bookingRepository.findAllByStatus(BookingStatus.CONFIRMED)).thenReturn(List.of(b));
         when(paymentRepository.findFirstByBooking_BookingIdOrderByCreatedAtDesc(b.getBookingId()))
                 .thenReturn(Optional.of(Payment.builder().paymentMethod(PaymentMethod.CASH).build()));
 
         service.settleBookingsToProvider();
 
-        verify(refundService, never()).issueCashRefund(any(), any(), any(), any(), any(), any());
-        verify(providerDebtRepository, never()).save(any());
-    }
-
-    @Test
-    void endedBankBooking_noBank_recordsCredit() {
-        User host = host();
-        Booking b = bankBooking(LocalTime.of(8, 0), LocalDate.now().minusDays(1), host);
-        when(bookingRepository.findAllByStatus(BookingStatus.CONFIRMED)).thenReturn(List.of(b));
-        when(paymentRepository.findFirstByBooking_BookingIdOrderByCreatedAtDesc(b.getBookingId()))
-                .thenReturn(Optional.of(Payment.builder().paymentMethod(PaymentMethod.BANK).build()));
-        when(refundService.findBySource(eq(RefundSourceType.BOOKING_PAYOUT), anyString()))
-                .thenReturn(Optional.empty());
-        when(providerDebtRepository.existsBySourceBookingId(anyString())).thenReturn(false);
-        when(bankAccountService.getDefault(host.getUserId())).thenReturn(Optional.empty());
-
-        service.settleBookingsToProvider();
-
-        verify(refundService, never()).issueCashRefund(any(), any(), any(), any(), any(), any());
-        verify(providerDebtRepository).save(any(ProviderDebt.class));
-    }
-
-    @Test
-    void alreadySettled_skips() {
-        Booking b = bankBooking(LocalTime.of(8, 0), LocalDate.now().minusDays(1), host());
-        when(bookingRepository.findAllByStatus(BookingStatus.CONFIRMED)).thenReturn(List.of(b));
-        when(paymentRepository.findFirstByBooking_BookingIdOrderByCreatedAtDesc(b.getBookingId()))
-                .thenReturn(Optional.of(Payment.builder().paymentMethod(PaymentMethod.BANK).build()));
-        when(refundService.findBySource(RefundSourceType.BOOKING_PAYOUT, b.getBookingId().toString()))
-                .thenReturn(Optional.of(new com.example.FieldFinder.entity.RefundRequest()));
-
-        service.settleBookingsToProvider();
-
-        verify(bankAccountService, never()).getDefault(any());
-        verify(refundService, never()).issueCashRefund(any(), any(), any(), any(), any(), any());
-        verify(providerDebtRepository, never()).save(any());
+        verify(walletService, never()).credit(any(), any(), any(), any(), any(), any());
     }
 }

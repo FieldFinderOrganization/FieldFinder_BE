@@ -40,6 +40,7 @@ class PitchServiceImplTest {
     @Mock PitchRepository pitchRepository;
     @Mock ProviderAddressRepository providerAddressRepository;
     @Mock BookingDetailRepository bookingDetailRepository;
+    @Mock com.example.FieldFinder.repository.ReviewRepository reviewRepository;
 
     @InjectMocks PitchServiceImpl service;
 
@@ -222,6 +223,8 @@ class PitchServiceImplTest {
         @Test
         void hasData_ReturnsResponseDTO() {
             when(pitchRepository.findById(pitchId)).thenReturn(Optional.of(pitch));
+            when(reviewRepository.findRatingSummaryByProvider(any()))
+                    .thenReturn(java.util.List.of());
 
             PitchResponseDTO result = service.getPitchById(pitchId);
 

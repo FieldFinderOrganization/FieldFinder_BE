@@ -61,6 +61,7 @@ class BookingConcurrencyTest {
     @Mock DiscountUsageService discountUsageService;
     @Mock UserDiscountRepository userDiscountRepository;
     @Mock NotificationService notificationService;
+    @Mock TimeSlotRepository timeSlotRepository;
 
     @InjectMocks BookingServiceImpl service;
 
@@ -88,6 +89,16 @@ class BookingConcurrencyTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(pitchRepository.findById(pitchId)).thenReturn(Optional.of(pitch));
         when(entityManager.getReference(eq(TimeSlot.class), any())).thenReturn(new TimeSlot());
+        // createBooking đọc slot qua timeSlotRepository.findAllById → trả slot giờ xa (qua mốc 120').
+        when(timeSlotRepository.findAllById(anyList())).thenAnswer(inv -> {
+            List<Integer> ids = inv.getArgument(0);
+            return ids.stream().map(id -> {
+                TimeSlot ts = new TimeSlot();
+                ts.setSlotId(id);
+                ts.setStartTime(java.time.LocalTime.of(18, 0));
+                return ts;
+            }).toList();
+        });
         when(bookingRepository.save(any(Booking.class))).thenAnswer(inv -> {
             Booking b = inv.getArgument(0);
             if (b.getBookingId() == null) b.setBookingId(UUID.randomUUID());

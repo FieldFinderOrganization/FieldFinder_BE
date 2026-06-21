@@ -39,6 +39,7 @@ class DiscountServiceImplTest {
     @Mock UserDiscountRepository userDiscountRepository;
     @Mock UserRepository userRepository;
     @Mock RedisTemplate<String, Object> redisTemplate;
+    @Mock org.springframework.context.ApplicationEventPublisher eventPublisher;
     @InjectMocks DiscountServiceImpl service;
 
     private Discount discount;
