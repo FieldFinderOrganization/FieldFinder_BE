@@ -13,7 +13,9 @@ public record BankAccountResponseDTO(
         String maskedAccountNumber,
         String accountName,
         boolean isDefault,
-        boolean verified
+        boolean verified,
+        String reviewStatus,
+        String reviewNote
 ) {
     public static BankAccountResponseDTO from(BankAccount b) {
         return new BankAccountResponseDTO(
@@ -24,7 +26,9 @@ public record BankAccountResponseDTO(
                 mask(b.getAccountNumber()),
                 b.getAccountName(),
                 b.isDefault(),
-                b.isVerified()
+                b.isVerified(),
+                b.getReviewStatus() != null ? b.getReviewStatus().name() : null,
+                b.getReviewNote()
         );
     }
 

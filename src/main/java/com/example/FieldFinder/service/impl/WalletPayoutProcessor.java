@@ -59,7 +59,11 @@ public class WalletPayoutProcessor {
             if (withdrawable.signum() <= 0) continue;
 
             Optional<BankAccount> bank = bankAccountService.getDefault(provider.getUser().getUserId());
-            if (bank.isEmpty()) continue; // chưa liên kết TK ⇒ để dành trong ví
+            // Chưa liên kết TK / TK chưa được DUYỆT (tên lệch hồ sơ) ⇒ giữ trong ví, không chi.
+            if (bank.isEmpty()
+                    || bank.get().getReviewStatus() != com.example.FieldFinder.Enum.BankReviewStatus.APPROVED) {
+                continue;
+            }
 
             walletService.createWithdrawal(provider, withdrawable, bank.get());
         }

@@ -25,4 +25,10 @@ public interface BankAccountService {
     BankAccount setDefault(UUID userId, UUID bankAccountId);
 
     void delete(UUID userId, UUID bankAccountId);
+
+    /** (Admin) TK đang chờ duyệt do tên lệch hồ sơ. */
+    List<BankAccount> listPendingReview();
+
+    /** (Admin) Duyệt/từ chối một TK chờ xét. */
+    BankAccount review(UUID bankAccountId, boolean approve, String note);
 }
