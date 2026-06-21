@@ -12,7 +12,7 @@ import java.util.stream.Collectors;
 
 /**
  * Hàm format/dịch/nhận diện thuần (không state, không I/O) tách khỏi AIChat.
- * Dùng chung cho các intent handler của trợ lý AI.
+ * Dùng chung cho các intent handler của trợ lý AI.concur
  */
 public final class AiTextUtil {
 
