@@ -331,14 +331,16 @@ public class ActivityRecommendHandler {
         boolean preferLowPrice = Boolean.TRUE.equals(query.data.get("preferLowPrice"))
                 || AiTextUtil.isAffordableListQuery(userInput);
         if (preferLowPrice && results != null && results.size() > 1) {
+            final List<ProductResponseDTO> toSort = results;
+            final List<Double> scoresToSort = retrievalScores;
             List<Integer> indices = new ArrayList<>();
-            for (int i = 0; i < results.size(); i++) indices.add(i);
-            indices.sort(Comparator.comparingDouble(i -> AiTextUtil.effectivePrice(results.get(i))));
+            for (int i = 0; i < toSort.size(); i++) indices.add(i);
+            indices.sort(Comparator.comparingDouble(i -> AiTextUtil.effectivePrice(toSort.get(i))));
             List<ProductResponseDTO> sorted = new ArrayList<>();
             List<Double> sortedScores = new ArrayList<>();
             for (int i : indices) {
-                sorted.add(results.get(i));
-                sortedScores.add(i < retrievalScores.size() ? retrievalScores.get(i) : 0.0);
+                sorted.add(toSort.get(i));
+                sortedScores.add(i < scoresToSort.size() ? scoresToSort.get(i) : 0.0);
             }
             results = sorted;
             retrievalScores = sortedScores;
