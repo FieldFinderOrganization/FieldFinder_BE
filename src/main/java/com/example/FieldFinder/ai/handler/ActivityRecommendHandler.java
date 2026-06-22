@@ -20,6 +20,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -75,6 +76,7 @@ public class ActivityRecommendHandler {
         List<String> tags = (List<String>) query.data.get("tags");
         List<String> aiCategories = (List<String>) query.data.get("suggestedCategories");
         String aiProductType = AiProductMatch.normalizeAiProductType(query.data.get("productType"));
+        String categoryKeyword = (String) query.data.get("categoryKeyword");
 
         System.out.println("🟢 recommend_by_activity | userInput='" + userInput + "'");
         System.out.println("   AI parsed: action=" + query.data.get("action")
@@ -87,6 +89,19 @@ public class ActivityRecommendHandler {
         if (activity != null && sessionId != null) {
             sessionContextStore.setLastActivity(sessionId, activity);
         }
+        if (sessionId != null) {
+            String catToStore = categoryKeyword;
+            if (aiCategories != null && !aiCategories.isEmpty()) {
+                String specific = aiCategories.get(0);
+                if (specific != null && !specific.isBlank()) catToStore = specific;
+            }
+            if (catToStore != null && !catToStore.isBlank()) {
+                sessionContextStore.setLastCategoryKeyword(sessionId, catToStore);
+            }
+            if (aiProductType != null && !aiProductType.isBlank()) {
+                sessionContextStore.setLastProductType(sessionId, aiProductType);
+            }
+        }
 
         if (tags == null || tags.isEmpty()) {
             tags = (activity != null) ? List.of(activity) : List.of("sport");
@@ -94,7 +109,6 @@ public class ActivityRecommendHandler {
 
         // Build description: prepend categoryKeyword × 3 (text repetition → FAISS embed lean về category)
         // Tránh trường hợp query "giày bóng rổ" trả ra Basketball Clothing
-        String categoryKeyword = (String) query.data.get("categoryKeyword");
         List<String> descParts = new ArrayList<>();
         if (categoryKeyword != null && !categoryKeyword.isEmpty()) {
             descParts.add(categoryKeyword);
@@ -314,6 +328,23 @@ public class ActivityRecommendHandler {
             retrievalScores = inStockScores;
         }
 
+        boolean preferLowPrice = Boolean.TRUE.equals(query.data.get("preferLowPrice"))
+                || AiTextUtil.isAffordableListQuery(userInput);
+        if (preferLowPrice && results != null && results.size() > 1) {
+            List<Integer> indices = new ArrayList<>();
+            for (int i = 0; i < results.size(); i++) indices.add(i);
+            indices.sort(Comparator.comparingDouble(i -> AiTextUtil.effectivePrice(results.get(i))));
+            List<ProductResponseDTO> sorted = new ArrayList<>();
+            List<Double> sortedScores = new ArrayList<>();
+            for (int i : indices) {
+                sorted.add(results.get(i));
+                sortedScores.add(i < retrievalScores.size() ? retrievalScores.get(i) : 0.0);
+            }
+            results = sorted;
+            retrievalScores = sortedScores;
+            System.out.println("💰 preferLowPrice: sorted " + results.size() + " products by ascending price");
+        }
+
         if (results == null || results.isEmpty()) {
             query.message = priceActive
                     ? String.format("Không tìm thấy sản phẩm phù hợp trong khoảng giá %s.",
@@ -445,6 +476,11 @@ public class ActivityRecommendHandler {
 
         if (tieredMessage != null) {
             query.message = tieredMessage;
+        } else if (preferLowPrice) {
+            String catLabel = categoryKeyword != null ? AiTextUtil.translateCategory(categoryKeyword) : null;
+            query.message = (catLabel != null && !catLabel.isBlank())
+                    ? String.format("Đây là các sản phẩm %s giá mềm hơn bạn có thể tham khảo 👇", catLabel)
+                    : "Đây là các sản phẩm giá mềm hơn bạn có thể tham khảo 👇";
         } else if (categoryMessage != null) {
             query.message = categoryMessage;
         } else if (activity != null && !activity.isBlank() && !"null".equalsIgnoreCase(activity)) {

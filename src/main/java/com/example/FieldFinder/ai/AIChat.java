@@ -234,6 +234,32 @@ public class AIChat {
         return productQueryHandler.handle(query, userInput, sessionId);
     }
 
+    /** Bổ sung category/activity từ session khi user follow-up (vd "mắc quá" sau khi xem giày đá bóng). */
+    private void enrichProductQueryFromSession(BookingQuery query, String sessionId) {
+        if (query.data == null || sessionId == null) return;
+        Object ck = query.data.get("categoryKeyword");
+        if (ck == null || (ck instanceof String s && s.isBlank())) {
+            String lastCat = sessionContextStore.getLastCategoryKeyword(sessionId);
+            if (lastCat != null && !lastCat.isBlank()) {
+                query.data.put("categoryKeyword", lastCat);
+            }
+        }
+        Object act = query.data.get("activity");
+        if (act == null || (act instanceof String s && s.isBlank())) {
+            String lastAct = sessionContextStore.getLastActivity(sessionId);
+            if (lastAct != null && !lastAct.isBlank()) {
+                query.data.put("activity", lastAct);
+            }
+        }
+        Object pt = query.data.get("productType");
+        if (pt == null || (pt instanceof String s && s.isBlank())) {
+            String lastPt = sessionContextStore.getLastProductType(sessionId);
+            if (lastPt != null && !lastPt.isBlank()) {
+                query.data.put("productType", lastPt);
+            }
+        }
+    }
+
     private BookingQuery handleWeatherQuery(BookingQuery query, String sessionId, Double userLat, Double userLng) {
         if (query.data == null) {
             query.data = new HashMap<>();
@@ -439,6 +465,18 @@ public class AIChat {
                     || ("search_by_price_range".equals(action) && hasProductAttrs)) {
                 action = "recommend_by_activity";
                 query.data.put("action", "recommend_by_activity");
+            }
+
+            // "rẻ"/"mắc quá" (không phải "rẻ nhất") → danh sách sản phẩm giá thấp, giữ ngữ cảnh loại sp
+            if ("cheapest_product".equals(action) && AiTextUtil.isAffordableListQuery(userInput)) {
+                action = "recommend_by_activity";
+                query.data.put("action", "recommend_by_activity");
+                query.data.put("preferLowPrice", true);
+                enrichProductQueryFromSession(query, sessionId);
+            }
+            if ("recommend_by_activity".equals(action) && AiTextUtil.isAffordableListQuery(userInput)) {
+                query.data.put("preferLowPrice", true);
+                enrichProductQueryFromSession(query, sessionId);
             }
 
             if (action == null) {
@@ -678,6 +716,12 @@ public class AIChat {
           + "cho xem tất cả sân 7" -> action: "list_pitches", pitchType: "SEVEN_A_SIDE"
 
         ❗️ QUY TẮC XỬ LÝ SẢN PHẨM:
+        - PHÂN BIỆT giá rẻ (danh sách) vs rẻ nhất (1 sản phẩm):
+          + "rẻ nhất", "mắc nhất", "giá thấp nhất", "đắt nhất" → action "cheapest_product" hoặc "most_expensive_product" (TRẢ 1 SẢN PHẨM).
+          + "rẻ", "giá rẻ", "rẻ hơn", "mắc quá", "mấy đôi rẻ", "cho tôi option rẻ" (KHÔNG có "nhất") → action "recommend_by_activity"
+            và GIỮ categoryKeyword/productType/activity của ngữ cảnh trước (vd Football Shoes nếu vừa xem giày đá bóng).
+          + VD: "mắc quá cho tôi mấy đôi rẻ rẻ thôi" (sau khi xem giày đá bóng) → action: "recommend_by_activity",
+            categoryKeyword: "Football Shoes", productType: "SHOES", activity: "football".
         - Nếu hỏi về giá sản phẩm (rẻ nhất/mắc nhất), dùng action "cheapest_product" hoặc "most_expensive_product".
         - Cung cấp "categoryKeyword" CỤ THỂ NHẤT có thể dựa trên bảng mapping:
           + nón, mũ, cap -> "Hats And Headwears"

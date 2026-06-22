@@ -170,4 +170,33 @@ public final class AiTextUtil {
         return t.matches("^(hi|hey|hello|hola|halo|alo|yo|chào|xin chào|good morning|good evening|good afternoon)[\\s!?.]*$")
                 || t.matches(".*\\b(xin chào|chào bạn|chào shop|hello|good morning|good evening|good afternoon)\\b.*");
     }
+
+    /** User hỏi rõ "rẻ nhất"/"mắc nhất" → trả đúng 1 sản phẩm cực trị. */
+    public static boolean isExplicitPriceExtremeQuery(String userInput) {
+        if (userInput == null || userInput.isBlank()) return false;
+        String lower = userInput.toLowerCase();
+        return lower.contains("rẻ nhất") || lower.contains("re nhat")
+                || lower.contains("mắc nhất") || lower.contains("mac nhat")
+                || lower.contains("đắt nhất") || lower.contains("dat nhat")
+                || lower.contains("giá thấp nhất") || lower.contains("gia thap nhat")
+                || lower.contains("giá cao nhất") || lower.contains("gia cao nhat")
+                || lower.contains("cheapest") || lower.contains("most expensive");
+    }
+
+    /**
+     * User muốn danh sách sản phẩm giá mềm (vd "mắc quá cho mấy đôi rẻ"),
+     * không phải 1 sản phẩm rẻ nhất tuyệt đối.
+     */
+    public static boolean isAffordableListQuery(String userInput) {
+        if (userInput == null || userInput.isBlank()) return false;
+        if (isExplicitPriceExtremeQuery(userInput)) return false;
+        String lower = userInput.toLowerCase();
+        return lower.contains("rẻ") || lower.contains("re ")
+                || lower.contains("giá rẻ") || lower.contains("gia re")
+                || lower.contains("rẻ hơn") || lower.contains("re hon")
+                || lower.contains("mắc quá") || lower.contains("mac qua")
+                || lower.contains("đắt quá") || lower.contains("dat qua")
+                || lower.contains("tiết kiệm") || lower.contains("tiet kiem")
+                || lower.contains("budget") || lower.contains("affordable");
+    }
 }

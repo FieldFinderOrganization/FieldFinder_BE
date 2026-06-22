@@ -19,6 +19,8 @@ public class AiChatSessionContextStore {
     private static final String LAST_PITCH = "lastPitch";
     private static final String LAST_SIZE = "lastSize";
     private static final String LAST_ACTIVITY = "lastActivity";
+    private static final String LAST_CATEGORY_KEYWORD = "lastCategoryKeyword";
+    private static final String LAST_PRODUCT_TYPE = "lastProductType";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -53,6 +55,22 @@ public class AiChatSessionContextStore {
 
     public void setLastActivity(String sessionId, String activity) {
         writeString(sessionId, LAST_ACTIVITY, activity);
+    }
+
+    public String getLastCategoryKeyword(String sessionId) {
+        return readString(sessionId, LAST_CATEGORY_KEYWORD);
+    }
+
+    public void setLastCategoryKeyword(String sessionId, String categoryKeyword) {
+        writeString(sessionId, LAST_CATEGORY_KEYWORD, categoryKeyword);
+    }
+
+    public String getLastProductType(String sessionId) {
+        return readString(sessionId, LAST_PRODUCT_TYPE);
+    }
+
+    public void setLastProductType(String sessionId, String productType) {
+        writeString(sessionId, LAST_PRODUCT_TYPE, productType);
     }
 
     private <T> T readJson(String sessionId, String field, Class<T> type) {

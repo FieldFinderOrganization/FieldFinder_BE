@@ -103,4 +103,13 @@ class AiTextUtilTest {
         assertTrue(AiTextUtil.isGreeting("chào shop"));
         assertFalse(AiTextUtil.isGreeting("tôi muốn mua giày"));
     }
+
+    @Test
+    void isAffordableListQuery_distinguishesListFromExtreme() {
+        assertTrue(AiTextUtil.isAffordableListQuery("mắc quá cho tôi mấy đôi rẻ rẻ thôi"));
+        assertTrue(AiTextUtil.isAffordableListQuery("cho tôi option giá rẻ hơn"));
+        assertFalse(AiTextUtil.isAffordableListQuery("giày rẻ nhất"));
+        assertFalse(AiTextUtil.isAffordableListQuery("sản phẩm mắc nhất"));
+        assertFalse(AiTextUtil.isAffordableListQuery(null));
+    }
 }
