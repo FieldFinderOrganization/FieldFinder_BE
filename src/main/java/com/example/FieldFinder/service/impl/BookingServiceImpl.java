@@ -757,8 +757,8 @@ public class BookingServiceImpl implements BookingService {
 
                 if (isBank) {
                     String refundReason = reason != null && !reason.isBlank()
-                            ? reason
-                            : (isLateCancel ? "User cancel booking <60m (Late Cancel Tier " + cancelCount + ")" : "User cancel booking >=60m before start");
+                            ? com.example.FieldFinder.util.CancelReasonLabels.vi(reason)
+                            : (isLateCancel ? "Khách hủy sát giờ (mốc " + cancelCount + ")" : "Khách hủy trước giờ đá (hoàn 100%)");
                     
                     BigDecimal refundAmount = booking.getTotalPrice().multiply(refundRate).setScale(0, java.math.RoundingMode.HALF_UP);
                     BigDecimal hostCompensation = booking.getTotalPrice().multiply(hostRate).setScale(0, java.math.RoundingMode.HALF_UP);

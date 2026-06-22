@@ -472,7 +472,8 @@ public class EmailServiceImpl implements EmailService {
             html.append("<p><strong>Người hủy:</strong> ").append(actorLabel).append("</p>");
         }
         if (cancelReason != null && !cancelReason.isBlank()) {
-            html.append("<p><strong>Lý do:</strong> ").append(cancelReason).append("</p>");
+            html.append("<p><strong>Lý do:</strong> ").append(
+                    com.example.FieldFinder.util.CancelReasonLabels.vi(cancelReason)).append("</p>");
         }
         if (booking.getPaymentStatus() == PaymentStatus.REFUNDED) {
             html.append("<p>Tiền của bạn được hoàn qua <strong>mã hoàn tiền</strong> — kiểm tra email "

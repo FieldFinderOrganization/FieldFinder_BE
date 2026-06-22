@@ -93,7 +93,8 @@ public class NotificationServiceImpl implements NotificationService {
                 .append("Lịch đặt sân \"").append(pitchName).append("\" ngày ")
                 .append(booking.getBookingDate()).append(" đã bị ").append(actorLabel).append(" hủy.");
         if (booking.getCancelReason() != null && !booking.getCancelReason().isBlank()) {
-            body.append(" Lý do: ").append(booking.getCancelReason());
+            body.append(" Lý do: ").append(
+                    com.example.FieldFinder.util.CancelReasonLabels.vi(booking.getCancelReason()));
         }
         notify(booking.getUser().getUserId(), "BOOKING_CANCELED",
                 "Lịch đặt sân bị hủy", body.toString(),

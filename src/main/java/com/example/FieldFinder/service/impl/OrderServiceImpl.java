@@ -642,8 +642,8 @@ public class OrderServiceImpl implements OrderService {
                     order.getTotalAmount() != null ? order.getTotalAmount() : 0.0);
             if (refundAmount.signum() > 0) {
                 String refundReason = reason != null && !reason.isBlank()
-                        ? reason
-                        : "User cancel order within 24h refund window";
+                        ? com.example.FieldFinder.util.CancelReasonLabels.vi(reason)
+                        : "Khách hủy đơn trong cửa sổ 24h hoàn tiền";
                 // Có TK ngân hàng mặc định ⇒ hoàn TIỀN MẶT (PayOS payout); chưa có ⇒ voucher (cũ)
                 bankAccountService.getDefault(order.getUser().getUserId())
                         .ifPresentOrElse(

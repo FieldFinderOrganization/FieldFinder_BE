@@ -41,6 +41,15 @@ public class ProductRecommendationController {
         return ResponseEntity.ok(productRecommendationService.getSuggested(productId, userId, limit));
     }
 
+    /** "Gợi ý cho bạn" — feed cá nhân hóa trên home (SASRec; cold-start ⇒ bán chạy). */
+    @GetMapping("/for-you")
+    public ResponseEntity<List<ProductResponseDTO>> getForYou(
+            @RequestParam(defaultValue = "10") int limit,
+            Authentication auth) {
+        UUID userId = resolveUserId(auth);
+        return ResponseEntity.ok(productRecommendationService.getForYou(userId, limit));
+    }
+
     @GetMapping("/suggested-for-pitch")
     public ResponseEntity<List<ProductResponseDTO>> getSuggestedForPitch(
             @RequestParam(defaultValue = "10") int limit,

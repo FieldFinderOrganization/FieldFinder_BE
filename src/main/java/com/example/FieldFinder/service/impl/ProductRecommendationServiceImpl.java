@@ -1,5 +1,6 @@
 package com.example.FieldFinder.service.impl;
 
+import com.example.FieldFinder.dto.res.MLItemResult;
 import com.example.FieldFinder.dto.res.ProductResponseDTO;
 import com.example.FieldFinder.dto.res.SuggestedProductsResponseDTO;
 import com.example.FieldFinder.entity.Order;
@@ -170,6 +171,38 @@ public class ProductRecommendationServiceImpl implements ProductRecommendationSe
             log.warn("[SUGGEST-PRODUCT] CTR rerank failed, fallback heuristic: {}", e.getMessage());
             return Collections.emptyMap();
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProductResponseDTO> getForYou(UUID userId, int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 20));
+        // Đăng nhập + có ML ⇒ cá nhân hóa qua SASRec recommendNext.
+        if (userId != null) {
+            try {
+                List<MLItemResult> rec = mlService.recommendNext(userId.toString(), safeLimit, "PRODUCT");
+                if (rec != null && !rec.isEmpty()) {
+                    List<Long> ids = rec.stream()
+                            .map(MLItemResult::getItemId)
+                            .filter(Objects::nonNull)
+                            .map(s -> {
+                                try { return Long.parseLong(s.trim()); } catch (Exception e) { return null; }
+                            })
+                            .filter(Objects::nonNull)
+                            .toList();
+                    if (!ids.isEmpty()) {
+                        Map<Long, ProductResponseDTO> map = productService.getProductsByIds(new ArrayList<>(ids), userId);
+                        List<ProductResponseDTO> out = ids.stream()
+                                .map(map::get).filter(Objects::nonNull).toList();
+                        if (!out.isEmpty()) return out;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[FOR-YOU] recommendNext fail, fallback bán chạy: {}", e.getMessage());
+            }
+        }
+        // Cold-start / chưa đăng nhập / ML tắt ⇒ bán chạy.
+        return productService.getTopSellingProducts(safeLimit, userId);
     }
 
     private List<ProductResponseDTO> applyCtrOrder(List<ProductResponseDTO> items,
