@@ -60,6 +60,10 @@ public class BookingServiceImpl implements BookingService {
     /** Tỷ lệ hoa hồng nền tảng trừ khi giải ngân doanh thu booking cho chủ sân (0..1). Mặc định 5%. */
     @org.springframework.beans.factory.annotation.Value("${provider.payout.commission-rate:0.05}")
     private java.math.BigDecimal payoutCommissionRate;
+    /** Mốc bắt đầu thu hoa hồng đơn CASH (ISO yyyy-MM-dd). Chỉ trừ phí đơn ĐẶT từ mốc này — tránh truy thu
+     * đơn cũ chủ sân đã chốt sổ. Rỗng ⇒ KHÔNG thu phí CASH (an toàn mặc định, chờ bật bằng config). */
+    @org.springframework.beans.factory.annotation.Value("${provider.payout.cash-commission-from:}")
+    private String cashCommissionFrom;
     private final DiscountRepository discountRepository;
     private final DiscountUsageService discountUsageService;
     private final UserDiscountRepository userDiscountRepository;
@@ -1185,8 +1189,9 @@ public class BookingServiceImpl implements BookingService {
      * Giải ngân DOANH THU booking về TK chủ sân SAU khi trận đá kết thúc (slot cuối qua giờ) —
      * thời điểm release escrow, không còn rủi ro hủy/hoàn (booking hủy đã thành CANCELED, tự loại).
      *
-     * Điều kiện: CONFIRMED + PAID + thanh toán BANK (tiền nằm escrow hệ thống). CASH trả tại sân ⇒
-     * chủ sân đã cầm tiền, bỏ qua. Trừ hoa hồng nền tảng theo {@code provider.payout.commission-rate}.
+     * Điều kiện: CONFIRMED + PAID. BANK (tiền nằm escrow) ⇒ giải ngân doanh thu ĐÃ TRỪ hoa hồng về ví.
+     * CASH (trả tại sân, chủ sân đã cầm full tiền) ⇒ TRỪ NGƯỢC hoa hồng vào ví (ví có thể âm, đơn sau
+     * tự cộng bù; âm quá grace ⇒ chặn nhận booking). Hoa hồng theo {@code provider.payout.commission-rate}.
      *
      * Idempotent: đã có RefundRequest BOOKING_PAYOUT (đã chi) hoặc ProviderDebt (đã ghi credit) cho
      * booking ⇒ bỏ qua, tránh chi đôi. Chủ sân chưa liên kết TK ⇒ ghi credit, đối soát tay sau.
@@ -1208,8 +1213,10 @@ public class BookingServiceImpl implements BookingService {
             Payment latestPayment = paymentRepository
                     .findFirstByBooking_BookingIdOrderByCreatedAtDesc(booking.getBookingId())
                     .orElse(null);
-            // Chỉ giải ngân đơn trả qua BANK (escrow). CASH trả tại sân ⇒ chủ sân đã có tiền.
-            if (latestPayment == null || latestPayment.getPaymentMethod() != PaymentMethod.BANK) continue;
+            if (latestPayment == null) continue;
+            PaymentMethod method = latestPayment.getPaymentMethod();
+            // Chỉ xử lý BANK (escrow → giải ngân) và CASH (thu hoa hồng ngược về ví).
+            if (method != PaymentMethod.BANK && method != PaymentMethod.CASH) continue;
 
             String bookingId = booking.getBookingId().toString();
 
@@ -1220,15 +1227,33 @@ public class BookingServiceImpl implements BookingService {
             Provider provider = firstPitch.getProviderAddress().getProvider();
 
             BigDecimal rate = (payoutCommissionRate == null) ? BigDecimal.ZERO : payoutCommissionRate;
+            String ratePct = rate.multiply(BigDecimal.valueOf(100)).stripTrailingZeros().toPlainString();
+
+            if (method == PaymentMethod.CASH) {
+                // CASH trả tại sân ⇒ chủ sân đã cầm full tiền, hệ thống chưa thu được hoa hồng.
+                // Chỉ thu phí đơn ĐẶT từ mốc cấu hình (tránh truy thu đơn cũ). Rỗng/đặt trước mốc ⇒ bỏ qua.
+                if (cashCommissionFrom == null || cashCommissionFrom.isBlank()) continue;
+                LocalDate from = LocalDate.parse(cashCommissionFrom.trim());
+                if (booking.getCreatedAt() == null || booking.getCreatedAt().toLocalDate().isBefore(from)) continue;
+                // Trừ NGƯỢC hoa hồng vào ví (idempotent theo BOOKING). Ví có thể âm — đơn sau tự cộng bù.
+                BigDecimal commission = booking.getTotalPrice()
+                        .multiply(rate)
+                        .setScale(0, java.math.RoundingMode.HALF_UP);
+                if (commission.signum() <= 0) continue; // rate = 0 ⇒ không thu
+                walletService.debit(provider, com.example.FieldFinder.Enum.WalletTxnType.CASH_COMMISSION,
+                        commission, "BOOKING", bookingId,
+                        "Hoa hồng " + ratePct + "% đơn tiền mặt #" + bookingId);
+                continue;
+            }
+
+            // BANK: giải ngân doanh thu (đã trừ hoa hồng) từ escrow về ví.
             BigDecimal payout = booking.getTotalPrice()
                     .multiply(BigDecimal.ONE.subtract(rate))
                     .setScale(0, java.math.RoundingMode.HALF_UP);
             if (payout.signum() <= 0) continue;
 
             String reason = "Doanh thu booking #" + bookingId
-                    + (rate.signum() > 0
-                        ? " (đã trừ hoa hồng " + rate.multiply(BigDecimal.valueOf(100)).stripTrailingZeros().toPlainString() + "%)"
-                        : "");
+                    + (rate.signum() > 0 ? " (đã trừ hoa hồng " + ratePct + "%)" : "");
 
             // Cộng vào VÍ chủ sân (idempotent theo BOOKING). Rút về bank do WalletPayoutProcessor lo.
             walletService.credit(provider, com.example.FieldFinder.Enum.WalletTxnType.BOOKING_REVENUE,
