@@ -126,6 +126,7 @@ services:
       --use-auth-secret
       --static-auth-secret=${TURN_SECRET:-fieldfinder-turn-secret}
       --realm=${TURN_REALM:-fieldfinder}
+      --external-ip=${TURN_EXTERNAL_IP}
       --no-tls --no-dtls --fingerprint
       --log-file=stdout --no-cli
 
