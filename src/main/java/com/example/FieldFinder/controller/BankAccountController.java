@@ -110,9 +110,12 @@ public class BankAccountController {
     }
 
     @DeleteMapping("/{bankAccountId}")
-    public ResponseEntity<?> delete(@PathVariable UUID bankAccountId, Authentication authentication) {
+    public ResponseEntity<?> delete(@PathVariable UUID bankAccountId,
+                                    @RequestHeader(value = "X-Payment-Pin", required = false) String pin,
+                                    Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);
         if (userId == null) return unauthorized();
+        pinService.requireVerified(userId, pin); // gác bằng PIN: đồng bộ với thêm/sửa/mặc-định
         bankAccountService.delete(userId, bankAccountId);
         return ResponseEntity.noContent().build();
     }
