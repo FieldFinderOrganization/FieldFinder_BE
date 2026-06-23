@@ -54,6 +54,8 @@ public class PaymentServiceImpl implements PaymentService {
     private final com.example.FieldFinder.service.RefundService refundService;
     private final com.example.FieldFinder.service.BankAccountService bankAccountService;
     private final com.example.FieldFinder.service.PitchRedisLockService pitchRedisLockService;
+    private final com.example.FieldFinder.service.WalletTopupService walletTopupService;
+    private final PayOsWebhookVerifier payOsWebhookVerifier;
 
     @Value("${front_end_url}")
     private String frontEndUrl;
@@ -214,6 +216,12 @@ public class PaymentServiceImpl implements PaymentService {
     public void processWebhook(Map<String, Object> payload) {
         System.out.println("🔔 WEBHOOK RECEIVED: " + payload);
 
+        // Chống webhook giả: xác minh chữ ký PayOS (mode log/enforce, xem PayOsWebhookVerifier).
+        if (!payOsWebhookVerifier.allow(payload)) {
+            System.out.println("⛔ Webhook bị từ chối do chữ ký không hợp lệ.");
+            return;
+        }
+
         String code = (String) payload.get("code");
         String desc = (String) payload.get("desc");
 
@@ -348,7 +356,12 @@ public class PaymentServiceImpl implements PaymentService {
 
             System.out.println("💾 Saved updated Payment/Order/Booking to DB.");
         } else {
-            System.out.println("❌ Payment not found in DB for transactionId: " + transactionId);
+            // Không phải thanh toán booking/order → có thể là lệnh NẠP VÍ chủ sân.
+            // Xác nhận server-side với PayOS rồi cộng ví (chống webhook giả). Idempotent.
+            boolean handledTopup = walletTopupService.handlePaidWebhook(transactionId);
+            if (!handledTopup) {
+                System.out.println("❌ Payment not found in DB for transactionId: " + transactionId);
+            }
         }
     }
 

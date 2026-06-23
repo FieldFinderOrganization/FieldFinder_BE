@@ -7,5 +7,6 @@ public enum WalletTxnType {
     CANCEL_PENALTY,     // − phạt khi chủ sân hủy đơn (phần vượt giá gốc)
     HOST_COMPENSATION,  // + bồi thường khi khách hủy sát giờ
     WITHDRAWAL,         // − rút tiền về tài khoản ngân hàng
+    TOPUP,              // + chủ sân tự nạp tiền vào ví qua PayOS (xác nhận server-side)
     ADJUSTMENT          // ± điều chỉnh thủ công (admin)
 }

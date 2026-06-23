@@ -44,6 +44,48 @@ public class PayOSService {
     public record PaymentResult(String checkoutUrl, String paymentLinkId, String qrCode) {
     }
 
+    /** Trạng thái thật của 1 payment link đọc trực tiếp từ PayOS (không tin webhook). */
+    public record PaymentInfo(String status, long amount, long amountPaid) {
+        public boolean isPaid() {
+            return "PAID".equalsIgnoreCase(status);
+        }
+    }
+
+    /**
+     * Đọc trạng thái payment link từ PayOS theo {@code paymentLinkId} (server-to-server).
+     * Dùng để XÁC NHẬN nạp ví trước khi cộng tiền — chống webhook giả mạo. Trả null nếu lỗi.
+     */
+    public PaymentInfo getPaymentInfo(String paymentLinkId) {
+        try {
+            Map<?, ?> res = webClient.get()
+                    .uri("/v2/payment-requests/{id}", paymentLinkId)
+                    .header("x-client-id", clientId)
+                    .header("x-api-key", apiKey)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+            if (res == null || !"00".equals(res.get("code"))) return null;
+            Map<?, ?> data = (Map<?, ?>) res.get("data");
+            if (data == null) return null;
+            String status = String.valueOf(data.get("status"));
+            long amount = toLong(data.get("amount"));
+            long amountPaid = toLong(data.get("amountPaid"));
+            return new PaymentInfo(status, amount, amountPaid);
+        } catch (Exception e) {
+            System.err.println("PayOS getPaymentInfo lỗi cho " + paymentLinkId + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static long toLong(Object o) {
+        if (o instanceof Number n) return n.longValue();
+        try {
+            return o == null ? 0L : Long.parseLong(String.valueOf(o));
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
     public PaymentResult createPayment(BigDecimal amount, int orderCode, String description, String returnUrl,
                                        String cancelUrl) {
         int amountInt = amount.intValue();

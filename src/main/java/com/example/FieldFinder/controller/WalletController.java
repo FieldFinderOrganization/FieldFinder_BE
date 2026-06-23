@@ -32,6 +32,7 @@ public class WalletController {
     private final com.example.FieldFinder.repository.ProviderWalletRepository walletRepository;
     private final com.example.FieldFinder.service.BankAccountService bankAccountService;
     private final com.example.FieldFinder.service.PaymentPinService pinService;
+    private final com.example.FieldFinder.service.WalletTopupService walletTopupService;
 
     /** Chủ sân tự RÚT tiền từ ví về TK (gác bằng PIN). amount ≤ rút được, TK phải APPROVED. */
     @org.springframework.web.bind.annotation.PostMapping("/withdraw")
@@ -68,6 +69,46 @@ public class WalletController {
         }
         var wtx = walletService.createWithdrawal(provider, amount, bank);
         return ResponseEntity.ok(java.util.Map.of("txnId", wtx.getTxnId().toString(), "status", wtx.getStatus().name()));
+    }
+
+    /** Chủ sân NẠP tiền vào ví qua PayOS. Trả link/QR; ví chỉ cộng khi webhook + xác nhận server-side. */
+    @org.springframework.web.bind.annotation.PostMapping("/topup")
+    public ResponseEntity<?> topup(@org.springframework.web.bind.annotation.RequestBody java.util.Map<String, Object> body,
+                                   Authentication authentication) {
+        Provider provider = resolveProvider(authentication);
+        if (provider == null) return ResponseEntity.status(401).build();
+
+        java.math.BigDecimal amount;
+        try {
+            amount = new java.math.BigDecimal(String.valueOf(body.get("amount")));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", "Số tiền không hợp lệ."));
+        }
+        try {
+            com.example.FieldFinder.entity.WalletTopup t = walletTopupService.createTopup(provider, amount);
+            java.util.Map<String, Object> out = new java.util.HashMap<>();
+            out.put("topupId", t.getTopupId().toString());
+            out.put("transactionId", t.getTransactionId());
+            out.put("checkoutUrl", t.getCheckoutUrl());
+            out.put("qrCode", t.getQrCode());
+            out.put("amount", t.getAmount());
+            out.put("status", t.getStatus());
+            return ResponseEntity.ok(out);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage()));
+        }
+    }
+
+    /** FE poll trạng thái 1 lệnh nạp (tự xác nhận PayOS + cộng ví nếu đã trả). */
+    @GetMapping("/topup/{topupId}/status")
+    public ResponseEntity<?> topupStatus(@org.springframework.web.bind.annotation.PathVariable UUID topupId,
+                                         Authentication authentication) {
+        Provider provider = resolveProvider(authentication);
+        if (provider == null) return ResponseEntity.status(401).build();
+        String status = walletTopupService.pollStatus(topupId, provider.getProviderId());
+        if ("NOT_FOUND".equals(status)) return ResponseEntity.notFound().build();
+        if ("FORBIDDEN".equals(status)) return ResponseEntity.status(403).build();
+        return ResponseEntity.ok(java.util.Map.of("status", status));
     }
 
     // ----- Admin: ví âm (nợ chủ sân) -----

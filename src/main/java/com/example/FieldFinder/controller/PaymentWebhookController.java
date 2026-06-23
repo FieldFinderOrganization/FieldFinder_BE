@@ -1,7 +1,6 @@
 package com.example.FieldFinder.controller;
 
 import com.example.FieldFinder.Enum.OrderStatus;
-import com.example.FieldFinder.dto.req.WebhookRequestDTO;
 import com.example.FieldFinder.Enum.BookingStatus;
 import com.example.FieldFinder.Enum.PaymentStatus;
 import com.example.FieldFinder.entity.Booking;
@@ -28,18 +27,37 @@ public class PaymentWebhookController {
     private final OrderRepository orderRepository;
     private final UserTierService userTierService;
     private final NotificationService notificationService;
+    private final com.example.FieldFinder.service.WalletTopupService walletTopupService;
+    private final com.example.FieldFinder.service.impl.PayOsWebhookVerifier payOsWebhookVerifier;
 
     @PostMapping("/webhook")
-    public ResponseEntity<String> handleWebhook(@RequestBody WebhookRequestDTO request) {
-        String transactionId = request.getData().getTransactionId();
+    public ResponseEntity<String> handleWebhook(@RequestBody java.util.Map<String, Object> payload) {
+        // Chống webhook giả: xác minh chữ ký PayOS (mode log/enforce).
+        if (!payOsWebhookVerifier.allow(payload)) {
+            return ResponseEntity.status(400).body("Invalid signature");
+        }
+
+        Object dataObj = payload.get("data");
+        String transactionId = (dataObj instanceof java.util.Map<?, ?> data)
+                ? (data.get("paymentLinkId") == null ? null : String.valueOf(data.get("paymentLinkId")))
+                : null;
 
         if ("124c33293c43417ab7879e14c8d9eb18".equals(transactionId)) {
             log.info("✅ Received test webhook. Ignoring.");
             return ResponseEntity.ok("Test webhook received");
         }
+        if (transactionId == null) {
+            return ResponseEntity.badRequest().body("Missing paymentLinkId");
+        }
 
-        Payment payment = paymentRepository.findByTransactionId(transactionId)
-                .orElseThrow(() -> new RuntimeException("Payment not found"));
+        Payment payment = paymentRepository.findByTransactionId(transactionId).orElse(null);
+        if (payment == null) {
+            // Có thể là lệnh NẠP VÍ chủ sân (xác nhận server-side + cộng ví, idempotent).
+            if (walletTopupService.handlePaidWebhook(transactionId)) {
+                return ResponseEntity.ok("Wallet topup processed");
+            }
+            throw new RuntimeException("Payment not found");
+        }
 
         PaymentStatus newStatus = PaymentStatus.PAID;
 
