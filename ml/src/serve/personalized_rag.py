@@ -299,8 +299,8 @@ class PersonalizedRAG:
         self,
         candidates: list[dict],
         user_id: str | None,
-        w_rrf: float = 0.6,
-        w_sasrec: float = 0.4,
+        w_rrf: float = 0.8,
+        w_sasrec: float = 0.2,
     ) -> list[dict]:
         """Re-rank image search candidates using SASRec next-item scores for the user.
 
