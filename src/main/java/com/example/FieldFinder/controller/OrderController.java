@@ -74,8 +74,10 @@ public class OrderController {
         return ResponseEntity.ok(orderService.getOrdersByUserId(userId));
     }
 
+    // Chỉ ADMIN (sửa đơn), PROVIDER (xác nhận/giao shop) và SHIPPER (giao hàng) được đổi trạng thái.
+    // Trước đây để isAuthenticated() ⇒ bất kỳ khách nào cũng flip được status đơn người khác.
     @PutMapping("/{id}/status")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('ADMIN','PROVIDER','SHIPPER')")
     public OrderResponseDTO updateStatus(@PathVariable Long id, @RequestParam String status) {
         return orderService.updateOrderStatus(id, status);
     }

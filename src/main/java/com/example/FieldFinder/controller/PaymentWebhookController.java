@@ -28,6 +28,7 @@ public class PaymentWebhookController {
     private final UserTierService userTierService;
     private final NotificationService notificationService;
     private final com.example.FieldFinder.service.WalletTopupService walletTopupService;
+    private final com.example.FieldFinder.service.ShipperCodRemitService shipperCodRemitService;
     private final com.example.FieldFinder.service.impl.PayOsWebhookVerifier payOsWebhookVerifier;
 
     @PostMapping("/webhook")
@@ -55,6 +56,10 @@ public class PaymentWebhookController {
             // Có thể là lệnh NẠP VÍ chủ sân (xác nhận server-side + cộng ví, idempotent).
             if (walletTopupService.handlePaidWebhook(transactionId)) {
                 return ResponseEntity.ok("Wallet topup processed");
+            }
+            // Hoặc lệnh shipper NỘP TIỀN COD (xác nhận server-side + giảm nợ ví, idempotent).
+            if (shipperCodRemitService.handlePaidWebhook(transactionId)) {
+                return ResponseEntity.ok("Shipper COD remit processed");
             }
             throw new RuntimeException("Payment not found");
         }

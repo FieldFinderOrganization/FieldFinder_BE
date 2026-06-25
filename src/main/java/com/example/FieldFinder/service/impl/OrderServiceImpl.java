@@ -61,6 +61,7 @@ public class OrderServiceImpl implements OrderService {
     private final com.example.FieldFinder.service.PointService pointService;
     private final com.example.FieldFinder.service.NotificationService notificationService;
     private final com.example.FieldFinder.service.DeliveryFeeService deliveryFeeService;
+    private final com.example.FieldFinder.service.ShipperWalletService shipperWalletService;
 
     private static final long ORDER_REFUND_WINDOW_HOURS = 24;
 
@@ -439,6 +440,13 @@ public class OrderServiceImpl implements OrderService {
 
         OrderStatus newStatus = OrderStatus.valueOf(status);
         OrderStatus oldStatus = order.getStatus();
+
+        // Đơn đã giao là trạng thái cuối — không cho hủy ngược (chưa có flow trả hàng/hoàn về shop).
+        // Tránh đảo sai ví shipper (ship đã credit, công nợ COD đã ghi), điểm/voucher/tồn kho.
+        if (oldStatus == OrderStatus.DELIVERED && newStatus == OrderStatus.CANCELED) {
+            throw new RuntimeException("Đơn đã giao không thể hủy. Cần flow trả hàng/hoàn tiền riêng.");
+        }
+
         order.setStatus(newStatus);
         order.setUpdatedAt(LocalDateTime.now());
 
@@ -467,6 +475,16 @@ public class OrderServiceImpl implements OrderService {
             pointService.awardForOrder(order);
         } else if (newStatus == OrderStatus.CANCELED) {
             pointService.revertForOrder(order.getOrderId());
+        }
+
+        // Ví shipper: đơn giao xong ⇒ cộng phí ship; đơn CASH (COD) ghi công nợ tiền hàng thu hộ.
+        // Idempotent theo orderId; bọc try/catch để lỗi ví không phá luồng cập nhật đơn.
+        if (newStatus == OrderStatus.DELIVERED && order.getShipper() != null) {
+            try {
+                shipperWalletService.settleDelivery(order);
+            } catch (Exception e) {
+                System.err.println("Lỗi đối soát ví shipper đơn #" + order.getOrderId() + ": " + e.getMessage());
+            }
         }
 
         if ((newStatus == OrderStatus.DELIVERED || newStatus == OrderStatus.CANCELED
@@ -520,6 +538,11 @@ public class OrderServiceImpl implements OrderService {
 
         User shipper = userRepository.findById(shipperId)
                 .orElseThrow(() -> new RuntimeException("Shipper not found!"));
+
+        // Công nợ COD âm quá hạn ⇒ chặn nhận đơn mới tới khi nộp lại tiền hàng thu hộ.
+        if (shipperWalletService.isBlocked(shipperId)) {
+            throw new RuntimeException("Ví đang nợ tiền COD quá hạn — vui lòng nộp lại tiền hàng thu hộ trước khi nhận đơn mới!");
+        }
 
         order.setShipper(shipper);
         order.setStatus(OrderStatus.SHIPPING);
@@ -594,6 +617,12 @@ public class OrderServiceImpl implements OrderService {
 
         if (order.getUser() == null || !order.getUser().getUserId().equals(userId)) {
             throw new RuntimeException("Bạn không có quyền hủy đơn hàng này!");
+        }
+
+        // Đơn COD giao xong được đánh dấu PAID + paymentTime=now ⇒ lọt cửa sổ 24h. Chặn rõ:
+        // đơn đã giao không hủy được (chưa có flow trả hàng/hoàn về shop).
+        if (order.getStatus() == OrderStatus.DELIVERED) {
+            throw new RuntimeException("Đơn đã giao không thể hủy. Cần flow trả hàng/hoàn tiền riêng.");
         }
 
         boolean isPending = order.getStatus() == OrderStatus.PENDING;
