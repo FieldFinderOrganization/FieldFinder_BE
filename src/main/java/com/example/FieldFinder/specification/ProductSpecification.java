@@ -40,6 +40,23 @@ public class ProductSpecification {
         };
     }
 
+    /** Lọc theo NHIỀU thương hiệu (OR). Rỗng/null = không lọc. */
+    public static Specification<Product> hasBrands(java.util.Collection<String> brands) {
+        return (root, query, criteriaBuilder) -> {
+            if (brands == null || brands.isEmpty()) {
+                return null;
+            }
+            java.util.List<String> lowered = brands.stream()
+                    .filter(b -> b != null && !b.isEmpty())
+                    .map(String::toLowerCase)
+                    .toList();
+            if (lowered.isEmpty()) {
+                return null;
+            }
+            return criteriaBuilder.lower(root.get("brand")).in(lowered);
+        };
+    }
+
     /**
      * Tìm theo từ khóa tên: khớp LIKE (không phân biệt hoa thường) trên tên
      * hoặc thương hiệu sản phẩm. Dùng cho thanh tìm kiếm tab Shop (search toàn DB).

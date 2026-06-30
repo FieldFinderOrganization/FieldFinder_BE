@@ -64,7 +64,7 @@ public class ProductController {
             Pageable pageable,
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) Set<String> genders,
-            @RequestParam(required = false) String brand,
+            @RequestParam(required = false) Set<String> brand,
             @RequestParam(required = false) String name,
             Authentication authentication) {
         UUID userId = getUserIdFromAuth(authentication);

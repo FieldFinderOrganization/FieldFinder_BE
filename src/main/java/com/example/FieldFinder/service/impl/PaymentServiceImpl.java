@@ -56,6 +56,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final com.example.FieldFinder.service.PitchRedisLockService pitchRedisLockService;
     private final com.example.FieldFinder.service.WalletTopupService walletTopupService;
     private final PayOsWebhookVerifier payOsWebhookVerifier;
+    private final PitchRepository pitchRepository;
 
     @Value("${front_end_url}")
     private String frontEndUrl;
@@ -118,6 +119,21 @@ public class PaymentServiceImpl implements PaymentService {
         responseDTO.setOwnerBank(providerBank.getBankName());
 
         return responseDTO;
+    }
+
+    /**
+     * Chủ sân của pitch đã đăng ký tài khoản ngân hàng nhận tiền (default) chưa?
+     * FE dùng để chặn/cảnh báo phương thức "Chuyển khoản" TRƯỚC khi tạo đơn,
+     * tránh tạo booking PENDING rồi mới văng 400 ở bước tạo QR.
+     */
+    @Override
+    public boolean isBankTransferAvailableForPitch(UUID pitchId) {
+        Pitch pitch = pitchRepository.findById(pitchId)
+                .orElseThrow(() -> new RuntimeException("Pitch not found!"));
+        if (pitch.getProviderAddress() == null) return false;
+        Provider provider = pitch.getProviderAddress().getProvider();
+        if (provider == null || provider.getUser() == null) return false;
+        return bankAccountService.getDefault(provider.getUser().getUserId()).isPresent();
     }
 
     @Override

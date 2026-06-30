@@ -475,7 +475,7 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, String brand, String name, UUID userId) {
+    public Page<ProductResponseDTO> getAllProducts(Pageable pageable, Long categoryId, Set<String> genders, Set<String> brand, String name, UUID userId) {
         // Lấy page base từ cache (không kèm userId trong key — share giữa users).
         CachedPage<ProductResponseDTO> basePage = self.getAllProductsCached(pageable, categoryId, genders, brand, name);
         if (userId == null || basePage.content().isEmpty()) {
@@ -516,15 +516,15 @@ public class ProductServiceImpl implements ProductService {
      */
     @Transactional(readOnly = true)
     @Cacheable(value = "products_category", keyGenerator = "productListCacheKeyGenerator")
-    public CachedPage<ProductResponseDTO> getAllProductsCached(Pageable pageable, Long categoryId, Set<String> genders, String brand, String name) {
+    public CachedPage<ProductResponseDTO> getAllProductsCached(Pageable pageable, Long categoryId, Set<String> genders, Set<String> brand, String name) {
         Set<Long> categoryIds = null;
-        String effectiveBrand = brand;
+        Set<String> effectiveBrands = brand;
 
         if (categoryId != null) {
             Category selectedCategory = categoryRepository.findById(categoryId)
                     .orElseThrow(() -> new RuntimeException("Category not found"));
             if (selectedCategory.getCategoryType() == CategoryType.BRAND) {
-                effectiveBrand = selectedCategory.getName();
+                effectiveBrands = Set.of(selectedCategory.getName());
             } else if (selectedCategory.getCategoryType() == CategoryType.SUPER_CATEGORY) {
                 categoryIds = getKeywordExpandedIds(selectedCategory.getName());
             } else {
@@ -535,7 +535,7 @@ public class ProductServiceImpl implements ProductService {
         Specification<Product> spec = Specification.<Product>unrestricted()
                 .and(ProductSpecification.hasCategoryIds(categoryIds))
                 .and(ProductSpecification.hasSex(genders))
-                .and(ProductSpecification.hasBrand(effectiveBrand))
+                .and(ProductSpecification.hasBrands(effectiveBrands))
                 .and(ProductSpecification.hasNameLike(name));
 
         // Stable-sort fallback: SQL OFFSET/LIMIT needs a deterministic order, else pages overlap

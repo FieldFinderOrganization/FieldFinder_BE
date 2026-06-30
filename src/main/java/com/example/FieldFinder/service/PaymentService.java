@@ -17,4 +17,6 @@ public interface PaymentService {
     PaymentResponseDTO createShopPayment(ShopPaymentRequestDTO requestDTO);
     PaymentResponseDTO getPaymentStatusByBookingId(UUID bookingId);
     PaymentResponseDTO getPaymentStatusByOrderId(Long orderId);
+
+    boolean isBankTransferAvailableForPitch(UUID pitchId);
 }

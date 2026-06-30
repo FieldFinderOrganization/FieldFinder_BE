@@ -23,12 +23,18 @@ public class ProductListCacheKeyGenerator implements KeyGenerator {
         Long categoryId = (Long) params[1];
         @SuppressWarnings("unchecked")
         Set<String> genders = (Set<String>) params[2];
-        String brand = (String) params[3];
+        @SuppressWarnings("unchecked")
+        Set<String> brands = (Set<String>) params[3];
         String name = params.length > 4 ? (String) params[4] : null;
 
         String gpart = (genders == null || genders.isEmpty())
                 ? ""
                 : genders.stream().sorted().collect(Collectors.joining(","));
+
+        // Multi-brand: sort để (A,B) và (B,A) trùng key.
+        String bpart = (brands == null || brands.isEmpty())
+                ? "n"
+                : brands.stream().sorted().collect(Collectors.joining(","));
 
         // Sort phải vào key: cùng (page,category,brand,...) nhưng khác sort = page khác.
         // Bỏ sort -> mọi lựa chọn sắp xếp giá đều hit chung 1 cache entry -> sort vô hiệu.
@@ -41,7 +47,7 @@ public class ProductListCacheKeyGenerator implements KeyGenerator {
         return pageable.getPageNumber() + ":" + pageable.getPageSize() + ":"
                 + (categoryId == null ? "n" : categoryId) + ":"
                 + gpart + ":"
-                + (brand == null ? "n" : brand) + ":"
+                + bpart + ":"
                 + (name == null || name.isBlank() ? "n" : name.toLowerCase().trim()) + ":"
                 + spart;
     }

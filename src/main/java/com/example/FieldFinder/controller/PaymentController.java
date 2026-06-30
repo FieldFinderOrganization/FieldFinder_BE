@@ -57,6 +57,13 @@ public class PaymentController {
         return ResponseEntity.ok(paymentService.getPaymentStatusByBookingId(bookingId));
     }
 
+    // Chủ sân của pitch đã có TK ngân hàng nhận tiền chưa → FE bật/tắt "Chuyển khoản".
+    @GetMapping("/bank-transfer-available/{pitchId}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Map<String, Boolean>> isBankTransferAvailable(@PathVariable UUID pitchId) {
+        return ResponseEntity.ok(Map.of("available", paymentService.isBankTransferAvailableForPitch(pitchId)));
+    }
+
     @GetMapping("/status-by-order/{orderId}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<PaymentResponseDTO> getPaymentStatusByOrderId(@PathVariable Long orderId) {
