@@ -1,5 +1,8 @@
 package com.example.FieldFinder.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
@@ -15,13 +18,27 @@ import java.time.Duration;
 @Configuration
 public class RedisConfig {
 
+    /**
+     * ObjectMapper riêng cho Redis serializer — GenericJackson2JsonRedisSerializer() mặc định
+     * KHÔNG có JavaTimeModule, nên field LocalDate/LocalDateTime (vd Pitch.deactivationDate)
+     * ném InvalidDefinitionException khi cache ghi → cả request lỗi 400 (không phải do status sân sai).
+     */
+    private static GenericJackson2JsonRedisSerializer redisJsonSerializer() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.activateDefaultTyping(
+                BasicPolymorphicTypeValidator.builder().allowIfBaseType(Object.class).build(),
+                ObjectMapper.DefaultTyping.NON_FINAL);
+        return new GenericJackson2JsonRedisSerializer(mapper);
+    }
+
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
         RedisCacheConfiguration base = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofMinutes(10))
                 .disableCachingNullValues()
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
-                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(redisJsonSerializer()));
 
         return RedisCacheManager.builder(connectionFactory)
                 .cacheDefaults(base)
@@ -42,8 +59,8 @@ public class RedisConfig {
         template.setKeySerializer(new StringRedisSerializer());
         template.setHashKeySerializer(new StringRedisSerializer());
 
-        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
-        template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.setValueSerializer(redisJsonSerializer());
+        template.setHashValueSerializer(redisJsonSerializer());
 
         template.afterPropertiesSet();
         return template;
