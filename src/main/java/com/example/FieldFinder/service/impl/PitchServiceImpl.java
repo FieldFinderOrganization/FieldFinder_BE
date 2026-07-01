@@ -259,20 +259,25 @@ public class PitchServiceImpl implements PitchService {
             @CacheEvict(value = "pitch_detail", key = "#pitchId")
     })
     public void deactivatePitch(UUID pitchId, LocalDate targetDate, UUID requesterId, boolean isAdmin) {
+        // Admin KHÔNG được tự ngưng sân của chủ sân (tránh lợi dụng quyền hạn gây hại kinh doanh
+        // của provider) — admin chỉ được kích hoạt lại (xem reactivatePitch). Chỉ chính chủ sân
+        // mới có quyền ngưng sân của mình.
+        if (isAdmin) {
+            throw new RuntimeException("Admin không có quyền ngưng hoạt động sân của chủ sân!");
+        }
+
         Pitch pitch = pitchRepository.findById(pitchId)
                 .orElseThrow(() -> new RuntimeException("Pitch not found!"));
 
         // Ownership check cho Provider
-        if (!isAdmin) {
-            var provider = providerRepository.findByUser_UserId(requesterId)
-                    .orElseThrow(() -> new RuntimeException("Không tìm thấy thông tin chủ sân!"));
-            boolean owns = pitch.getProviderAddress() != null
-                    && pitch.getProviderAddress().getProvider() != null
-                    && provider.getProviderId().equals(
-                            pitch.getProviderAddress().getProvider().getProviderId());
-            if (!owns) {
-                throw new RuntimeException("Bạn không có quyền ngưng sân này!");
-            }
+        var provider = providerRepository.findByUser_UserId(requesterId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy thông tin chủ sân!"));
+        boolean owns = pitch.getProviderAddress() != null
+                && pitch.getProviderAddress().getProvider() != null
+                && provider.getProviderId().equals(
+                        pitch.getProviderAddress().getProvider().getProviderId());
+        if (!owns) {
+            throw new RuntimeException("Bạn không có quyền ngưng sân này!");
         }
 
         // Kiểm tra block: có CONFIRMED nào >= targetDate không?

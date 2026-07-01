@@ -273,6 +273,7 @@ public class AdminDetailController {
             item.put("providerName", providerName);
             item.put("price", p.getPrice());
             item.put("environment", p.getEnvironment().name());
+            item.put("status", p.getStatus() != null ? p.getStatus().name() : "ACTIVE");
             // Cho admin sửa vị trí khu vực chứa sân.
             try {
                 var pa = p.getProviderAddress();
